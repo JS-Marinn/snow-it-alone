@@ -58,7 +58,7 @@ func _ready() -> void:
 	var demo_flags := [
 		"--phys-demo", "--carve-quality", "--ball-shape", "--movement-lab",
 		"--impact-lab", "--impact-matrix", "--plow-demo", "--save-roundtrip",
-		"--pause-shot", "--settings-shot", "--rebind-shot", "--i18n-check",
+		"--pause-shot", "--settings-shot", "--rebind-shot", "--face-snow-shot", "--i18n-check",
 		"--diagnostics-harmless",
 	]
 	for flag in demo_flags:

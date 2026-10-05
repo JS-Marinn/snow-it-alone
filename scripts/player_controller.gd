@@ -397,7 +397,7 @@ func _update_hit_state(delta: float) -> void:
 		if _wipe_progress >= 1.0:
 			face_snow_timer = 0.0
 			_wipe_progress = 0.0
-		elif snow_face_auto_clear:
+		elif SettingsSystemScript.face_snow_auto_clear and snow_face_auto_clear:
 			face_snow_timer = maxf(face_snow_timer - delta, 0.0)
 	face_snow_amount = clampf(face_snow_timer / 0.4, 0.0, 1.0) if face_snow_timer > 0.0 else 0.0
 
@@ -507,7 +507,7 @@ func _physics_process(delta: float) -> void:
 	# Camera sway while staggering, plus the knock of a hit.
 	if camera:
 		var wobble := sin(_stagger_phase * 2.6) * 0.11 * stagger
-		wobble += sin(_time * 31.0) * 0.06 * _hit_shake
+		wobble += sin(_time * 31.0) * 0.06 * _hit_shake * SettingsSystemScript.screen_shake
 		camera.rotation.z = lerpf(camera.rotation.z, wobble, delta * 6.0)
 
 	# Physical support height at the player position

@@ -11,6 +11,7 @@ const SHOT_FLAGS: Array[String] = [
 	"--settings-shot",
 	"--rebind-shot",
 	"--cjk-shot",
+	"--face-snow-shot",
 ]
 
 var _ok: int = 0

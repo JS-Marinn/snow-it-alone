@@ -31,7 +31,11 @@ var _hint_timer: float = 0.0
 var _last_pct: float = 0.0
 var _last_kg: float = 0.0
 ## Snow across the face. Sits under the HUD text but over the world.
+var _face_blind_rect: ColorRect
 var _face_overlay: TextureRect
+var _audio_lpf: AudioEffectLowPassFilter = null
+var _audio_bus_idx: int = -1
+var _audio_effect_idx: int = -1
 ## The pause panel, and the physics frame count when it opened, for the diagnostic.
 var _pause_menu: PanelContainer
 var _pause_title: Label
@@ -98,9 +102,15 @@ func _ready() -> void:
 		panel_controls.visible = false
 	if OS.get_cmdline_user_args().has("--pause-shot"):
 		_run_pause_shot()
+	if OS.get_cmdline_user_args().has("--face-snow-shot"):
+		_run_face_snow_shot()
 
 func _exit_tree() -> void:
 	LocalizationManagerScript.remove_listener(refresh_text)
+	if _audio_bus_idx != -1 and _audio_effect_idx != -1:
+		AudioServer.set_bus_effect_enabled(_audio_bus_idx, _audio_effect_idx, false)
+		if _audio_lpf:
+			_audio_lpf.cutoff_hz = 20000.0
 
 static func _cleanup_scratch_files() -> void:
 	for f in ["user://scratch_settings.json", "user://scratch_bindings.json"]:
@@ -425,9 +435,54 @@ func _run_pause_shot() -> void:
 		_cleanup_scratch_files()
 		get_tree().quit())
 
+func _ensure_face_snow_audio_effect() -> void:
+	if _audio_bus_idx != -1 and _audio_effect_idx != -1:
+		return
+	_audio_bus_idx = AudioServer.get_bus_index("Master")
+	if _audio_bus_idx == -1:
+		AudioServer.add_bus()
+		_audio_bus_idx = AudioServer.get_bus_count() - 1
+		AudioServer.set_bus_name(_audio_bus_idx, "Master")
+	for i in range(AudioServer.get_bus_effect_count(_audio_bus_idx)):
+		var eff := AudioServer.get_bus_effect(_audio_bus_idx, i)
+		if eff is AudioEffectLowPassFilter:
+			_audio_lpf = eff
+			_audio_effect_idx = i
+			break
+	if _audio_lpf == null:
+		_audio_lpf = AudioEffectLowPassFilter.new()
+		_audio_lpf.cutoff_hz = 20000.0
+		AudioServer.add_bus_effect(_audio_bus_idx, _audio_lpf)
+		_audio_effect_idx = AudioServer.get_bus_effect_count(_audio_bus_idx) - 1
+		AudioServer.set_bus_effect_enabled(_audio_bus_idx, _audio_effect_idx, false)
+
 ## A hand-drawn snow splat, generated once: no art needed and it scales to any
 ## resolution. Added first so the HUD text stays readable through it.
 func _build_face_overlay() -> void:
+	# 1. Fullscreen blur and darkening shader
+	var shader := Shader.new()
+	shader.code = """
+shader_type canvas_item;
+uniform float blind_amount : hint_range(0.0, 1.0) = 0.0;
+uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap;
+
+void fragment() {
+	vec4 screen_col = textureLod(screen_texture, SCREEN_UV, blind_amount * 3.5);
+	vec4 snow_tint = vec4(0.08, 0.12, 0.18, 1.0);
+	COLOR = mix(screen_col, snow_tint, blind_amount * 0.75);
+}
+"""
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	_face_blind_rect = ColorRect.new()
+	_face_blind_rect.material = mat
+	_face_blind_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_face_blind_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_face_blind_rect.visible = false
+	add_child(_face_blind_rect)
+	move_child(_face_blind_rect, 0)
+
+	# 2. Hand-drawn snow splats
 	var size := 128
 	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
 	img.fill(Color(1.0, 1.0, 1.0, 0.0))
@@ -457,7 +512,46 @@ func _build_face_overlay() -> void:
 	_face_overlay.modulate = Color(1.0, 1.0, 1.0, 0.0)
 	_face_overlay.visible = false
 	add_child(_face_overlay)
-	move_child(_face_overlay, 0)
+	move_child(_face_overlay, 1)
+
+## Diagnostic: apply face snow, wait, capture screenshot, print bus effect state and overlay alpha, and exit.
+func _run_face_snow_shot() -> void:
+	SettingsSystemScript.path = "user://scratch_settings.json"
+	InputBindingsScript.path = "user://scratch_bindings.json"
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if player_ref == null:
+		player_ref = get_tree().get_first_node_in_group("player")
+	if player_ref == null:
+		player_ref = get_parent().get_node_or_null("Player")
+	if player_ref and player_ref.has_method("_apply_face_snow"):
+		player_ref._apply_face_snow()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_update_face_overlay()
+
+	var err := 0
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		var tex := get_viewport().get_texture()
+		if tex:
+			var img := tex.get_image()
+			if img:
+				err = img.save_png("res://face_snow.png")
+
+	var bus_enabled := false
+	var cutoff := 20000.0
+	if _audio_bus_idx != -1 and _audio_effect_idx != -1:
+		bus_enabled = AudioServer.is_bus_effect_enabled(_audio_bus_idx, _audio_effect_idx)
+		if _audio_lpf:
+			cutoff = _audio_lpf.cutoff_hz
+	var alpha: float = _face_overlay.modulate.a if _face_overlay else 0.0
+	print("[FACE_SNOW] bus_effect_enabled=%s cutoff=%.1f Hz overlay_alpha=%.2f shot_err=%d" % [
+		str(bus_enabled), cutoff, alpha, err])
+
+	get_tree().create_timer(0.3).timeout.connect(func():
+		_cleanup_scratch_files()
+		get_tree().quit())
 
 func init_hud(player: CharacterBody3D, snow_field: Node3D) -> void:
 	player_ref = player
@@ -506,9 +600,24 @@ func _update_tool_label() -> void:
 func _update_face_overlay() -> void:
 	if _face_overlay == null:
 		return
-	var amount: float = clampf(float(player_ref.get("face_snow_amount")), 0.0, 1.0)
-	_face_overlay.visible = amount > 0.01
+	_ensure_face_snow_audio_effect()
+	var amount: float = clampf(float(player_ref.get("face_snow_amount")), 0.0, 1.0) if player_ref else 0.0
+	var active := amount > 0.01
+	_face_overlay.visible = active
 	_face_overlay.modulate.a = amount * 0.95
+	if _face_blind_rect:
+		_face_blind_rect.visible = active
+		if _face_blind_rect.material:
+			_face_blind_rect.material.set_shader_parameter("blind_amount", amount)
+	if _audio_bus_idx != -1 and _audio_effect_idx != -1:
+		if active:
+			AudioServer.set_bus_effect_enabled(_audio_bus_idx, _audio_effect_idx, true)
+			if _audio_lpf:
+				_audio_lpf.cutoff_hz = lerpf(20000.0, 600.0, amount)
+		else:
+			AudioServer.set_bus_effect_enabled(_audio_bus_idx, _audio_effect_idx, false)
+			if _audio_lpf:
+				_audio_lpf.cutoff_hz = 20000.0
 
 ## Contextual physics readouts: jammed blade, what is in your hands, how much
 ## snow the blade is holding.
