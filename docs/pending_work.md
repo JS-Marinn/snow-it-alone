@@ -22,12 +22,22 @@ burst happening 0.45 to 0.6 m from the player, which is the collision capsule's 
 and the reaction path itself behaves correctly in those cases (a below-threshold ball is
 refused, as it should be).
 
-**The specific open case.** `small / body / 6.0 m/s` fails with no hit recorded, and the
-diagnostic shows that ball bursting at **5.0 m/s**. That is below the 7 m/s threshold the
-generic impact branch uses, so that branch cannot be what broke it, and the burst is not
-the player contact either. Something else is destroying these balls, and the next
-measurement should be to print the call site of `_shatter` rather than only its position:
-the position says where it died, not who killed it.
+**The specific open case, now narrowed.** Printing the call site of every burst (not just
+its position) reduced this to two candidates. All bursts come from one of two lines in
+`snowball.gd`: the **person branch** of `_on_body_entered` (14 of them) or the generic
+impact branch (1). So the balls *do* strike a person and burst there.
+
+That leaves exactly two ways a cell can then record no hit, and they are distinguishable:
+
+1. the **speed gate** refused: `hit_speed` was below that size's minimum, so
+   `receive_ball_hit` was never called at all; or
+2. the **reaction guard** refused: the player was still mid-reaction or inside the 1.5 s
+   immunity window, so `receive_ball_hit` returned before it counted anything.
+
+**The next measurement, precisely.** Inside that person branch, print `hit_speed`, the
+tier's minimum, and the player's `hit_state` and `hit_immunity` at the moment of contact.
+One run separates the two, and each has a different fix: the first is a speed-measurement
+problem, the second is the harness resetting state too late before the next throw.
 
 **Theories already tested and DISPROVED — do not spend time on these again.**
 
