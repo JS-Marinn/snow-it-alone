@@ -104,3 +104,34 @@ The `godot_ai` MCP addon is bundled and registers a capture helper, but no MCP c
 tools are exposed to the agent working on this repository, and named pipes are blocked in
 this environment. The practical equivalent, used throughout: run the game with a
 diagnostic flag, read its log, and read the PNGs its batteries save with `read_image`.
+
+---
+
+## 5. Two regressions found while checking the pause menu
+
+Both were found by running the batteries, which is exactly why the rule exists. Neither is
+understood yet, and both are recorded rather than guessed at.
+
+**The terrain battery lost half its frame rate.** Earlier measurements: 119 and 121 FPS.
+Two consecutive runs now: 55.5 and 53.9 FPS. My first explanation was GPU contention from
+the editor being open, and the repeat **disproves it**: contention does not reproduce that
+consistently. The decisive test is to measure on a quiet machine and, if it holds, to
+bisect by checking out earlier commits and measuring each. Nothing in the pause menu or
+the HUD plausibly costs half the frame rate, so I do not trust my own suspicion here.
+
+**The physics battery dropped from 36 checks to 33.** It reports no failures, so nothing
+broke: **three checks stopped running entirely**. This has happened before in this project
+(two checks were silently lost during an earlier milestone), so the habit to adopt is
+comparing the number of `_check(` call sites in the source against the number that
+actually reports, which is how the earlier loss was found.
+
+## 6. Method notes, paid for today
+
+- Four theories about the impact matrix were acted on before being measured. Two were
+  wrong and are written down as disproved in section 1.
+- Four times, a file was edited with bulk text replacement while the edit tool was
+  blocked. That invalidated the editor's read state and caused cascading failures,
+  including briefly making the game unable to start. **Read first, then edit, one change
+  at a time.**
+- A battery that hangs is a symptom, not a nuisance: the hang is what exposed the
+  `class_name` mistake.

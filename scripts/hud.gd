@@ -65,12 +65,20 @@ func _ready() -> void:
 ## Pause that pauses. Until now ESC only released the mouse while the snow kept falling
 ## behind it, which is not a pause menu, it is a way to lose the mouse.
 func _build_pause_menu() -> void:
+	# Anchors alone do not centre a panel inside a CanvasLayer, which is why the first
+	# version sat low and to the right. A full-rect container does the centring, and it
+	# ignores the mouse so it never swallows a click meant for the world.
+	var centre := CenterContainer.new()
+	centre.name = "PauseCentre"
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(centre)
+
 	_pause_menu = PanelContainer.new()
 	_pause_menu.name = "PauseMenu"
 	_pause_menu.visible = false
-	_pause_menu.set_anchors_preset(Control.PRESET_CENTER)
 	_pause_menu.custom_minimum_size = Vector2(260.0, 0.0)
-	add_child(_pause_menu)
+	centre.add_child(_pause_menu)
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 18)
@@ -132,6 +140,12 @@ func _run_pause_shot() -> void:
 	print("[PAUSE] menu visible=%s, tree paused=%s, physics frames while paused=%d, shot err=%d" % [
 		str(_pause_menu.visible), str(get_tree().paused),
 		Engine.get_physics_frames() - _physics_frames_at_pause, err])
+	# Centring is claimed, so it is measured: the panel's centre against the viewport's.
+	var rect := _pause_menu.get_global_rect()
+	var want: Vector2 = get_viewport().get_visible_rect().get_center()
+	var off := rect.get_center() - want
+	print("[PAUSE] panel centre %s vs viewport centre %s: off by (%.0f, %.0f) px" % [
+		str(rect.get_center()), str(want), off.x, off.y])
 	get_tree().create_timer(0.3).timeout.connect(get_tree().quit)
 
 ## A hand-drawn snow splat, generated once: no art needed and it scales to any
