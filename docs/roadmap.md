@@ -1,18 +1,22 @@
-# Roadmap — the milestones from here
+# Roadmap — the milestones, ordered easiest first
 
-This is the operational order I work in, one milestone at a time, each ending in a
-green battery and a commit. It sits between two existing documents and contradicts
+Operational order I work in, one milestone at a time, each ending in a green
+battery and a commit. It sits between two existing documents and contradicts
 neither:
 
 - `docs/plan_juego.md` §17 — the **product** split (M0 engine, M1 vertical slice,
   M2 co-op, M3 content, M4 polish) and the 9–12 month shape.
-- `docs/plan_implementacion.md` §5 — the **systems** split, phases 0–10, ~5–6 months.
+- `docs/plan_implementacion.md` §5 — the **systems** split, phases 0–10.
 
-This file is the day-to-day order: what gets built next, and what "done" means.
+**Ordering rule:** easiest first, subject to dependencies. Two milestones whose
+halves differ wildly in difficulty are split so the easy half is not held hostage
+by the hard one (that is what the `a`/`b` suffixes are).
 
-**Definition of done for every milestone below:** its battery is green *and* the
-older batteries are still green *and* it is committed with a Conventional Commit.
-A milestone that cannot be verified is not finished.
+**Definition of done for every milestone:** its battery is green *and* the older
+batteries are still green *and* it is committed with a Conventional Commit. A
+milestone that cannot be verified is not finished.
+
+Effort: **XS** minutes · **S** a session or two · **M** several · **L** a long haul.
 
 ---
 
@@ -20,133 +24,60 @@ A milestone that cannot be verified is not finished.
 
 | # | Milestone | Evidence |
 |---|---|---|
-| **H0** | Engine core: granular snow simulation, three tools, balls, stacking, mass conservation | `--phys-demo` 36 OK, `--ball-shape` 8 OK, `--carve-quality` 120 FPS |
-| **H1** | Movement on the Quake model: ground friction, air acceleration, the bunny hop as a skill | `--movement-lab` 11 OK |
-| **H2** | Ball impacts on people: three size tiers, face snow with a manual wipe, stagger, knock-down, training dummy | `--impact-lab` 18 OK |
-| **H·saves** | Three save slots, menu with Continue/New/Delete, autosave | `--save-roundtrip` 21 OK |
+| **H0** | Engine core: granular snow simulation, three tools, balls, stacking, mass conservation | physics 36 OK · ball shape 8 OK · 120 FPS |
+| **H1** | Movement on the Quake model: ground friction, air acceleration, the bunny hop as a skill | movement 11 OK |
+| **H2** | Ball impacts on people: three size tiers, face snow with a manual wipe, stagger, knock-down, training dummy | impacts 18 OK |
+| **H·saves** | Three save slots, menu with Continue/New/Delete, autosave | saves 21 OK |
 
-Total verified right now: **94 checks** across six batteries.
-
----
-
-## Next
-
-### H3 — Playground (the test bench) · small
-The scene from `plan_implementacion.md` §4, and the reason it comes first: the
-current field is 12 m long, so bunny-hop chains leave the simulation and slopes do
-not exist at all. Nothing after this can be measured properly without it.
-
-Flat pad · **long runway (≥ 60 m)** · four surfaces side by side (virgin, packed,
-cleared, ice) · slopes at 5°, 10°, 20° · a low ledge for hops · dummies · a ball
-spawner · live mass-ledger readout · free camera and a restart key.
-
-**Exit:** the Playground loads; the mass ledger balances to ±0.05 % after a scripted
-run; all six existing batteries still green.
-
-### H4 — Surface system proper · medium
-Extract `SnowSurfaceQuery` from the player controller into its own module, add the
-compaction op and footprints, and implement **slope sliding** (the one line still
-open in §3.1). Also the rule that hopping is only rewarding on packed ground.
-
-**Exit:** four distinct frictions measured on the Playground; sliding on 10° and 20°;
-compacting provably changes no mass; `--movement-lab` extended to cover slopes.
-
-### H5 — Shared state, session modes and the full impact matrix · medium
-`PlayerState` as its own thing (read by the player, by dummies and later by remote
-peers), `SessionMode` (Work / Jaleo / Duel), `ImpactResolver` extracted out of
-`snowball.gd`, the complete `--impact-matrix` (3 tiers × 3 zones × 3 speeds), the
-state-blocking matrix from §3.5, and the missing face-snow presentation (blur,
-muffled audio).
-
-**Exit:** impact matrix green; Work mode provably inert; every cell of the blocking
-matrix enforced.
-
-### H6 — Player split: motor / state / avatar / camera · medium, low risk
-Infrastructure, not features: this is the prerequisite for two players existing in
-one world, and it makes the codebase maintainable before it grows. Pure refactor —
-the batteries must produce **the same measured numbers** afterwards.
-
-**Exit:** all batteries green with unchanged numbers; `player_controller.gd` down
-from ~1400 lines to a motor plus small collaborating pieces.
-
-### H7 — Physical co-operation, local duo · large
-`Grabbable`, `TwoPersonCarry`, `Container`, `BallHandoff`, rescue. Two players on
-one machine first, because that validates the co-op verbs — the actual differentiator
-of this game — **before** netcode makes every bug twice as expensive.
-
-**Exit:** `--local-duo` battery green: two-person lifting is 40 % less stagger, ball
-hand-off works, tipping a container scales with mass².
-
-### H8 — Solo/co-op parity · small
-Real numbers for `PlayerCountScaler`, so a solo player and a pair get the same
-challenge rather than an easier or impossible one.
-
-**Exit:** `--coop-rules`: solo vs duo within ±15 % on the same level.
-
-### H9 — Objectives, progression, achievements, the Winter Book · large
-`ObjectiveSystem`, `ProgressionSystem`, and **shared** achievements (party-wide; none
-obtainable only with a second person). Collectible gifts, hidden easter eggs, and the
-2–3 run structure for 100 %. Extends the save schema.
-
-**Exit:** `--ach-check` proves every achievement is reachable solo; the save round-trip
-still green on the new schema.
-
-### H10 — Presentation and UX · large
-Pause, results screen with the chronicle, the full settings catalogue (video, audio,
-controls, rebinding), photo mode, HUD polish, and **menu navigation with a gamepad
-alone**.
-
-**Exit:** `--settings-apply`, `--i18n-check`, and a controller-only pass through every
-screen.
-
-### H11 — Languages and accessibility · medium
-The pipeline for the 13 target languages plus a pseudo-locale, fonts and layout that
-survive long words, subtitles, colour-blind options, hold-vs-toggle, screen-shake
-slider (this matters now that hits shake the camera), text size for the Deck.
-
-**Exit:** zero untranslated keys; accessibility checklist complete.
-
-### H12 — Level content · large
-The vertical slice: one complete level with objectives, money and 20 minutes of fun
-solo — then the 8–12 levels of M3, one commit per level.
-
-**Exit:** the M1 criterion from §17 (60 fps on the low preset, 20 good minutes, testers
-asking for more), then the campaign at 1.5–3 h.
-
-### H13 — Online co-op · large
-Network spike first, then `NetworkManager`: operations, RLE resync, carry prediction,
-lobby, nameplates, Remote Play.
-
-**Exit:** `--net-smoke`: drift under 0.5 % per level, under 30 KB/s, a 30-minute session
-with two players over the internet.
-
-### H14 — Performance, release, store · medium
-Simulation presets, 30 Hz sim, frame budget, every battery as a merge gate, Steam Deck
-checklist, store page, trailer, demo.
-
-**Exit:** frame budget met on four configurations; demo retention D1 above 25 %.
+Total verified now: **94 checks** across six batteries.
 
 ---
 
-## Parallel housekeeping (not milestones, but not to be forgotten)
+## Order from here
 
-- **Translate the docs and README into English.** The game's base language is English
-  and the repo's prose is still Spanish.
-- **`LICENSE`.** The repository is public with no licence, which means all rights
-  reserved by default.
-- **Third-party asset licences.** Verify every imported model, texture and sound and
-  record the licence and source in the repo.
+| # | Milestone | Effort | Depends on | Exit criterion |
+|---|---|---|---|---|
+| 1 | **H15a · `LICENSE` + third-party asset licences.** The repo is public with no licence, which means all rights reserved by default. Inventory every imported model, texture and sound, record source and licence. | XS | — | licence recorded · an asset-licence table exists in the repo · **needs your one-word decision on the licence itself** |
+| 2 | **H15b · English docs and README.** The game's base language is English; the repo prose is still Spanish. | S | — | no Spanish left in `README.md` or `docs/` |
+| 3 | **H3 · Playground.** Flat pad, long runway (≥ 60 m), four surfaces side by side (virgin, packed, cleared, ice), slopes 5/10/20°, a low ledge, dummies, ball spawner, live mass-ledger readout, free camera, restart key. | S | — | Playground loads · ledger balances ±0.05 % after a scripted run · six batteries still green |
+| 4 | **H14a · Batteries as merge gates, plus CI.** Wire all six batteries into one command and a CI job so nothing lands red. | S | — | one command runs every battery and fails on any red |
+| 5 | **H4 · Surface system.** Extract the surface query out of the player controller into its own module; compaction op; footprints; **slope sliding** (the last open line of §3.1). | M | H3 | four distinct frictions measured · sliding on 10° and 20° · compacting changes no mass |
+| 6 | **H6 · Player split: motor / state / avatar / camera.** Pure refactor, no new behaviour. Co-op needs it, and it is cheapest now while the batteries can prove nothing changed. | M | H3 | batteries produce **identical** numbers · controller down from ~1400 lines |
+| 7 | **H5 · Shared state, session modes, impact matrix.** `PlayerState`; `SessionMode` (Work / Jaleo / Duel); `ImpactResolver` extracted; full `--impact-matrix` (3×3×3); the §3.5 blocking matrix; face-snow blur and muffled audio. | M | H6 | matrix green · Work mode inert · every cell of the blocking matrix enforced |
+| 8 | **H11a · i18n architecture.** Externalise every player-facing string, `LocalizationManager`, pseudo-locale, fonts and layout that survive long words. | M | — | `--i18n-check`: zero hard-coded strings |
+| 9 | **H10a · Pause, settings, rebinding, gamepad menus.** The settings catalogue (video/audio/controls) and navigation with a controller alone. | M | — | `--settings-apply` green · every screen reachable with a pad |
+| 10 | **H7 · Local duo.** `Grabbable`, `TwoPersonCarry`, `Container`, `BallHandoff`, rescue. Two players on one machine, which validates the co-op verbs before netcode makes bugs expensive. | L | H6 | `--local-duo` green · duo lifting 40 % less stagger · hand-off works · tipping scales with mass² |
+| 11 | **H8 · Solo/co-op parity.** Real numbers for `PlayerCountScaler`, so solo and a pair get the same challenge. | S | H7 | `--coop-rules`: solo vs duo within ±15 % on the same level |
+| 12 | **H9 · Progression.** Objectives, shared achievements (all obtainable solo), collectible gifts, hidden easter eggs, the 2–3 run Winter Book, save schema extension. | L | H7 | `--ach-check` proves every achievement reachable solo · save round-trip green on the new schema |
+| 13 | **H10b · Results, chronicle, photo mode.** The end-of-level payoff, including the two-player version. | M | H9 | results screen reflects a real session |
+| 14 | **H12 · Content.** The vertical slice first: one complete level, objectives, money, 20 good minutes solo. Then the 8–12 levels, one commit each. | L | H9, H10b | M1 criterion: 60 fps on the low preset, testers asking for more |
+| 15 | **H11b · The 13 languages and the accessibility pass.** Needs the text final, which is why it follows content. Translators are vendor work; layout, subtitles, colour-blind, hold-vs-toggle, screen-shake slider are mine. | M | H12 | zero untranslated keys · accessibility checklist complete |
+| 16 | **H14b · Performance, Deck, store.** Simulation presets, 30 Hz sim, frame budget on four configurations, Deck checklist, store page, trailer, demo. | M | H12 | frame budget met · demo retention D1 above 25 % |
+| 17 | **H13 · Online co-op.** Network spike first, then operations, RLE resync, carry prediction, lobby, nameplates, Remote Play. | L | H7, H8 | `--net-smoke`: drift under 0.5 % per level, under 30 KB/s, 30-minute session |
 
 ---
 
-## Order and risk
+## What this order buys, and what it costs
 
-The order is deliberate: **H3 → H4 → H5** finish the systems that are half-built and
-give every later claim a place to be measured. **H6 → H7 → H8** build the co-op spine in
-the cheapest possible order (structure, then local play, then parity) *before* netcode.
-Content (H12) stays late on purpose: `plan_juego.md` §17 already says systems before
-content, and building levels against a moving ruleset wastes them.
+**Buys:** something verifiable almost immediately. Items 1–4 are all small, and item
+3 (the Playground) is what makes every later number trustworthy — right now the snow
+field is 12 m, so hop chains leave the simulation and slopes do not exist at all.
+Nothing later can be measured honestly until it is built. Item 6 (the player split)
+is also cheap *now* and gets much more expensive once two players exist.
 
-The two biggest risks stay the ones already named in the docs: **netcode** (H13, held
-back until the verbs are proven locally) and **content volume** (H12, the only part
-that scales with money rather than with cleverness).
+**Costs — plainly:**
+
+1. **The biggest product risk moves later.** The premise of the whole game is that
+   two people clearing snow together is fun, and that is only proven at item 10. In
+   the risk-first order it was item 5 of 14. So if co-op turns out not to be fun, we
+   find that out later and with more work behind it. Everything before item 10 is
+   still useful on its own, which is what makes this acceptable rather than reckless.
+2. **Some UI gets built twice.** Pause and settings (item 9) are honest single-player
+   work, but the results screen (item 13) and nameplates only make sense with two
+   players in the room. I have kept those *after* item 10 deliberately, which is why
+   H10 is split rather than moved wholesale.
+3. **Content before netcode.** Levels built at item 14 will need re-balancing when
+   H13 lands. `PlayerCountScaler` (item 11) is what keeps that from being a rewrite.
+
+If that trade is not what you want once co-op has been proven locally, the fix is
+cheap: items 12–13 can swap with 10–11 without breaking anything.
