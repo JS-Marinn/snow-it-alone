@@ -13,6 +13,7 @@ extends RefCounted
 const PATH: String = "user://settings.json"
 const VERSION: int = 1
 
+static var path: String = PATH
 static var master_volume: float = 1.0
 static var mouse_sensitivity: float = 1.0
 static var invert_look: bool = false
@@ -39,6 +40,9 @@ static func defaults() -> void:
 	language = "en"
 
 static func to_dictionary() -> Dictionary:
+	var lang := language
+	if lang == "en_XA":
+		lang = "en"
 	return {
 		"version": VERSION,
 		"master_volume": master_volume,
@@ -46,7 +50,7 @@ static func to_dictionary() -> Dictionary:
 		"invert_look": invert_look,
 		"screen_shake": screen_shake,
 		"face_snow_auto_clear": face_snow_auto_clear,
-		"language": language,
+		"language": lang,
 	}
 
 ## Missing keys keep their current value, so a settings file written by an older build
@@ -58,11 +62,13 @@ static func from_dictionary(data: Dictionary) -> void:
 	screen_shake = clampf(float(data.get("screen_shake", screen_shake)), 0.0, 2.0)
 	face_snow_auto_clear = bool(data.get("face_snow_auto_clear", face_snow_auto_clear))
 	language = String(data.get("language", language))
+	if language == "en_XA":
+		language = "en"
 
 static func save() -> bool:
-	var file := FileAccess.open(PATH, FileAccess.WRITE)
+	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
-		push_warning("Settings: could not write %s" % PATH)
+		push_warning("Settings: could not write %s" % path)
 		return false
 	file.store_string(JSON.stringify(to_dictionary(), "\t"))
 	file.close()
@@ -71,16 +77,16 @@ static func save() -> bool:
 ## Returns false when there was nothing usable to read, in which case the defaults or the
 ## current values stand. A corrupt file must not stop the game from starting.
 static func load_from_disk() -> bool:
-	if not FileAccess.file_exists(PATH):
+	if not FileAccess.file_exists(path):
 		return false
-	var file := FileAccess.open(PATH, FileAccess.READ)
+	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		return false
 	var text := file.get_as_text()
 	file.close()
 	var parsed = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
-		push_warning("Settings: %s is not readable, keeping current values" % PATH)
+		push_warning("Settings: %s is not readable, keeping current values" % path)
 		return false
 	from_dictionary(parsed)
 	return true

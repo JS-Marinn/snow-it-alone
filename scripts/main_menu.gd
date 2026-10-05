@@ -7,6 +7,14 @@ extends Control
 
 const LEVEL_SCENE: String = "res://scenes/main.tscn"
 const LocalizationManagerScript = preload("res://scripts/localization_manager.gd")
+const SettingsSystemScript = preload("res://scripts/settings_system.gd")
+const InputBindingsScript = preload("res://scripts/input_bindings.gd")
+
+static func _cleanup_scratch_files() -> void:
+	for f in ["user://scratch_settings.json", "user://scratch_bindings.json"]:
+		if FileAccess.file_exists(f):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(f))
+			DirAccess.remove_absolute(f)
 
 var _slot_buttons: Array[Button] = []
 var _continue_button: Button
@@ -24,6 +32,15 @@ var _confirm_overwrite: bool = false
 var _confirm_timer: float = 0.0
 
 func _ready() -> void:
+	var is_shot := false
+	for arg in OS.get_cmdline_user_args():
+		if arg.ends_with("-shot"):
+			is_shot = true
+			break
+	if is_shot:
+		SettingsSystemScript.path = "user://scratch_settings.json"
+		InputBindingsScript.path = "user://scratch_bindings.json"
+
 	LocalizationManagerScript.ensure_loaded()
 	LocalizationManagerScript.add_listener(refresh_text)
 
@@ -40,6 +57,7 @@ func _ready() -> void:
 		"--phys-demo", "--carve-quality", "--ball-shape", "--movement-lab",
 		"--impact-lab", "--impact-matrix", "--plow-demo", "--save-roundtrip",
 		"--pause-shot", "--settings-shot", "--rebind-shot", "--i18n-check",
+		"--diagnostics-harmless",
 	]
 	for flag in demo_flags:
 		if OS.get_cmdline_user_args().has(flag):
@@ -48,6 +66,9 @@ func _ready() -> void:
 				return
 			if flag == "--i18n-check":
 				_run_i18n_battery()
+				return
+			if flag == "--diagnostics-harmless":
+				_run_diagnostics_harmless_battery()
 				return
 			_start_level()
 			return
@@ -62,21 +83,29 @@ func _ready() -> void:
 
 	# UI smoke test: render one frame, save it and exit.
 	if OS.get_cmdline_user_args().has("--menu-shot"):
-		await RenderingServer.frame_post_draw
-		await RenderingServer.frame_post_draw
-		var img := get_viewport().get_texture().get_image()
-		if img:
-			img.save_png("res://main_menu.png")
-			print("[Menu] screenshot saved (size=%s)" % str(img.get_size()))
+		SettingsSystemScript.path = "user://scratch_settings.json"
+		InputBindingsScript.path = "user://scratch_bindings.json"
+		if DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			var img := get_viewport().get_texture().get_image()
+			if img:
+				img.save_png("res://main_menu.png")
+				print("[Menu] screenshot saved (size=%s)" % str(img.get_size()))
+		_cleanup_scratch_files()
 		get_tree().quit()
 	elif OS.get_cmdline_user_args().has("--pseudo-menu-shot"):
+		SettingsSystemScript.path = "user://scratch_settings.json"
+		InputBindingsScript.path = "user://scratch_bindings.json"
 		LocalizationManagerScript.set_language("en_XA")
-		await RenderingServer.frame_post_draw
-		await RenderingServer.frame_post_draw
-		var img := get_viewport().get_texture().get_image()
-		if img:
-			img.save_png("res://main_menu_pseudo.png")
-			print("[Menu] pseudo screenshot saved (size=%s)" % str(img.get_size()))
+		if DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			var img := get_viewport().get_texture().get_image()
+			if img:
+				img.save_png("res://main_menu_pseudo.png")
+				print("[Menu] pseudo screenshot saved (size=%s)" % str(img.get_size()))
+		_cleanup_scratch_files()
 		get_tree().quit()
 
 func _exit_tree() -> void:
@@ -270,5 +299,11 @@ func _run_i18n_battery() -> void:
 	var battery := Node.new()
 	battery.set_script(load("res://scripts/i18n_check_demo.gd"))
 	battery.name = "I18nCheckDemo"
+	add_child(battery)
+
+func _run_diagnostics_harmless_battery() -> void:
+	var battery := Node.new()
+	battery.set_script(load("res://scripts/diagnostics_harmless_demo.gd"))
+	battery.name = "DiagnosticsHarmlessDemo"
 	add_child(battery)
 

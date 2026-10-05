@@ -52,6 +52,7 @@ $batteries = @(
     @{ Flag = 'save-roundtrip'; Name = 'Save slots';   Kind = 'result';     Gpu = $false },
     @{ Flag = 'ball-shape';     Name = 'Ball shape';   Kind = 'result';     Gpu = $false },
     @{ Flag = 'i18n-check';     Name = 'Translations'; Kind = 'result';     Gpu = $false },
+    @{ Flag = 'diagnostics-harmless'; Name = 'Diagnostics safety'; Kind = 'result'; Gpu = $false },
     @{ Flag = 'movement-lab';   Name = 'Movement';     Kind = 'result';     Gpu = $true  },
     @{ Flag = 'impact-lab';     Name = 'Ball impacts'; Kind = 'result';     Gpu = $true  },
     @{ Flag = 'impact-matrix';  Name = 'Impact matrix'; Kind = 'result';    Gpu = $true  },

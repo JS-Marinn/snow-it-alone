@@ -65,6 +65,15 @@ var _physics_frames_at_pause: int = 0
 const CLEAR_TARGET_PCT: float = 90.0
 
 func _ready() -> void:
+	var is_shot := false
+	for arg in OS.get_cmdline_user_args():
+		if arg.ends_with("-shot"):
+			is_shot = true
+			break
+	if is_shot:
+		SettingsSystemScript.path = "user://scratch_settings.json"
+		InputBindingsScript.path = "user://scratch_bindings.json"
+
 	LocalizationManagerScript.ensure_loaded()
 	LocalizationManagerScript.add_listener(refresh_text)
 	_build_face_overlay()
@@ -90,6 +99,11 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	LocalizationManagerScript.remove_listener(refresh_text)
+
+static func _cleanup_scratch_files() -> void:
+	for f in ["user://scratch_settings.json", "user://scratch_bindings.json"]:
+		if FileAccess.file_exists(f):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(f))
 
 ## Pause that pauses. Until now ESC only released the mouse while the snow kept falling
 ## behind it, which is not a pause menu, it is a way to lose the mouse.
@@ -297,6 +311,8 @@ func _show_settings(visible_now: bool) -> void:
 ## Diagnostic: prove the values survive a round trip through the file, not merely that
 ## the screen draws. A settings screen that forgets everything on restart looks perfect.
 func _run_settings_shot() -> void:
+	SettingsSystemScript.path = "user://scratch_settings.json"
+	InputBindingsScript.path = "user://scratch_bindings.json"
 	await get_tree().process_frame
 	await get_tree().process_frame
 	SettingsSystemScript.master_volume = 0.33
@@ -312,16 +328,23 @@ func _run_settings_shot() -> void:
 		str(volume_ok), str(invert_ok)])
 	_set_paused(true)
 	_show_settings(true)
-	await get_tree().process_frame
-	await RenderingServer.frame_post_draw
+	var err := 0
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		var tex := get_viewport().get_texture()
+		if tex:
+			var img := tex.get_image()
+			if img:
+				err = img.save_png("res://settings_menu.png")
 	var rect := _settings_panel.get_global_rect()
 	var want: Vector2 = get_viewport().get_visible_rect().get_center()
 	var off := rect.get_center() - want
-	var err := get_viewport().get_texture().get_image().save_png("res://settings_menu.png")
 	print("[SETTINGS] panel visible=%s, %d controls, centre off by (%.0f, %.0f) px, shot err=%d" % [
 		str(_settings_panel.visible), _settings_panel.find_children("*", "Slider", true, false).size() + _settings_panel.find_children("*", "CheckButton", true, false).size(),
 		off.x, off.y, err])
-	get_tree().create_timer(0.3).timeout.connect(get_tree().quit)
+	get_tree().create_timer(0.3).timeout.connect(func():
+		_cleanup_scratch_files()
+		get_tree().quit())
 
 func _input(event: InputEvent) -> void:
 	# While an action is being rebound the next press IS the binding, and nothing else may
@@ -369,15 +392,22 @@ func _set_paused(paused: bool) -> void:
 ## like. A pause that only hides the world behind a panel would pass a screenshot test,
 ## so the world's own clock is checked too.
 func _run_pause_shot() -> void:
+	SettingsSystemScript.path = "user://scratch_settings.json"
+	InputBindingsScript.path = "user://scratch_bindings.json"
 	await get_tree().process_frame
 	await get_tree().process_frame
 	_physics_frames_at_pause = Engine.get_physics_frames()
 	_set_paused(true)
 	await get_tree().process_frame
 	await get_tree().process_frame
-	await RenderingServer.frame_post_draw
-	var img := get_viewport().get_texture().get_image()
-	var err := img.save_png("res://pause_menu.png")
+	var err := 0
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		var tex := get_viewport().get_texture()
+		if tex:
+			var img := tex.get_image()
+			if img:
+				err = img.save_png("res://pause_menu.png")
 	print("[PAUSE] menu visible=%s, tree paused=%s, physics frames while paused=%d, shot err=%d" % [
 		str(_pause_menu.visible), str(get_tree().paused),
 		Engine.get_physics_frames() - _physics_frames_at_pause, err])
@@ -387,7 +417,9 @@ func _run_pause_shot() -> void:
 	var off := rect.get_center() - want
 	print("[PAUSE] panel centre %s vs viewport centre %s: off by (%.0f, %.0f) px" % [
 		str(rect.get_center()), str(want), off.x, off.y])
-	get_tree().create_timer(0.3).timeout.connect(get_tree().quit)
+	get_tree().create_timer(0.3).timeout.connect(func():
+		_cleanup_scratch_files()
+		get_tree().quit())
 
 ## A hand-drawn snow splat, generated once: no art needed and it scales to any
 ## resolution. Added first so the HUD text stays readable through it.
@@ -707,6 +739,8 @@ func refresh_text() -> void:
 ## Diagnostic: prove a rebinding survives a restart, which is the only thing that makes it
 ## useful. Rebinds jump, wipes it deliberately, reloads from disk and checks it came back.
 func _run_rebind_shot() -> void:
+	SettingsSystemScript.path = "user://scratch_settings.json"
+	InputBindingsScript.path = "user://scratch_bindings.json"
 	await get_tree().process_frame
 	await get_tree().process_frame
 	InputBindingsScript.capture_defaults()
@@ -735,11 +769,19 @@ func _run_rebind_shot() -> void:
 	_build_controls_panel()
 	_show_controls(true)
 	await get_tree().process_frame
-	await RenderingServer.frame_post_draw
-	var err := get_viewport().get_texture().get_image().save_png("res://controls_menu.png")
+	var err := 0
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+		var tex := get_viewport().get_texture()
+		if tex:
+			var img := tex.get_image()
+			if img:
+				err = img.save_png("res://controls_menu.png")
 	var rect := _controls_panel.get_global_rect()
 	var want: Vector2 = get_viewport().get_visible_rect().get_center()
 	var off := rect.get_center() - want
 	print("[BIND] controls screen visible=%s, %d rows, centre off by (%.0f, %.0f) px, shot err=%d" % [
 		str(_controls_panel.visible), _control_buttons.size(), off.x, off.y, err])
-	get_tree().create_timer(0.3).timeout.connect(get_tree().quit)
+	get_tree().create_timer(0.3).timeout.connect(func():
+		_cleanup_scratch_files()
+		get_tree().quit())

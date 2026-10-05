@@ -15,6 +15,8 @@ extends RefCounted
 const PATH: String = "user://bindings.json"
 const VERSION: int = 1
 
+static var path: String = PATH
+
 const ACTIONS: Array[String] = [
 	"move_forward", "move_backward", "move_left", "move_right",
 	"sprint", "jump", "interact",
@@ -157,25 +159,25 @@ static func apply_dictionary(data: Dictionary) -> void:
 				InputMap.action_add_event(name, event)
 
 static func save() -> bool:
-	var file := FileAccess.open(PATH, FileAccess.WRITE)
+	var file := FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
-		push_warning("Bindings: could not write %s" % PATH)
+		push_warning("Bindings: could not write %s" % path)
 		return false
 	file.store_string(JSON.stringify(to_dictionary(), "\t"))
 	file.close()
 	return true
 
 static func load_from_disk() -> bool:
-	if not FileAccess.file_exists(PATH):
+	if not FileAccess.file_exists(path):
 		return false
-	var file := FileAccess.open(PATH, FileAccess.READ)
+	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
 		return false
 	var text := file.get_as_text()
 	file.close()
 	var parsed = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
-		push_warning("Bindings: %s is not readable, keeping the current controls" % PATH)
+		push_warning("Bindings: %s is not readable, keeping the current controls" % path)
 		return false
 	apply_dictionary(parsed)
 	return true

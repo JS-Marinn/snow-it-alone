@@ -61,17 +61,20 @@ static func _load_translations() -> void:
 
 ## Returns the list of languages selectable in the settings screen.
 static func available_languages() -> Array[Dictionary]:
-	return [
+	var list: Array[Dictionary] = [
 		{"code": "en", "label": "English", "name": "English"},
-		{"code": "en_XA", "label": "[Éñglïsh (Psêudô)]", "name": "[Éñglïsh (Psêudô)]"},
 	]
+	if OS.is_debug_build():
+		list.append({"code": "en_XA", "label": "[Éñglïsh (Psêudô)]", "name": "[Éñglïsh (Psêudô)]"})
+	return list
 
 ## Sets the active language, persists it through SettingsSystem, and notifies listeners.
 static func set_language(code: String) -> void:
 	TranslationServer.set_locale(code)
 	SettingsSystemScript.ensure_loaded()
-	SettingsSystemScript.language = code
-	SettingsSystemScript.save()
+	if code != "en_XA":
+		SettingsSystemScript.language = code
+		SettingsSystemScript.save()
 	notify_listeners()
 
 ## Current active language code (e.g. "en" or "en_XA").
