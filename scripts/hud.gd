@@ -178,6 +178,9 @@ func _build_settings_panel() -> void:
 	buttons.add_theme_constant_override("separation", 10)
 	column.add_child(buttons)
 	buttons.add_child(_pause_button("Back", func() -> void: _show_settings(false)))
+	buttons.add_child(_pause_button("Controls", func() -> void:
+		_build_controls_panel()
+		_show_controls(true)))
 	buttons.add_child(_pause_button("Reset", func() -> void:
 		SettingsSystemScript.defaults()
 		SettingsSystemScript.apply_to_engine()
@@ -255,8 +258,31 @@ func _run_settings_shot() -> void:
 	get_tree().create_timer(0.3).timeout.connect(get_tree().quit)
 
 func _input(event: InputEvent) -> void:
+	# While an action is being rebound the next press IS the binding, and nothing else may
+	# react to it: not the pause toggle, not the game.
+	if _listening_for != "":
+		var usable := false
+		if event is InputEventKey:
+			usable = (event as InputEventKey).pressed
+		elif event is InputEventJoypadButton:
+			usable = (event as InputEventJoypadButton).pressed
+		elif event is InputEventJoypadMotion:
+			usable = absf((event as InputEventJoypadMotion).axis_value) > 0.6
+		if usable:
+			var action := _listening_for
+			_listening_for = ""
+			var taken: bool = InputBindingsScript.rebind(action, event)
+			_refresh_control_buttons()
+			print("[BIND] %s -> %s (accepted=%s)" % [action, InputBindingsScript.binding_label(action), str(taken)])
+			get_viewport().set_input_as_handled()
+			return
 	if event.is_action_pressed("ui_cancel"):
-		_set_paused(not get_tree().paused)
+		if _controls_panel and _controls_panel.visible:
+			_show_controls(false)
+		elif _settings_panel and _settings_panel.visible:
+			_show_settings(false)
+		else:
+			_set_paused(not get_tree().paused)
 		get_viewport().set_input_as_handled()
 
 func _set_paused(paused: bool) -> void:
@@ -549,6 +575,13 @@ func _run_rebind_shot() -> void:
 	print("[BIND] jump %s -> %s (accepted=%s), wiped to %s, after reload %s (read=%s)" % [
 		before, after, str(changed), wiped, final, str(reloaded)])
 	print("[BIND] survived the restart: %s" % str(final.contains("J")))
+	# Exercise the capture hook the way a button press would, instead of trusting it.
+	_listening_for = "sprint"
+	var press := InputEventKey.new()
+	press.keycode = KEY_K
+	press.pressed = true
+	_input(press)
+	print("[BIND] capture hook: sprint is now %s" % InputBindingsScript.binding_label("sprint"))
 	var other := InputBindingsScript.binding_label("interact")
 	print("[BIND] a different action is untouched: interact = %s" % other)
 	_set_paused(true)

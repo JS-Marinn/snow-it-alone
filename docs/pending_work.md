@@ -203,3 +203,42 @@ added to the input map. That removes the reason the game was unplayable on a Ste
 **Still absent from the milestone:** key and button remapping. It is the last piece, and it
 is the largest: it needs a rebinding screen, conflict handling, and a decision about how to
 show a pad button to a player who only has a keyboard.
+
+---
+
+## 10. Milestone 9 (pause, settings, controls) is complete
+
+The Controls screen is reachable now: the settings screen has a **Controls** button, and
+pressing any row puts that action into capture and takes the next key or pad button. The
+capture path is tested rather than assumed, by pushing a synthetic key press through the
+same `_input` a real press would use.
+
+Everything in the milestone: pause that really pauses (Escape), a settings screen with five
+persisted controls, menus that work with a pad, and key and button rebinding with conflict
+removal, reset, and a file that survives a restart.
+
+Next in the roadmap is **item 8, the i18n architecture**: every player-facing string out of
+the code, a language loader, a fake language to expose anything missed, and fonts that
+survive long German words. It was placed after this milestone on purpose, because it touches
+every screen.
+
+---
+
+## 11. The impact battery also fluctuates, and that matters for the gate
+
+While closing the controls screen the battery runner reported `--impact-lab` red with two
+failing checks, both about a medium ball failing to destabilise. Three consecutive re-runs
+gave 18 OK / 0 FAIL each time.
+
+So the fluctuations documented for the impact matrix in section 1 are **not confined to the
+matrix**: the lab shares them, and the lab *is* in the gate. A gate that fails one run in
+four is worse than no gate, because it trains whoever uses it to re-run until it passes,
+which is exactly how a real failure gets waved through.
+
+**What to do, in order:**
+1. Find the race. The instrumentation already in the matrix (printing where the ball ended
+   up, and now where the burst came from) is the tool: run it until it fails and read the
+   diagnostic rather than the verdict.
+2. Only then decide whether the lab stays in the gate. If it cannot be made stable, it
+   should be marked as a diagnostic like the terrain battery, so the gate keeps meaning
+   something.
