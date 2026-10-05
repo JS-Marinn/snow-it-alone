@@ -94,7 +94,8 @@ func _build_steps() -> void:
 		[26.6, _s_energy_light],
 		[27.1, _s_energy_light_throw],
 		[27.5, _s_ground_push_start],
-		[28.6, _s_ground_push_check],
+		[27.8, _s_ground_push_press],
+		[28.9, _s_ground_push_check],
 		[29.0, _s_energy_heavy],
 		[29.4, _s_energy_heavy_throw],
 		[29.8, _s_shatter_test],
@@ -170,30 +171,52 @@ func _s_heavy_walk_stop() -> void:
 		mean += s
 	mean /= maxf(float(_heavy_walk_samples.size()), 1.0)
 	var walk: float = float(player.get("walk_speed"))
+	# The honest baseline is a free walk on the same surface: virgin snow is
+	# slower than packed ground, and the carry penalty multiplies on top of that.
+	var surface_scale: float = float(player.get("surface_speed_scale"))
+	var local_walk: float = walk * surface_scale
 	var pct := int(mean / maxf(walk, 0.1) * 100.0)
-	print("[PHYS] mean speed carrying %.0f kg: %.2f m/s (normal walk %.1f m/s -> %d%%)" % [
-		float(player.get("carried_mass")), mean, walk, pct])
-	_check("staggering does NOT slow the player down (>70% of walk speed)", mean > walk * 0.70)
+	var local_pct := int(mean / maxf(local_walk, 0.1) * 100.0)
+	print("[PHYS] mean speed carrying %.0f kg: %.2f m/s | %.1f m/s free walk here (surface %s x%.2f) -> %d%% of it" % [
+		float(player.get("carried_mass")), mean, local_walk,
+		String(player.get("surface_name")), surface_scale, local_pct])
+	_check("staggering does NOT slow the player down (>70% of a free walk here)", mean > local_walk * 0.70)
 	_shot("11_heavy_ball")
 
 ## Hold [E]: the ball rolls along the ground without being lifted.
 func _s_ground_push_start() -> void:
 	if player == null or props == null:
 		return
-	# The ball is placed ON the view ray (the player looks at the ground), where it
-	# would sit in front of the player while holding [E].
+	# Do it from a known central spot so the test does not depend on wherever the
+	# earlier phases left the player.
+	var ground_here := _height(Vector3(0.0, 0.0, 2.0))
+	player.global_position = Vector3(0.0, ground_here, 2.0)
+	player.velocity = Vector3.ZERO
+	player.set("current_ground_y", ground_here)
+	player.set("is_ground_initialized", true)
+
 	var cam = player.get("camera")
-	var from: Vector3 = cam.global_position if cam else player.global_position
-	var dir: Vector3 = -cam.global_transform.basis.z if cam else Vector3.FORWARD
-	var at: Vector3 = from + dir * 2.0
-	var ground := _height(at)
+	var from: Vector3 = cam.global_position
+	var dir: Vector3 = -cam.global_transform.basis.z
+	# Place the ball exactly where the aim ray meets the snow: that is where a
+	# player looking at the ground would be pushing it.
+	var ground := _height(from + dir * 2.4)
+	var travel: float = (ground + 0.26 - from.y) / minf(dir.y, -0.1)
+	travel = clampf(travel, 1.2, 2.8)
+	var at: Vector3 = from + dir * travel
 	_push_ball = props.spawn_snowball(Vector3(at.x, ground + 0.26, at.z), 0.26)
 	if _push_ball == null:
 		return
 	_push_ball.linear_velocity = Vector3.ZERO
 	_push_start = _push_ball.global_position
+	print("[PHYS] ball placed in front of the player: %.0f kg at %s" % [
+		_push_ball.packed_mass(), str(_push_start)])
+
+## [E] is pressed a step after the ball exists: a body added this frame is not in
+## the physics space yet, so the interact ray would miss it.
+func _s_ground_push_press() -> void:
 	Input.action_press("interact")
-	print("[PHYS] the player holds [E] in front of a %.0f kg ball" % _push_ball.packed_mass())
+	print("[PHYS] the player holds [E] in front of the ball")
 
 func _s_ground_push_check() -> void:
 	Input.action_release("interact")
@@ -202,8 +225,8 @@ func _s_ground_push_check() -> void:
 		return
 	var moved := Vector2(_push_ball.global_position.x - _push_start.x, _push_ball.global_position.z - _push_start.z).length()
 	var rise: float = _push_ball.global_position.y - _push_start.y
-	print("[PHYS] [E] push: advanced %.2f m  rose %.2f m (radius %.2f m)  carrying=%s" % [
-		moved, rise, _push_ball.radius, str(player.is_carrying())])
+	print("[PHYS] [E] push: advanced %.2f m  rose %.2f m (radius %.2f m)  pushing=%s  carrying=%s" % [
+		moved, rise, _push_ball.radius, str(player.get("is_ground_pushing")), str(player.is_carrying())])
 	_check("holding [E] pushes the ball along the ground", moved > 0.15 and not player.is_carrying())
 	_check("holding [E] does NOT lift the ball", rise < _push_ball.radius)
 

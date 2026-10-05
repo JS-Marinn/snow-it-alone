@@ -10,6 +10,29 @@ const PinPropScript = preload("res://scripts/pin_prop.gd")
 @export var sprint_speed: float = 6.8
 @export var acceleration: float = 14.0
 
+# Movement with inertia and bunny hop.
+## Steering authority in the air, as a fraction of a dedicated air acceleration.
+@export var air_control: float = 0.35
+## Horizontal acceleration while airborne (m/s^2). Feeds the air strafe.
+@export var air_acceleration: float = 9.0
+## Hard ceiling of the bunny hop, relative to the sprint speed.
+@export var bhop_cap_factor: float = 1.6
+## Launch boost per chained jump. Chaining is what makes the hop pay off.
+@export var bhop_gain: float = 1.06
+## How long after landing a jump still counts as chained (s).
+@export var bhop_window: float = 0.12
+## Ground scrub applied on landing, by surface type, before any hop bonus.
+@export var landing_scrub_packed: float = 0.97
+@export var landing_scrub_snow: float = 0.85
+@export var landing_scrub_loose: float = 0.55
+## Landing compacts the snow it hits, which is how hopping packs a trail.
+@export var landing_pack_strength: float = 0.18
+@export var landing_pack_radius: float = 0.38
+## Holding jump hops again on landing. Off by default: the rhythm is the skill.
+@export var auto_bhop: bool = false
+@export var jump_velocity: float = 5.2
+@export var gravity: float = 18.0
+
 # Shovel: bidirectional physical tool.
 ## Maximum mass the shovel cavity can hold (kg).
 @export var shovel_capacity_max: float = 25.0
@@ -100,6 +123,29 @@ var is_grounded: bool = true
 var is_jumping: bool = false
 var current_ground_y: float = 0.0
 var is_ground_initialized: bool = false
+
+# Movement with inertia: surface friction, air control and bunny hop.
+## Surface the player is standing on, refreshed every physics step.
+var surface_name: String = "snow"
+## Speed multiplier of the current surface (powder crawls, packed is fast).
+var surface_speed_scale: float = 1.0
+## How fast the player coasts to a stop when not pushing (higher = stops sooner).
+var surface_coast: float = 1.2
+## Speed kept when landing on this surface without hopping again.
+var surface_scrub: float = 0.85
+## Raw readings behind the surface decision, for the HUD and diagnostics.
+var surface_height: float = 0.0
+var surface_cohesion: float = 0.0
+var surface_loose: float = 0.0
+## Chained jumps landed inside the window: 0 when the chain is broken.
+var jump_chain: int = 0
+## Current bunny hop speed, horizontal (m/s).
+var horizontal_speed: float = 0.0
+var _time: float = 0.0
+var _landing_time: float = -99.0
+var _jump_buffer: float = 0.0
+## Momentum is only scrubbed once the hop window closes; that is the whole skill.
+var _pending_scrub: bool = false
 const BASE_CAMERA_Y: float = 1.65
 const DEADBAND_THRESHOLD: float = 0.08
 const VERTICAL_TRANSITION_SPEED: float = 2.6
@@ -256,20 +302,23 @@ func _physics_process(delta: float) -> void:
 		target_speed *= maxf(weight_factor, carry_speed_floor)
 
 	var wish_dir = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	var wants_move := input_dir.length_squared() > 0.01
 
-	# Stagger from an oversized ball
+	# Stagger from an oversized ball: lateral drift and less control.
 	if stagger > 0.01:
-		# Oscillating lateral drift: hard to keep a straight path
-		var right := transform.basis.x
-		wish_dir += right * sin(_stagger_phase * 2.2) * 0.5 * stagger
+		wish_dir += transform.basis.x * sin(_stagger_phase * 2.2) * 0.5 * stagger
 		if wish_dir.length() > 0.01:
 			wish_dir = wish_dir.normalized()
-		# And less control: hard to start and stop
-		velocity.x = lerpf(velocity.x, wish_dir.x * target_speed, acceleration * delta * (1.0 - 0.45 * stagger))
-		velocity.z = lerpf(velocity.z, wish_dir.z * target_speed, acceleration * delta * (1.0 - 0.45 * stagger))
-	else:
-		velocity.x = lerpf(velocity.x, wish_dir.x * target_speed, acceleration * delta)
-		velocity.z = lerpf(velocity.z, wish_dir.z * target_speed, acceleration * delta)
+
+	_time += delta
+	_refresh_surface()
+	var move_speed: float = target_speed * surface_speed_scale
+	# While the blade is actually working, the drag model already accounts for the
+	# effort of moving snow. Piling the walking-surface penalty on top of it turns
+	# shovelling into a crawl, so the surface only governs free movement.
+	if current_tool == ToolType.SHOVEL and is_pushing:
+		move_speed = target_speed
+	_move_horizontal(wish_dir, move_speed, delta, wants_move)
 
 	# Camera sway while staggering
 	if camera:
@@ -293,21 +342,18 @@ func _physics_process(delta: float) -> void:
 		is_ground_initialized = true
 
 	var dist_from_ground = global_position.y - current_ground_y
+	# Jump input is buffered for a few frames so the hop rhythm is forgiving.
+	if Input.is_action_just_pressed("jump") or (auto_bhop and Input.is_action_pressed("jump")):
+		_jump_buffer = 0.12
+	else:
+		_jump_buffer = maxf(_jump_buffer - delta, 0.0)
+
 	if not is_jumping and (absf(dist_from_ground) <= 0.12 or is_on_floor()):
-		if Input.is_action_just_pressed("jump") or Input.is_key_pressed(KEY_SPACE):
-			is_jumping = true
-			is_grounded = false
-			velocity.y = 5.2
-			var sfx = AudioStreamPlayer3D.new()
-			sfx.stream = SoundEffectsScript.get_snow_step()
-			sfx.volume_db = -2.0
-			sfx.pitch_scale = 0.88
-			add_child(sfx)
-			sfx.play()
-			sfx.finished.connect(sfx.queue_free)
+		if _jump_buffer > 0.0:
+			_start_jump()
 
 	if is_jumping:
-		velocity.y -= 18.0 * delta
+		velocity.y -= gravity * delta
 		move_and_slide()
 		if velocity.y <= 0.0 and global_position.y <= raw_ground_y:
 			current_ground_y = raw_ground_y
@@ -315,6 +361,7 @@ func _physics_process(delta: float) -> void:
 			velocity.y = 0.0
 			is_jumping = false
 			is_grounded = true
+			_on_land()
 	else:
 		velocity.y = 0.0
 		move_and_slide()
@@ -351,6 +398,148 @@ func _physics_process(delta: float) -> void:
 	_process_interaction(delta)
 	_update_carried(delta)
 	_process_hand_sway(delta, horiz_speed)
+
+## Reads the snow under the player and turns it into movement feel. Powder drags,
+## packed snow and cleared ground let you keep the momentum.
+func _refresh_surface() -> void:
+	var surface := "snow"
+	var speed_scale := 0.92
+	var coast := 1.2
+	var scrub := landing_scrub_snow
+	var height := 0.0
+	var cohesion := 0.5
+	if snow_field:
+		# Support height, not raw height: outside the simulated field the world
+		# still has snow, and get_height_at reports -1 out there.
+		if snow_field.has_method("get_support_snow_height"):
+			height = maxf(snow_field.get_support_snow_height(global_position, 0.35), 0.0)
+		elif snow_field.has_method("get_height_at"):
+			height = maxf(snow_field.get_height_at(global_position), 0.0)
+		if snow_field.has_method("get_cohesion_at"):
+			cohesion = snow_field.get_cohesion_at(global_position)
+		surface_height = height
+		surface_cohesion = cohesion
+		if snow_field.has_method("get_loose_fraction_at"):
+			surface_loose = snow_field.get_loose_fraction_at(global_position)
+
+		# Cohesion decides the surface, because it is the channel that working the
+		# ground actually moves. Measured in the level: untouched dry snow sits
+		# near 0.20 and a tamped strip near 0.57.
+		if height < 0.03:
+			surface = "cleared"
+			speed_scale = 1.0
+			coast = 0.35
+			scrub = landing_scrub_packed
+		elif cohesion >= 0.45:
+			surface = "packed"
+			speed_scale = 1.05
+			coast = 0.25
+			scrub = landing_scrub_packed
+		elif cohesion >= 0.35:
+			surface = "snow"
+			speed_scale = 0.92
+			coast = 1.2
+			scrub = landing_scrub_snow
+		else:
+			# Dry unbonded snow: it cannot hold a wall and it swallows momentum.
+			# Deliberately not harsher than this: virgin snow is the starting
+			# state of every level and walking must never feel like a chore.
+			surface = "powder"
+			speed_scale = 0.75
+			coast = 3.0
+			scrub = landing_scrub_loose
+	surface_name = surface
+	surface_speed_scale = speed_scale
+	surface_coast = coast
+	surface_scrub = scrub
+
+## Horizontal motion.
+##
+## On the ground the player accelerates toward the surface speed but is never
+## braked down to it: above it, only the direction is steered and the momentum
+## bleeds off with the surface coast. In the air nothing brakes at all, so air
+## acceleration can build speed. That difference is what makes hopping work.
+func _move_horizontal(wish_dir: Vector3, target_speed: float, delta: float, wants_move: bool) -> void:
+	var control := 1.0 - 0.45 * stagger
+	var speed_now := Vector2(velocity.x, velocity.z).length()
+	var cap := sprint_speed * bhop_cap_factor
+
+	if is_jumping:
+		var air_accel := air_acceleration * air_control * control
+		velocity.x += wish_dir.x * air_accel * delta
+		velocity.z += wish_dir.z * air_accel * delta
+	else:
+		# The momentum is only scrubbed once the hop window has closed.
+		if _pending_scrub and (_time - _landing_time) > bhop_window:
+			_pending_scrub = false
+			jump_chain = 0
+			velocity.x *= surface_scrub
+			velocity.z *= surface_scrub
+			speed_now = Vector2(velocity.x, velocity.z).length()
+
+		var approach := clampf(acceleration * control * delta, 0.0, 1.0)
+		var want := Vector3(wish_dir.x, 0.0, wish_dir.z) * target_speed
+		if not wants_move:
+			var decay := exp(-surface_coast * delta)
+			velocity.x *= decay
+			velocity.z *= decay
+		elif speed_now <= target_speed + 0.05:
+			velocity.x = lerpf(velocity.x, want.x, approach)
+			velocity.z = lerpf(velocity.z, want.z, approach)
+		else:
+			# Over the surface speed: keep the magnitude, steer the direction.
+			var dir_now := Vector2(velocity.x, velocity.z).normalized()
+			var dir_want := Vector2(want.x, want.z).normalized()
+			var steered := dir_now.lerp(dir_want, clampf(approach * 0.6, 0.0, 1.0))
+			if steered.length_squared() > 0.0001:
+				steered = steered.normalized()
+				velocity.x = steered.x * speed_now
+				velocity.z = steered.y * speed_now
+			var bleed := exp(-surface_coast * 0.3 * delta)
+			velocity.x *= bleed
+			velocity.z *= bleed
+
+	var flat := Vector2(velocity.x, velocity.z)
+	if flat.length() > cap:
+		flat = flat.normalized() * cap
+		velocity.x = flat.x
+		velocity.z = flat.y
+	horizontal_speed = flat.length()
+
+## Launches the player. Landing and jumping again inside the hop window keeps (and
+## slightly compounds) the momentum; a cold jump from standstill gets nothing.
+func _start_jump() -> void:
+	_jump_buffer = 0.0
+	var chained := (_time - _landing_time) <= bhop_window
+	var flat := Vector2(velocity.x, velocity.z)
+	if chained:
+		jump_chain += 1
+		flat *= bhop_gain
+	var cap := sprint_speed * bhop_cap_factor
+	if flat.length() > cap:
+		flat = flat.normalized() * cap
+	velocity.x = flat.x
+	velocity.z = flat.y
+	velocity.y = jump_velocity
+	is_jumping = true
+	is_grounded = false
+	_pending_scrub = false
+
+	var sfx := AudioStreamPlayer3D.new()
+	sfx.stream = SoundEffectsScript.get_snow_step()
+	sfx.volume_db = -2.0
+	sfx.pitch_scale = 0.88
+	add_child(sfx)
+	sfx.play()
+	sfx.finished.connect(sfx.queue_free)
+
+## Touchdown: the clock starts for the hop window and the snow under the feet gets
+## packed, which is why hopping in a line traces a usable path.
+func _on_land() -> void:
+	_landing_time = _time
+	_pending_scrub = true
+	if snow_field and snow_field.has_method("tamp"):
+		snow_field.tamp(global_position, landing_pack_radius, landing_pack_strength)
 
 func _play_footstep() -> void:
 	var local_depth = 0.0

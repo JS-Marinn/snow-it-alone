@@ -31,7 +31,8 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	var is_demo := args.has("--plow-demo")
 	var is_phys_demo := args.has("--phys-demo")
-	var is_scripted := is_demo or is_phys_demo or args.has("--carve-quality") or args.has("--ball-shape")
+	var is_scripted := is_demo or is_phys_demo or args.has("--carve-quality") \
+		or args.has("--ball-shape") or args.has("--movement-lab")
 	# Screenshots belong to diagnostics only; a normal session must not write files.
 	if is_scripted:
 		get_tree().create_timer(9.5 if is_demo else 1.8).timeout.connect(capture_screenshot)
@@ -43,6 +44,8 @@ func _ready() -> void:
 		_start_demo_script("res://scripts/carve_quality_demo.gd")
 	if args.has("--ball-shape"):
 		_start_demo_script("res://scripts/ball_shape_demo.gd")
+	if args.has("--movement-lab"):
+		_start_demo_script("res://scripts/movement_lab_demo.gd")
 
 ## Picks up the session started from the main menu: restores the money counter and
 ## starts tracking playtime for the save slot.

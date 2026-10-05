@@ -207,22 +207,25 @@ El progreso de los contadores también es **compartido**: suman lo de los dos.
 
 ## 3. Mecánicas: especificaciones numéricas
 
-### 3.1 Movimiento con inercia y bunny hop ⬜
+### 3.1 Movimiento con inercia y bunny hop ✅ **Implementado** (`PlayerMotor` dentro de `player_controller.gd`)
 
-| Parámetro | Valor | Nota |
+| Parámetro | Valor implementado | Medido con `--movement-lab` |
 |---|---|---|
-| Velocidad al andar / correr | 4,2 / 6,8 m/s | ✅ existe |
-| Tope de bunny hop | **1,6 × carrera = 10,9 m/s** | techo deliberado |
-| Ganancia por salto encadenado | +6 % por salto, decayendo | llega al tope en ~8 saltos |
-| Ventana de encadenado | 0,12 s tras aterrizar | si fallas, pagas fricción completa |
-| Air control | 0,35 del control en suelo | permite el *strafe* clásico |
-| Fricción por superficie | ver §2.A.2 | despejado 0,15 · polvo 6,0 · húmeda 3,0 · slush 0,05 |
-| Compactación al aterrizar | +0,25 en radio 0,35 m | **el bhop traza camino** |
-| Deslizamiento | pendiente > 18° | gana velocidad; > 30° con slush, no puedes frenar |
-| Auto-bhop (accesibilidad) | ajuste on/off | mantiene el tope sin skill |
+| Velocidad al andar / correr | 4,2 / 6,8 m/s | 3,15 / 5,29 m/s sobre polvo virgen |
+| Tope de bunny hop | **1,6 × carrera = 10,88 m/s** | la cadena llega al tope en **8 saltos** |
+| Ganancia por salto encadenado | ×1,06 | 4,89 → 10,88 m/s frente a un salto frío |
+| Ventana de encadenado | 0,12 s tras aterrizar | si se cierra, la velocidad cae (5,39 → 4,06) |
+| Air control | 0,35 · 4,0 m/s² de aceleración aérea | permite encadenar y ganar |
+| Fricción por superficie | ver §2.A.2 (por cohesión) | polvo 3,15 · compactado 4,41 m/s al andar |
+| Compactación al aterrizar | `tamp` a 0,38 m, fuerza 0,18 | cada aterrizaje apelmaza y deja el suelo más rápido |
+| Deslizamiento en pendiente | ⬜ pendiente pendiente del Playground | —— |
+| Auto-bhop (accesibilidad) | `auto_bhop`, apagado por defecto | la prueba de cadena lo usa para encadenar |
 
-**Prueba:** `--movement-lab` mide la curva de velocidad con cadenas de 1..12 saltos
-en las 4 superficies y comprueba que el tope nunca se supera.
+**Prueba:** `--movement-lab` (9 comprobaciones) mide el andar y el correr por
+superficie, la cadena de saltos y su tope, el coste de aterrizar sin encadenar y la
+lectura de superficie (polvo virgen / compactado). **Limitación conocida:** el nivel
+actual es demasiado corto para una cadena completa, así que la carrera sale del
+campo simulado; el Playground necesitará una pista larga para medir la curva entera.
 
 ### 3.2 Impacto de bolas sobre jugadores ⬜ — **especificación cerrada**
 

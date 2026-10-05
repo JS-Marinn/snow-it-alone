@@ -22,7 +22,7 @@ var _confirm_timer: float = 0.0
 func _ready() -> void:
 	# Diagnostics never go through the menu, they boot straight into the level.
 	var demo_flags := [
-		"--phys-demo", "--carve-quality", "--ball-shape",
+		"--phys-demo", "--carve-quality", "--ball-shape", "--movement-lab",
 		"--plow-demo", "--save-roundtrip",
 	]
 	for flag in demo_flags:
