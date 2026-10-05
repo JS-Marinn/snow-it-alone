@@ -80,15 +80,16 @@ var is_carried: bool = false
 var debug_harvest: bool = false
 var _harvest_requests: int = 0
 var _shattered: bool = false
+## Guard ensuring a ball only ever applies one reaction across sweep and contact.
+var _hit_applied: bool = false
 ## Previous position used to sweep for hits on players: a ball crossing a face
 ## between two frames must still connect.
 var _prev_impact_pos: Vector3 = Vector3.INF
 ## Velocity at the start of the frame, kept for the shatter direction.
 var _prev_velocity: Vector3 = Vector3.ZERO
-## Fastest speed of the last few frames. A contact is reported after the solver
-## has already cancelled the ball's velocity, so the frame it arrives on is not
-## the speed it actually arrived at.
 var _speed_history: Array[float] = []
+## Maximum flight speed recorded, so contacts never lose initial throw velocity to solver damping.
+var _flight_max_speed: float = 0.0
 
 var _mesh_instance: MeshInstance3D
 var _sphere_mesh: SphereMesh
@@ -407,12 +408,14 @@ func is_welded() -> bool:
 ## hit. Deliberately not a physics contact: a thrown ball must not shove anyone
 ## around, and what happens depends on the ball's size, not on the solver.
 func _check_impact_hits() -> void:
+	if _shattered or _hit_applied or is_carried:
+		return
 	var to := global_position
 	var from := _prev_impact_pos
 	_prev_impact_pos = to
 	if from == Vector3.INF:
 		return
-	var speed := linear_velocity.length()
+	var speed := maxf(arrival_speed(), linear_velocity.length())
 	# The heaviest tier has the lowest bar, so this is the cheapest global gate.
 	if speed < TIER_MIN_SPEED[BallTier.LARGE]:
 		return
@@ -422,18 +425,28 @@ func _check_impact_hits() -> void:
 	for target in get_tree().get_nodes_in_group(IMPACT_GROUP):
 		if not target.has_method("impact_spheres"):
 			continue
-		# Anything with a body of its own is resolved by its contact instead: the
-		# body stops the ball before the sphere test could connect, and doing both
-		# would count the hit twice. The sweep exists for targets without one.
-		if target is PhysicsBody3D:
-			continue
+		var best_sphere: Dictionary = {}
+		var best_point := Vector3.INF
+		var best_ratio := INF
 		for sphere in target.impact_spheres():
-			var point := _segment_sphere_hit(from, to, sphere["center"], float(sphere["radius"]) + radius)
+			var sphere_r := float(sphere["radius"]) + radius
+			var point := _segment_sphere_hit(from, to, sphere["center"], sphere_r)
 			if point == Vector3.INF:
 				continue
-			var accepted: bool = target.receive_ball_hit(ball_tier, speed, bool(sphere["head"]), point, linear_velocity)
-			if accepted:
-				_shatter(linear_velocity)
+			var ratio: float = point.distance_to(sphere["center"]) / maxf(sphere_r, 0.001)
+			if ratio < best_ratio:
+				best_ratio = ratio
+				best_sphere = sphere
+				best_point = point
+		if not best_sphere.is_empty():
+			_hit_applied = true
+			var hit_speed := maxf(arrival_speed(), speed)
+			print("[HITDBG] (sweep) r=%.2f tier=%d speed=%.2f min=%.2f target=%s state=%s immunity=%s" % [
+				radius, ball_tier, hit_speed, TIER_MIN_SPEED[ball_tier], target.name,
+				str(target.get("hit_state")), str(target.get("hit_immunity"))])
+			if hit_speed >= TIER_MIN_SPEED[ball_tier]:
+				target.receive_ball_hit(ball_tier, hit_speed, bool(best_sphere["head"]), best_point, linear_velocity)
+			_shatter(linear_velocity)
 			return
 
 ## Closest approach of a segment to a sphere: the impact point, or INF on a miss.
@@ -459,7 +472,9 @@ func _physics_process(delta: float) -> void:
 	# Kept before the physics step, so a contact reported later in the frame can
 	# still tell how fast the ball was actually travelling.
 	_prev_velocity = linear_velocity
-	_speed_history.append(linear_velocity.length())
+	var cur_speed := linear_velocity.length()
+	_flight_max_speed = maxf(_flight_max_speed, cur_speed)
+	_speed_history.append(cur_speed)
 	while _speed_history.size() > ARRIVAL_HISTORY:
 		_speed_history.remove_at(0)
 	_try_harvest(delta)
@@ -471,13 +486,13 @@ func _physics_process(delta: float) -> void:
 
 ## Fastest speed seen in the last few frames: see `_speed_history`.
 func arrival_speed() -> float:
-	var fastest := 0.0
+	var fastest := _flight_max_speed
 	for s in _speed_history:
 		fastest = maxf(fastest, s)
 	return fastest
 
 func _on_body_entered(body: Node) -> void:
-	if _shattered:
+	if _shattered or _hit_applied:
 		return
 	# A ball in someone's hands cannot smash against them. Without this the rule below,
 	# that a ball landing on a person always bursts, destroys a carried ball the moment
@@ -485,9 +500,9 @@ func _on_body_entered(body: Node) -> void:
 	# of height and zero speed, which silently killed two phases of the physics battery.
 	if is_carried:
 		return
-	# Hitting a person. Resolved from this actual contact and not from the sweep:
-	# a body stops the ball before it would reach the analytic spheres.
+	# Hitting a person. Resolved from this actual contact if the sweep did not catch it:
 	if body != null and body.is_in_group(IMPACT_GROUP) and body.has_method("receive_ball_hit"):
+		_hit_applied = true
 		var arrival := _prev_velocity
 		# The faster of the two. By the time a contact is reported the solver may already
 		# have cancelled the ball's velocity, and reading only one of these is how a ball
@@ -577,6 +592,8 @@ func begin_carry() -> void:
 	_break_weld()
 	_prev_impact_pos = Vector3.INF
 	_speed_history.clear()
+	_flight_max_speed = 0.0
+	_hit_applied = false
 	is_carried = true
 	freeze = true
 	freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
@@ -588,7 +605,9 @@ func carry_to(target: Vector3, delta: float) -> void:
 func end_carry(impulse_velocity: Vector3 = Vector3.ZERO) -> void:
 	is_carried = false
 	freeze = false
+	_hit_applied = false
 	linear_velocity = impulse_velocity
+	_flight_max_speed = impulse_velocity.length()
 	_last_harvest_pos = global_position
 	_prev_impact_pos = Vector3.INF
 	_speed_history.clear()

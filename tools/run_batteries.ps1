@@ -34,13 +34,17 @@ pwsh -File tools/run_batteries.ps1 -Headless
 [CmdletBinding()]
 param(
     [string]$Godot = $env:GODOT_BIN,
-    [string]$Project = (Split-Path -Parent $PSScriptRoot),
+    [string]$Project = '',
     [string[]]$Only = @(),
     [switch]$Headless,
     [int]$TimeoutSeconds = 300
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $Project) {
+    $Project = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { (Get-Location).Path }
+}
 
 # Kind 'result'     -> must print "RESULT: <n> OK / <m> FAIL(URES)", with m = 0.
 # Kind 'diagnostic' -> has no verdict of its own: it must finish and hold its budget.
@@ -49,6 +53,7 @@ $batteries = @(
     @{ Flag = 'ball-shape';     Name = 'Ball shape';   Kind = 'result';     Gpu = $false },
     @{ Flag = 'movement-lab';   Name = 'Movement';     Kind = 'result';     Gpu = $true  },
     @{ Flag = 'impact-lab';     Name = 'Ball impacts'; Kind = 'result';     Gpu = $true  },
+    @{ Flag = 'impact-matrix';  Name = 'Impact matrix'; Kind = 'result';    Gpu = $true  },
     @{ Flag = 'phys-demo';      Name = 'Physics';      Kind = 'result';     Gpu = $true  },
     @{ Flag = 'playground-check'; Name = 'Playground'; Kind = 'result';     Gpu = $true  },
     @{ Flag = 'carve-quality';  Name = 'Snow carving'; Kind = 'diagnostic'; Gpu = $true; MinFps = 40 }

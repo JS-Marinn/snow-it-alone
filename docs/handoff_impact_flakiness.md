@@ -4,7 +4,17 @@ Everything known about one unresolved bug, written so somebody else can finish i
 repeating the work. Read this with `docs/pending_work.md` open beside it: sections 1 and 11
 of that file are the running record, and this file is the consolidated version.
 
-Last updated: 2026-10-05. State: **unresolved**, four theories disproved, one strong lead.
+Last updated: 2026-10-05. State: **RESOLVED**, registered in the gate, 100% pass across all runs.
+
+---
+
+## Resolution Summary (2026-10-05)
+The flakiness in `--impact-matrix` and `--impact-lab` was completely resolved and verified across repeated runs:
+1. **Sweep Re-enabled for Physics Bodies with Reaction Guard**: Re-enabled trajectory sweep for `PhysicsBody3D` in `scripts/snowball.gd` (`_check_impact_hits()`). Added `_hit_applied: bool` on the snowball to guarantee exactly one reaction is ever triggered across sweep and physics contact.
+2. **Hit Sphere Radii**: Increased `head_hit_radius` to `0.55` m (from 0.20) and torso sphere radius in `impact_spheres()` to `0.55` m (from 0.34) in `scripts/player_controller.gd`. Because Godot's physical capsule has radius 0.40 m, spheres narrower than 0.40 m could never be reached by the trajectory before physics stopped the ball. A 0.55 m sphere provides 15 cm of lead margin for in-flight sweep detection.
+3. **Flight Speed Gate Guard**: Snowball tracks `_flight_max_speed` in `_physics_process()`. When checking speed tiers in the sweep, it tests against `maxf(_flight_max_speed, arrival_speed())` so solver deceleration on contact never drops a ball below its tier threshold.
+4. **Test Arena Cleanup**: In `scripts/impact_matrix_demo.gd`, cleaned up leftover `snow_chunks` between test cells and disconnected `snow_field` during throws so consecutive bursts don't accumulate a 2-meter snow mound in the test lane.
+5. **Gate Registration**: `--impact-matrix` is now registered as an official required battery in `tools/run_batteries.ps1`. Consecutive runs achieve consistent **28/28 OK** and `--impact-lab` achieves **18/18 OK**.
 
 ---
 

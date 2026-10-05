@@ -18,7 +18,7 @@ const SessionModeScript = preload("res://scripts/session_mode.gd")
 
 const BODY_HEIGHT: float = 0.95
 const FACE_HEIGHT: float = 1.62
-const THROW_DISTANCE: float = 0.9
+const THROW_DISTANCE: float = 1.05
 const GRAZE_OFFSET: float = 0.75
 const CELL_SECONDS: float = 0.35
 
@@ -106,6 +106,10 @@ func _enter_cell() -> void:
 			b.global_position = Vector3(0.0, -500.0, 0.0)
 			b.queue_free()
 	_balls.clear()
+	for chunk in get_tree().get_nodes_in_group("snow_chunks"):
+		if is_instance_valid(chunk):
+			chunk.global_position = Vector3(0.0, -500.0, 0.0)
+			chunk.queue_free()
 	player.reset_hit_reactions()
 	_place_player()
 	var cell: Dictionary = _cells[_cell_index]
@@ -130,12 +134,11 @@ func _throw(cell: Dictionary) -> void:
 	if zone == "graze":
 		# Same height as the body, but far enough to the side to miss a person entirely.
 		target += player.transform.basis.x * (GRAZE_OFFSET + ball_r * 1.6)
-	var speed_now := float(cell["speed"])
-	var thresholds_now: Array[float] = [5.0, 3.5, 2.5]
-	var reach: float = 0.42 if speed_now < thresholds_now[tier] else THROW_DISTANCE
+	var reach: float = THROW_DISTANCE
 	var ball = props.spawn_snowball(target + forward * reach, ball_r)
 	if ball == null:
 		return
+	ball.snow_field = null
 	_balls.append(ball)
 	ball.linear_velocity = -forward * speed
 
@@ -196,6 +199,7 @@ func _ball_state() -> String:
 		offset.length(), offset.z, b.global_position.y, b.linear_velocity.length(), along]
 
 func _report() -> void:
+	set_process(false)
 	var medium := 0
 	var reported := 0
 	# Every size and zone must have been exercised, which is the point of a matrix.

@@ -201,6 +201,11 @@ func _s_ground_push_start() -> void:
 		return
 	# Do it from a known central spot so the test does not depend on wherever the
 	# earlier phases left the player.
+	if player.is_carrying():
+		var old = player.carried
+		player._release_carried(Vector3.ZERO)
+		if old and is_instance_valid(old):
+			old.queue_free()
 	var ground_here := _height(Vector3(0.0, 0.0, 2.0))
 	player.global_position = Vector3(0.0, ground_here, 2.0)
 	player.velocity = Vector3.ZERO

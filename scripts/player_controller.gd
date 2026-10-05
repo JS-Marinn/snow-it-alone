@@ -71,7 +71,8 @@ enum HitState { NORMAL = 0, STAGGERED = 1, KNOCKED_DOWN = 2 }
 ## Grace period after a reaction ends, so hits can never be chained into a lock.
 @export var hit_immunity_time: float = 1.5
 ## Radius of the head sphere: a hit inside it counts as a hit to the face.
-@export var head_hit_radius: float = 0.20
+## Covers the player's 0.40 m capsule radius with enough lead margin to catch incoming balls in flight.
+@export var head_hit_radius: float = 0.55
 
 # Shovel: bidirectional physical tool.
 ## Maximum mass the shovel cavity can hold (kg).
@@ -334,7 +335,7 @@ func impact_spheres() -> Array:
 	var eye: Vector3 = camera.global_position if camera else global_position + Vector3(0.0, BASE_CAMERA_Y, 0.0)
 	return [
 		{"center": eye, "radius": head_hit_radius, "head": true},
-		{"center": global_position + Vector3(0.0, 0.95, 0.0), "radius": 0.34, "head": false},
+		{"center": global_position + Vector3(0.0, 0.95, 0.0), "radius": 0.55, "head": false},
 	]
 
 ## Called by a ball that connects. Returns true when the ball should break on the
@@ -1057,39 +1058,41 @@ func _process_interaction(delta: float) -> void:
 	_push_target = null
 	is_ground_pushing = false
 
-## Is there a pickable ball or prop right in front?
-func _has_interactable_ahead() -> bool:
+## Finds an interactable ball or prop ahead of the player via raycast or feet area.
+func _find_interactable_ahead() -> CollisionObject3D:
 	var hit := _raycast_interactable()
 	if not hit.is_empty():
 		var col = hit.get("collider")
-		if col != null and (col is SnowBall or col is PinProp) and col.has_method("begin_carry"):
-			return true
-	# Fallback for anything close in front of the player. Without it, standing
-	# next to a ball and pressing [E] packs a fresh snowball instead of handling
-	# the ball at your feet, because the ball happened to sit beside the aim line.
+		if col != null and (col is SnowBall or col is PinProp) and (col.has_method("begin_carry") or col.has_method("push")):
+			return col
+	# Fallback for anything close in front of the player (at the feet or in front of the body)
 	var sphere := SphereShape3D.new()
-	sphere.radius = 0.45
+	sphere.radius = 1.0
 	var params := PhysicsShapeQueryParameters3D.new()
 	params.shape = sphere
 	params.collide_with_areas = false
+	params.collision_mask = 4 | 8
 	params.exclude = [get_rid()]
-	var forward: Vector3 = -camera.global_transform.basis.z
-	params.transform = Transform3D(Basis(), camera.global_position + forward * (interact_distance * 0.55))
+	var fwd_flat := _forward_flat()
+	params.transform = Transform3D(Basis(), global_position + fwd_flat * 1.0 + Vector3.UP * 0.3)
 	for result in get_world_3d().direct_space_state.intersect_shape(params, 8):
 		var body = result.get("collider")
-		if body != null and (body is SnowBall or body is PinProp) and body.has_method("begin_carry"):
-			return true
-	return false
+		if body != null and (body is SnowBall or body is PinProp) and (body.has_method("begin_carry") or body.has_method("push")):
+			return body
+	return null
+
+## Is there a pickable ball or prop right in front?
+func _has_interactable_ahead() -> bool:
+	return _find_interactable_ahead() != null
 
 ## Continuous push with held [E]: the ball rolls on the ground in front of the
 ## player and is never lifted (it stays a dynamic body resting on the
 ## snowpack). Bounded force: the heavier it is, the harder it is to move.
 func _ground_push() -> bool:
 	if _push_target == null or not is_instance_valid(_push_target):
-		var hit := _raycast_interactable()
-		var col = hit.get("collider") if not hit.is_empty() else null
-		if col != null and (col is SnowBall or col is PinProp) and col.has_method("push"):
-			_push_target = col
+		var target := _find_interactable_ahead()
+		if target != null and target.has_method("push"):
+			_push_target = target
 		else:
 			_push_target = null
 			is_ground_pushing = false
@@ -1099,16 +1102,15 @@ func _ground_push() -> bool:
 	return true
 
 func _try_pickup_or_pack() -> void:
-	var hit := _raycast_interactable()
-	if not hit.is_empty():
-		var col = hit.get("collider")
-		if col is PinProp and col.is_pinned:
-			col.try_extract()
-			if col.has_method("begin_carry"):
-				_begin_carry(col)
+	var obj := _find_interactable_ahead()
+	if obj != null:
+		if obj is PinProp and obj.is_pinned:
+			obj.try_extract()
+			if obj.has_method("begin_carry"):
+				_begin_carry(obj)
 			return
-		if col != null and col.has_method("begin_carry"):
-			_begin_carry(col)
+		if obj.has_method("begin_carry"):
+			_begin_carry(obj)
 			return
 	# With nothing to pick up, snow is packed by hand
 	_pack_snowball()
@@ -1133,9 +1135,13 @@ func _raycast_interactable() -> Dictionary:
 		from += camera.global_transform.basis.x * offset.x + camera.global_transform.basis.y * offset.y
 		var q := PhysicsRayQueryParameters3D.create(from, from + dir * interact_distance)
 		q.collide_with_areas = false
+		q.collision_mask = 4 | 8  # Snowballs (4) and pin props (8); ignore terrain and world geometry
 		q.exclude = [get_rid()]
 		var hit := space.intersect_ray(q)
 		if hit.is_empty():
+			continue
+		var col = hit.get("collider")
+		if col == null or not ((col is SnowBall or col is PinProp) or col.has_method("begin_carry") or col.has_method("push")):
 			continue
 		var distance: float = from.distance_to(hit["position"])
 		if distance < best_distance:

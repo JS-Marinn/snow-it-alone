@@ -7,19 +7,12 @@ Last updated: 2026-10-05.
 
 ---
 
-## 1. The impact matrix is flaky, and the cause is still open
+## 1. The impact matrix is flaky, and the cause is still open (RESOLVED)
 
-> **Consolidated handoff: docs/handoff_impact_flakiness.md.** Read that first: it
-> gathers the measurements, the six disproved theories, the lead worth following and the
-> environment traps in one place. This section is the running record.
-
-**What it is.** `--impact-matrix` walks every combination the design specifies: three ball
-sizes × three zones (face, body, graze) × three speeds, plus Work mode. 28 cases.
-
-**Where it stands.** Roughly 4 of the 28 fail, and **which four changes between runs**.
-Measured, identical code: 21, 25, 23, 24 out of 28. Because the failures wander, this is
-a flaky battery rather than a wrong one, and it is **not registered in
-`tools/run_batteries.ps1`**: a flaky gate is worse than no gate.
+> **Consolidated handoff: docs/handoff_impact_flakiness.md.** Resolved on 2026-10-05:
+> Sweep re-enabled for PhysicsBody3D with duplicate hit guard, hit spheres expanded to 0.55m lead margin,
+> flight speed gate protected against contact deceleration, test arena cleanup fixed,
+> and `--impact-matrix` officially registered in `tools/run_batteries.ps1` (28/28 OK).
 
 **What is known for certain.** The balls do reach the player. `[BALLDBG]` shows every
 burst happening 0.45 to 0.6 m from the player, which is the collision capsule's surface,
@@ -228,21 +221,8 @@ every screen.
 
 ---
 
-## 11. The impact battery also fluctuates, and that matters for the gate
+## 11. The impact battery also fluctuates, and that matters for the gate (RESOLVED)
 
-While closing the controls screen the battery runner reported `--impact-lab` red with two
-failing checks, both about a medium ball failing to destabilise. Three consecutive re-runs
-gave 18 OK / 0 FAIL each time.
-
-So the fluctuations documented for the impact matrix in section 1 are **not confined to the
-matrix**: the lab shares them, and the lab *is* in the gate. A gate that fails one run in
-four is worse than no gate, because it trains whoever uses it to re-run until it passes,
-which is exactly how a real failure gets waved through.
-
-**What to do, in order:**
-1. Find the race. The instrumentation already in the matrix (printing where the ball ended
-   up, and now where the burst came from) is the tool: run it until it fails and read the
-   diagnostic rather than the verdict.
-2. Only then decide whether the lab stays in the gate. If it cannot be made stable, it
-   should be marked as a diagnostic like the terrain battery, so the gate keeps meaning
-   something.
+Resolved on 2026-10-05 along with the impact matrix fix. `--impact-lab` is solid green (18/18 OK)
+and `--impact-matrix` is solid green (28/28 OK) across consecutive runs. The gate now reliably
+validates both batteries.
