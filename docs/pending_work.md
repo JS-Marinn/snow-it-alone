@@ -234,3 +234,69 @@ Resolved on 2026-10-05.
 - Headless-safe `--i18n-check` battery implemented (`scripts/i18n_check_demo.gd`) and registered as the 9th battery in `tools/run_batteries.ps1` (`Gpu = $false`).
 - Full battery suite green: 9/9 batteries passing (143/143 checks passed).
 
+
+---
+
+## 12. URGENT: the diagnostics write to the player's real preference files
+
+Found on 2026-10-05 because the owner reported two symptoms in the running game: **the
+controls were inverted**, and the menu was showing the pseudo-locale.
+
+### The evidence
+
+`%APPDATA%\Godot\app_userdata\Snow It Together\settings.json` contained:
+
+```json
+{ "face_snow_auto_clear": true, "invert_look": true, "language": "en",
+  "master_volume": 0.33, "mouse_sensitivity": 1.0, "screen_shake": 1.0, "version": 1 }
+```
+
+`bindings.json` contained `"jump": [{"code": 74, "kind": "key"}]` — 74 is **J**, so the jump
+key had been taken away from Space — and `"interact": []`, `"move_forward": []` and the rest
+empty.
+
+Every one of those values is traceable to a diagnostic, not to the owner:
+
+| Written by | Value | Effect on the player |
+|---|---|---|
+| `--settings-shot` | `invert_look = true` | **the mouse was inverted** |
+| `--settings-shot` | `master_volume = 0.33` | the game played at a third of the volume |
+| `--settings-shot` | `language = en_XA` | the menu appeared in the pseudo-locale |
+| `--rebind-shot` | `jump` rebound to `J` | **Space stopped jumping** |
+
+Both files were deleted, which restores the defaults: English, no inversion, full volume,
+Space jumps. That fixes the player, not the bug.
+
+### One piece of good news
+
+The movement bindings survived, and that was by design. This project ships its bindings as
+`physical_keycode`, which `describe_event()` refuses to describe (that was a fix made earlier
+to stop a reload destroying them). They were therefore written as **empty arrays**, and
+`apply_dictionary()` skips empty lists, so loading could not wipe them. **The safety held in
+the field.**
+
+### The bug to fix
+
+`SettingsSystem.save()` and `InputBindings.save()` write to the real `user://` paths, and the
+diagnostics call them. A test that changes the player's settings is not a test.
+
+**Prescribed fix, in this order:**
+
+1. Give both modules an overridable path: `static var path: String = PATH`, and have `save()`
+   and `load_from_disk()` use `path` instead of the constant.
+2. Every `--*-shot` diagnostic sets `path` to a scratch file
+   (`user://scratch_settings.json`, `user://scratch_bindings.json`) before it writes anything,
+   and **deletes that scratch file** when it quits.
+3. Make the pseudo-locale non-persistable: `en_XA` must not be written to the settings file,
+   and must only be offered in debug builds (`OS.is_debug_build()`), the same way the
+   Playground menu entry is.
+4. **Acceptance test, and do not skip it:** run each `--*-shot`, then assert that the real
+   `settings.json` and `bindings.json` **do not exist or are byte-identical** to before. Add
+   that assertion to `--i18n-check` or to a small `--diagnostics-are-harmless` battery, so
+   this can never come back.
+
+### The wider lesson
+
+A diagnostic that writes to real state is not a diagnostic. The batteries already avoid this
+for saves (they use scratch slots 98 and 99 — see `--save-roundtrip`), so the pattern and the
+reasoning already existed in this project. The newer diagnostics did not follow it.
