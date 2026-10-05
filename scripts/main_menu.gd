@@ -134,6 +134,18 @@ func _build_ui() -> void:
 	quit_button.pressed.connect(func(): get_tree().quit())
 	column.add_child(quit_button)
 
+	# Development builds only. The Playground is a measuring bench, not content, so it
+	# must never sit in front of a player: Continue and New Game always open the level.
+	# Debug-only keeps it one click away while developing without shipping it.
+	if OS.is_debug_build():
+		column.add_child(_spacer(10.0))
+		var dev_button := Button.new()
+		dev_button.text = "Playground (dev)"
+		dev_button.custom_minimum_size = Vector2(0.0, 38.0)
+		dev_button.tooltip_text = "Measuring bench: 40 m runway, four surfaces, dummies. Not part of the game."
+		dev_button.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/playground.tscn"))
+		column.add_child(dev_button)
+
 	column.add_child(_spacer(18.0))
 
 	_status = Label.new()
