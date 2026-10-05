@@ -24,15 +24,15 @@ const MAX_RADIUS: float = 0.55
 const MIN_RADIUS: float = 0.07
 ## Maximum force the player can push a ball with (N). Being a force and not
 ## an acceleration, a heavy ball barely moves.
-const PUSH_FORCE_NEWTONS: float = 260.0
+const PUSH_FORCE_NEWTONS: float = 380.0
 ## Push acceleration cap, so a tiny ball is not launched across the field.
-const PUSH_MAX_ACCEL: float = 26.0
+const PUSH_MAX_ACCEL: float = 32.0
 ## Target rolling speed (m/s) when pushing a light ball along the ground.
-const PUSH_SPEED: float = 1.8
+const PUSH_SPEED: float = 3.2
 ## Floor on the target push speed (m/s) so a massive ball never stalls completely.
-const PUSH_MIN_SPEED: float = 0.8
+const PUSH_MIN_SPEED: float = 1.8
 ## Reference mass (kg) at and below which the ball rolls at full PUSH_SPEED.
-const PUSH_REF_MASS: float = 15.0
+const PUSH_REF_MASS: float = 25.0
 ## Minimum distance (m) to push: prevents pushing when standing on or inside the ball.
 const PUSH_REACH_MIN: float = 1.0
 ## Maximum distance (m) to push: player must walk behind the ball if it rolls further.
@@ -605,9 +605,12 @@ func _shatter(impact_velocity: Vector3 = Vector3.ZERO) -> void:
 	queue_free()
 
 ## Target rolling speed for this ball's current mass (the beetle scale).
-func target_push_speed() -> float:
-	var mass_factor: float = clampf(PUSH_REF_MASS / maxf(mass, 0.1), 0.45, 1.0)
-	return maxf(PUSH_SPEED * mass_factor, PUSH_MIN_SPEED)
+func target_push_speed(sprint: bool = false) -> float:
+	var mass_factor: float = clampf(PUSH_REF_MASS / maxf(mass, 0.1), 0.55, 1.0)
+	var spd: float = maxf(PUSH_SPEED * mass_factor, PUSH_MIN_SPEED)
+	if sprint:
+		spd *= 1.35
+	return spd
 
 # Interaction
 ## Player push: rolls the ball toward a target speed scaled by mass (the dung beetle
@@ -657,12 +660,13 @@ func push(from_position: Vector3, strength: float, by_node: Node = null) -> void
 		apply_force(centering_force, Vector3.ZERO)
 
 	# 2. Forward rolling push: applied above center of mass to roll forward towards target speed
-	var target_speed := target_push_speed()
+	var is_sprint: bool = (by_node != null and Input.is_action_pressed("sprint"))
+	var target_speed := target_push_speed(is_sprint)
 	var cur_fwd_speed := linear_velocity.dot(fwd)
 	if cur_fwd_speed < target_speed:
 		var speed_deficit := target_speed - cur_fwd_speed
 		var force_factor := clampf(speed_deficit / maxf(target_speed * 0.4, 0.1), 0.0, 1.0)
-		var max_push := maxf(PUSH_FORCE_NEWTONS, mass * 4.2)
+		var max_push := maxf(PUSH_FORCE_NEWTONS, mass * 5.0)
 		var force := minf(strength * max_push * force_factor, PUSH_MAX_ACCEL * mass)
 		var fwd_force := fwd * force
 		apply_force(fwd_force, Vector3(0.0, radius * 0.15, 0.0))

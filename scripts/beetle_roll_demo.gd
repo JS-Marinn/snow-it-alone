@@ -40,13 +40,20 @@ func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -
 		return
 
 	_setup_camera()
+
+	# Free obstacle ramps so the entire 36m virgin runway is clear for rolling
+	if root != null:
+		for child in root.get_children():
+			if child.name.begins_with("Ramp"):
+				child.queue_free()
+
 	_prepare_player_and_ball()
 
 func _prepare_player_and_ball() -> void:
 	# Position on virgin snow runway in the playground (Lane 0 at x=-3.75)
-	# Running from z=0.0 towards -Z (along unobstructed runway to -15.0).
+	# Running from z=12.0 towards -Z (along unobstructed runway to -12.0).
 	var x_pos := -3.75
-	var z_pos := 0.0
+	var z_pos := 12.0
 	if "field_length" in snow_field and float(snow_field.field_length) < 25.0:
 		x_pos = 0.0
 		z_pos = 4.0
@@ -190,7 +197,8 @@ func _evaluate_and_report() -> void:
 	for s in _samples:
 		if s["t"] >= 0.5:
 			peak_speed = maxf(peak_speed, s["v"])
-	var peak_ratio: float = peak_speed / 1.8
+	var target_ref: float = float(_ball.get("PUSH_SPEED")) if _ball and _ball.get("PUSH_SPEED") != null else 3.2
+	var peak_ratio: float = peak_speed / target_ref
 	print("[BEETLE] peak speed=%.2f m/s (ratio to target=%.2f, bar <= 1.15)" % [peak_speed, peak_ratio])
 	_check("ball speed stays within 15% of target for its mass", peak_ratio <= 1.15)
 

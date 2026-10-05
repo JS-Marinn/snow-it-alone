@@ -461,11 +461,12 @@ func _physics_process(delta: float) -> void:
 	# Rolling a snowball on the ground: the player moves at the ball's rolling speed
 	var rolling_target: Node3D = _push_target as Node3D
 	if (is_ground_pushing or (Input.is_action_pressed("interact") and _push_target != null)) and rolling_target and is_instance_valid(rolling_target):
-		var ball_target_speed: float = rolling_target.target_push_speed() if rolling_target.has_method("target_push_speed") else 1.8
+		var is_sprint := Input.is_action_pressed("sprint")
+		var ball_target_speed: float = rolling_target.target_push_speed(is_sprint) if rolling_target.has_method("target_push_speed") else 3.2
 		var offset: Vector3 = rolling_target.global_position - global_position
 		var dist: float = Vector2(offset.x, offset.z).length()
 		var dist_error: float = dist - 1.5
-		target_speed = ball_target_speed * clampf(1.0 + dist_error * 0.6, 0.4, 1.4)
+		target_speed = ball_target_speed * clampf(1.0 + dist_error * 0.6, 0.5, 1.4)
 
 	var wish_dir = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 	var wants_move := input_dir.length_squared() > 0.01
@@ -475,7 +476,10 @@ func _physics_process(delta: float) -> void:
 		var to_ball := rolling_target.global_position - global_position
 		to_ball.y = 0.0
 		if to_ball.length_squared() > 0.01:
-			wish_dir = to_ball.normalized()
+			if absf(input_dir.x) > 0.1:
+				wish_dir = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+			else:
+				wish_dir = to_ball.normalized()
 
 	# Stagger from an oversized ball: lateral drift and less control.
 	if stagger > 0.01:
@@ -511,7 +515,7 @@ func _physics_process(delta: float) -> void:
 	# While the blade is actually working, the drag model already accounts for the
 	# effort of moving snow. Piling the walking-surface penalty on top of it turns
 	# shovelling into a crawl, so the surface only governs free movement.
-	if current_tool == ToolType.SHOVEL and is_pushing:
+	if (current_tool == ToolType.SHOVEL and is_pushing) or is_ground_pushing:
 		move_speed = target_speed
 	_move_horizontal(wish_dir, move_speed, delta, wants_move)
 
