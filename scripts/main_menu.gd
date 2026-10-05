@@ -32,6 +32,7 @@ func _ready() -> void:
 	var demo_flags := [
 		"--phys-demo", "--carve-quality", "--ball-shape", "--movement-lab",
 		"--impact-lab", "--impact-matrix", "--plow-demo", "--save-roundtrip",
+		"--pause-shot",
 	]
 	for flag in demo_flags:
 		if OS.get_cmdline_user_args().has(flag):

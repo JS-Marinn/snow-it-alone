@@ -24,6 +24,9 @@ var player_ref: CharacterBody3D
 var _hint_timer: float = 0.0
 ## Snow across the face. Sits under the HUD text but over the world.
 var _face_overlay: TextureRect
+## The pause panel, and the physics frame count when it opened, for the diagnostic.
+var _pause_menu: PanelContainer
+var _physics_frames_at_pause: int = 0
 
 const CLEAR_TARGET_PCT: float = 90.0
 
@@ -45,6 +48,10 @@ const CONTROLS_TEXT := """CONTROLS  (H to hide this panel)
 
 func _ready() -> void:
 	_build_face_overlay()
+	# The HUD has to keep working while the game is paused: it owns the pause menu, so
+	# being paused must not stop it from reading the key that unpauses.
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_build_pause_menu()
 	if victory_panel:
 		victory_panel.visible = false
 	# The help panel starts hidden so it never covers the scene.
@@ -52,6 +59,80 @@ func _ready() -> void:
 		panel_controls.visible = false
 	if label_controls:
 		label_controls.text = CONTROLS_TEXT
+	if OS.get_cmdline_user_args().has("--pause-shot"):
+		_run_pause_shot()
+
+## Pause that pauses. Until now ESC only released the mouse while the snow kept falling
+## behind it, which is not a pause menu, it is a way to lose the mouse.
+func _build_pause_menu() -> void:
+	_pause_menu = PanelContainer.new()
+	_pause_menu.name = "PauseMenu"
+	_pause_menu.visible = false
+	_pause_menu.set_anchors_preset(Control.PRESET_CENTER)
+	_pause_menu.custom_minimum_size = Vector2(260.0, 0.0)
+	add_child(_pause_menu)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 18)
+	margin.add_theme_constant_override("margin_right", 18)
+	margin.add_theme_constant_override("margin_top", 14)
+	margin.add_theme_constant_override("margin_bottom", 14)
+	_pause_menu.add_child(margin)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	margin.add_child(column)
+
+	var title := Label.new()
+	title.text = "Paused"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	column.add_child(title)
+
+	column.add_child(_pause_button("Resume", func() -> void: _set_paused(false)))
+	column.add_child(_pause_button("Restart level", func() -> void:
+		_set_paused(false)
+		get_tree().reload_current_scene()))
+	column.add_child(_pause_button("Quit to menu", func() -> void:
+		_set_paused(false)
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")))
+
+func _pause_button(label: String, action: Callable) -> Button:
+	var button := Button.new()
+	button.text = label
+	button.custom_minimum_size = Vector2(0.0, 40.0)
+	button.pressed.connect(action)
+	return button
+
+func _input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		_set_paused(not get_tree().paused)
+		get_viewport().set_input_as_handled()
+
+func _set_paused(paused: bool) -> void:
+	get_tree().paused = paused
+	if _pause_menu:
+		_pause_menu.visible = paused
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if paused else Input.MOUSE_MODE_CAPTURED
+	print("[PAUSE] paused=%s" % str(paused))
+
+## Diagnostic: prove the menu exists, that the tree really stopped, and what it looks
+## like. A pause that only hides the world behind a panel would pass a screenshot test,
+## so the world's own clock is checked too.
+func _run_pause_shot() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_physics_frames_at_pause = Engine.get_physics_frames()
+	_set_paused(true)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	var err := img.save_png("res://pause_menu.png")
+	print("[PAUSE] menu visible=%s, tree paused=%s, physics frames while paused=%d, shot err=%d" % [
+		str(_pause_menu.visible), str(get_tree().paused),
+		Engine.get_physics_frames() - _physics_frames_at_pause, err])
+	get_tree().create_timer(0.3).timeout.connect(get_tree().quit)
 
 ## A hand-drawn snow splat, generated once: no art needed and it scales to any
 ## resolution. Added first so the HUD text stays readable through it.
