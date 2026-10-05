@@ -1,0 +1,25 @@
+Copyright (c) 2026 JS-Marinn. All rights reserved.
+
+This repository is public so the project can be followed and evaluated. Being
+public is not a licence: no permission is granted to copy, modify, distribute,
+sublicense, sell, or use any part of this work, including its source code, its
+art, its audio, its design documents and its name, without prior written
+permission from the copyright holder.
+
+The game built from this repository is a commercial product in development.
+
+Third-party components
+
+This project uses third-party assets and tools that remain under their own
+licences and are NOT covered by the statement above. They are listed, with their
+licences and the evidence for each, in `docs/asset_licenses.md`. Anything marked
+there as unverified must be confirmed before release.
+
+No warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+For licensing enquiries, contact the copyright holder through
+https://github.com/JS-Marinn
