@@ -1,0 +1,22 @@
+# Godot editor cache and generated API dump
+/.godot/
+/extension_api.json
+
+# Export settings can hold keystore passwords; keep them local
+export_presets.cfg
+
+# Local state of the Godot AI MCP addon (downloaded updates and backups)
+addons/.godot_ai_update/
+
+# Diagnostic screenshots and logs produced by the test batteries, root only
+/*.png
+/*.png.import
+/*.log
+/run_output.txt
+
+# Staging area for downloaded asset packs
+/scratch_assets/
+
+# OS junk
+.DS_Store
+Thumbs.db

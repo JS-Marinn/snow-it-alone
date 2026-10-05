@@ -1,0 +1,282 @@
+[gd_scene format=3 uid="uid://dvhsh5fllarge"]
+
+[ext_resource type="Script" uid="uid://b60wceipulqbe" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" uid="uid://cspynuj2x4hov" path="res://scripts/snow_field.gd" id="2_snowfield"]
+[ext_resource type="Script" uid="uid://3jdafuj52ncw" path="res://scripts/player_controller.gd" id="3_player"]
+[ext_resource type="Script" uid="uid://v5t0uv7q2qdn" path="res://scripts/hud.gd" id="4_hud"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sunset"]
+sky_top_color = Color(0.25, 0.42, 0.7, 1)
+sky_horizon_color = Color(0.86, 0.65, 0.52, 1)
+ground_bottom_color = Color(0.18, 0.22, 0.28, 1)
+ground_horizon_color = Color(0.8, 0.62, 0.5, 1)
+ground_curve = 0.15
+sun_angle_max = 28.0
+sun_curve = 0.12
+
+[sub_resource type="Sky" id="Sky_sunset"]
+sky_material = SubResource("ProceduralSkyMaterial_sunset")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_sunset")
+ambient_light_source = 3
+ambient_light_color = Color(0.35, 0.42, 0.55, 1)
+ambient_light_sky_contribution = 0.8
+ambient_light_energy = 1.1
+tonemap_mode = 2
+tonemap_exposure = 1.05
+glow_enabled = true
+glow_intensity = 0.35
+glow_bloom = 0.12
+ssao_enabled = true
+ssao_radius = 1.15
+ssao_intensity = 0.85
+ssao_power = 1.2
+fog_enabled = true
+fog_light_color = Color(0.55, 0.58, 0.68, 1)
+fog_density = 0.006
+fog_sky_affect = 0.5
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_flake"]
+shading_mode = 0
+albedo_color = Color(1, 1, 1, 0.88)
+
+[sub_resource type="BoxMesh" id="BoxMesh_flake"]
+material = SubResource("StandardMaterial3D_flake")
+size = Vector3(0.035, 0.035, 0.035)
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+radius = 0.4
+height = 1.8
+
+[node name="Main" type="Node3D" unique_id=2130090501]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1612818486]
+environment = SubResource("Environment_main")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1537982880]
+transform = Transform3D(0.819152, -0.321394, 0.474667, 0, 0.829038, 0.559193, -0.573576, -0.458065, 0.679106, 0, 12, 0)
+light_color = Color(1, 0.88, 0.76, 1)
+light_energy = 1.25
+shadow_enabled = true
+shadow_bias = 0.04
+directional_shadow_max_distance = 60.0
+
+[node name="SnowParticles" type="CPUParticles3D" parent="." unique_id=1668324382]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 9, 0)
+amount = 350
+lifetime = 6.5
+preprocess = 3.0
+mesh = SubResource("BoxMesh_flake")
+emission_shape = 3
+emission_box_extents = Vector3(20, 1, 20)
+gravity = Vector3(0.4, -1.6, 0.2)
+initial_velocity_min = 0.2
+initial_velocity_max = 0.7
+
+[node name="SnowField" type="Node3D" parent="." unique_id=1548625465]
+script = ExtResource("2_snowfield")
+
+[node name="Player" type="CharacterBody3D" parent="." unique_id=568218443]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 4.5)
+script = ExtResource("3_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=1607542164]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("CapsuleShape3D_player")
+
+[node name="Camera3D" type="Camera3D" parent="Player" unique_id=1496868799]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
+current = true
+
+[node name="HandRoot" type="Node3D" parent="Player/Camera3D" unique_id=1410263889]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.2, -0.18)
+
+[node name="Shovel" type="Node3D" parent="Player/Camera3D/HandRoot" unique_id=1860961700]
+
+[node name="SnowBlower" type="Node3D" parent="Player/Camera3D/HandRoot" unique_id=1095417756]
+visible = false
+
+[node name="SaltShaker" type="Node3D" parent="Player/Camera3D/HandRoot" unique_id=730361845]
+visible = false
+
+[node name="HUD" type="CanvasLayer" parent="." unique_id=1614889922]
+script = ExtResource("4_hud")
+
+[node name="MarginContainer" type="MarginContainer" parent="HUD" unique_id=607793710]
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 90.0
+grow_horizontal = 2
+theme_override_constants/margin_left = 30
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 30
+
+[node name="VBoxTop" type="VBoxContainer" parent="HUD/MarginContainer" unique_id=1525646717]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="HUD/MarginContainer/VBoxTop" unique_id=1658915966]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "SNOW IT TOGETHER - Entrance Path"
+horizontal_alignment = 1
+
+[node name="ProgressBar" type="ProgressBar" parent="HUD/MarginContainer/VBoxTop" unique_id=354146535]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+
+[node name="HBoxInfo" type="HBoxContainer" parent="HUD/MarginContainer/VBoxTop" unique_id=688752316]
+layout_mode = 2
+
+[node name="LabelPct" type="Label" parent="HUD/MarginContainer/VBoxTop/HBoxInfo" unique_id=1484473599]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "Cleared: 0%"
+
+[node name="LabelKg" type="Label" parent="HUD/MarginContainer/VBoxTop/HBoxInfo" unique_id=307483545]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "Snow removed: 0.0 kg"
+horizontal_alignment = 1
+
+[node name="LabelCoins" type="Label" parent="HUD/MarginContainer/VBoxTop/HBoxInfo" unique_id=1776857267]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 15
+text = "Money: $0"
+horizontal_alignment = 2
+
+[node name="VBoxBottom" type="VBoxContainer" parent="HUD" unique_id=661481620]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -105.0
+offset_right = 220.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+alignment = 1
+
+[node name="LabelTool" type="Label" parent="HUD/VBoxBottom" unique_id=1594693660]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Tool: [1] Snow Shovel"
+horizontal_alignment = 1
+
+[node name="ShovelBar" type="ProgressBar" parent="HUD/VBoxBottom" unique_id=1486837678]
+custom_minimum_size = Vector2(0, 16)
+layout_mode = 2
+max_value = 25.0
+step = 0.1
+
+[node name="LabelTossHint" type="Label" parent="HUD/VBoxBottom" unique_id=479932022]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
+theme_override_font_sizes/font_size = 13
+text = "Blade full - right click to THROW"
+horizontal_alignment = 1
+
+[node name="Crosshair" type="CenterContainer" parent="HUD" unique_id=673256930]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -20.0
+offset_top = -20.0
+offset_right = 20.0
+offset_bottom = 20.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Dot" type="ColorRect" parent="HUD/Crosshair" unique_id=399734794]
+custom_minimum_size = Vector2(6, 6)
+layout_mode = 2
+mouse_filter = 2
+color = Color(1, 1, 1, 0.8)
+
+[node name="PanelControls" type="PanelContainer" parent="HUD" unique_id=1689321867]
+visible = false
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = -200.0
+offset_right = 330.0
+offset_bottom = -20.0
+grow_vertical = 0
+
+[node name="Margin" type="MarginContainer" parent="HUD/PanelControls" unique_id=139388154]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="LabelControls" type="Label" parent="HUD/PanelControls/Margin" unique_id=1365500126]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "CONTROLS (H to hide):
+- W, A, S, D: Move (Shift: Sprint)
+- Space: Jump
+- Left click: Push / work
+- Right click, or E: Throw snow
+- 1, 2, 3: Shovel / Blower / Salt
+- ESC: release mouse
+- R: restart level"
+
+[node name="VictoryPanel" type="PanelContainer" parent="HUD" unique_id=1686212483]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -220.0
+offset_top = -70.0
+offset_right = 220.0
+offset_bottom = 70.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="HUD/VictoryPanel" unique_id=1368936873]
+layout_mode = 2
+alignment = 1
+
+[node name="Title" type="Label" parent="HUD/VictoryPanel/VBox" unique_id=2033465500]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.85, 0.3, 1)
+theme_override_font_sizes/font_size = 22
+text = "ENTRANCE PATH CLEARED"
+horizontal_alignment = 1
+
+[node name="Sub" type="Label" parent="HUD/VictoryPanel/VBox" unique_id=1815646853]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "The snow is cleared. Press [R] to play again."
+horizontal_alignment = 1
+
+[node name="Crosshair2" type="ColorRect" parent="HUD" unique_id=683570212]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -3.0
+offset_top = -3.0
+offset_right = 3.0
+offset_bottom = 3.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(1, 1, 1, 0.75)

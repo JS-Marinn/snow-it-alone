@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://52ot4t0gjeej"
+path="res://.godot/imported/snow_sim.glsl-db0c46e4c57a7ca3ecaf01940bc81bcc.res"
+
+[deps]
+
+source_file="res://shaders/snow_sim.glsl"
+dest_files=["res://.godot/imported/snow_sim.glsl-db0c46e4c57a7ca3ecaf01940bc81bcc.res"]
+
+[params]
+
