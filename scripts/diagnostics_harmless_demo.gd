@@ -10,6 +10,7 @@ const SHOT_FLAGS: Array[String] = [
 	"--pause-shot",
 	"--settings-shot",
 	"--rebind-shot",
+	"--cjk-shot",
 ]
 
 var _ok: int = 0

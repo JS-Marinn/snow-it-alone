@@ -121,7 +121,7 @@ theme_override_constants/separation = 6
 [node name="Title" type="Label" parent="HUD/MarginContainer/VBoxTop" unique_id=1658915966]
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
-text = "SNOW IT TOGETHER - Entrance Path"
+text = ""
 horizontal_alignment = 1
 
 [node name="ProgressBar" type="ProgressBar" parent="HUD/MarginContainer/VBoxTop" unique_id=354146535]
@@ -135,20 +135,20 @@ layout_mode = 2
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
-text = "Cleared: 0%"
+text = ""
 
 [node name="LabelKg" type="Label" parent="HUD/MarginContainer/VBoxTop/HBoxInfo" unique_id=307483545]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
-text = "Snow removed: 0.0 kg"
+text = ""
 horizontal_alignment = 1
 
 [node name="LabelCoins" type="Label" parent="HUD/MarginContainer/VBoxTop/HBoxInfo" unique_id=1776857267]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
-text = "Money: $0"
+text = ""
 horizontal_alignment = 2
 
 [node name="VBoxBottom" type="VBoxContainer" parent="HUD" unique_id=661481620]
@@ -168,7 +168,7 @@ alignment = 1
 [node name="LabelTool" type="Label" parent="HUD/VBoxBottom" unique_id=1594693660]
 layout_mode = 2
 theme_override_font_sizes/font_size = 16
-text = "Tool: [1] Snow Shovel"
+text = ""
 horizontal_alignment = 1
 
 [node name="ShovelBar" type="ProgressBar" parent="HUD/VBoxBottom" unique_id=1486837678]
@@ -182,7 +182,7 @@ visible = false
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
 theme_override_font_sizes/font_size = 13
-text = "Blade full - right click to THROW"
+text = ""
 horizontal_alignment = 1
 
 [node name="Crosshair" type="CenterContainer" parent="HUD" unique_id=673256930]
@@ -226,14 +226,7 @@ theme_override_constants/margin_bottom = 10
 [node name="LabelControls" type="Label" parent="HUD/PanelControls/Margin" unique_id=1365500126]
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
-text = "CONTROLS (H to hide):
-- W, A, S, D: Move (Shift: Sprint)
-- Space: Jump
-- Left click: Push / work
-- Right click, or E: Throw snow
-- 1, 2, 3: Shovel / Blower / Salt
-- ESC: release mouse
-- R: restart level"
+text = ""
 
 [node name="VictoryPanel" type="PanelContainer" parent="HUD" unique_id=1686212483]
 visible = false
@@ -257,13 +250,13 @@ alignment = 1
 layout_mode = 2
 theme_override_colors/font_color = Color(0.95, 0.85, 0.3, 1)
 theme_override_font_sizes/font_size = 22
-text = "ENTRANCE PATH CLEARED"
+text = ""
 horizontal_alignment = 1
 
 [node name="Sub" type="Label" parent="HUD/VictoryPanel/VBox" unique_id=1815646853]
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
-text = "The snow is cleared. Press [R] to play again."
+text = ""
 horizontal_alignment = 1
 
 [node name="Crosshair2" type="ColorRect" parent="HUD" unique_id=683570212]

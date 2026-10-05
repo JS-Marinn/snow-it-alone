@@ -43,6 +43,8 @@ func _ready() -> void:
 
 	LocalizationManagerScript.ensure_loaded()
 	LocalizationManagerScript.add_listener(refresh_text)
+	if OS.get_cmdline_user_args().has("--pseudo-locale"):
+		LocalizationManagerScript.set_language("en_XA")
 
 	# Diagnostics never go through the menu, they boot straight into the level. The
 	# Playground has a scene of its own, so it is the one flag that goes elsewhere.
@@ -105,6 +107,42 @@ func _ready() -> void:
 			if img:
 				img.save_png("res://main_menu_pseudo.png")
 				print("[Menu] pseudo screenshot saved (size=%s)" % str(img.get_size()))
+		_cleanup_scratch_files()
+		get_tree().quit()
+	elif OS.get_cmdline_user_args().has("--cjk-shot"):
+		SettingsSystemScript.path = "user://scratch_settings.json"
+		InputBindingsScript.path = "user://scratch_bindings.json"
+		_title_label.text = "スノー・イット・トゥゲザー"
+		_subtitle_label.text = "除雪クルー - プロトタイプ"
+		_slots_title_label.text = "セーブスロット"
+		_continue_button.text = "コンティニュー"
+		_new_button.text = "新しいゲーム"
+		_delete_button.text = "スロット削除"
+		_quit_button.text = "終了"
+		_hint_label.text = "WASD 移動 - 左クリック 作業 - 右クリック 投げる"
+		if DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			var img_ja := get_viewport().get_texture().get_image()
+			if img_ja:
+				img_ja.save_png("res://main_menu_ja.png")
+				print("[CJK] ja screenshot saved (size=%s)" % str(img_ja.get_size()))
+		_title_label.text = "눈을 치우자 함께"
+		_subtitle_label.text = "제설 작업반 - 프로토타입"
+		_slots_title_label.text = "저장 슬롯"
+		_continue_button.text = "이어하기"
+		_new_button.text = "새 게임"
+		_delete_button.text = "슬롯 삭제"
+		_quit_button.text = "종료"
+		_hint_label.text = "WASD 이동 - 좌클릭 작업 - 우클릭 던지기"
+		if DisplayServer.get_name() != "headless":
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			var img_ko := get_viewport().get_texture().get_image()
+			if img_ko:
+				img_ko.save_png("res://main_menu_ko.png")
+				print("[CJK] ko screenshot saved (size=%s)" % str(img_ko.get_size()))
+		print("[CJK] Japanese and Korean visual test complete")
 		_cleanup_scratch_files()
 		get_tree().quit()
 

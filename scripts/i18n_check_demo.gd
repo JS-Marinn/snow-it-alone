@@ -202,3 +202,28 @@ func _run_checks() -> void:
 		print("[I18N] Pseudo-locale missing keys: %s" % str(pseudo_missing))
 	if not pseudo_not_longer.is_empty():
 		print("[I18N] Pseudo-locale not expanded for keys: %s" % str(pseudo_not_longer))
+
+	# Check 7: Font resource and glyph coverage for Latin, Cyrillic, Greek, Japanese, and Korean
+	var font: Font = load("res://fonts/default_font.tres")
+	_check("default_font.tres loaded successfully", font != null)
+	if font != null:
+		var test_scripts: Dictionary = {
+			"Latin & Pseudo-locale": "Éñglïsh Psêudô [SNÖW ÏT TÖGÊTHÊR~~~~~] äöüßç",
+			"Cyrillic": "Русский язык",
+			"Greek": "Ελληνικά",
+			"Japanese (ja)": "日本語 雪かき 新しいゲーム スノー",
+			"Korean (ko)": "한국어 눈 치우기 새 게임",
+		}
+		for script_name in test_scripts.keys():
+			var sample: String = test_scripts[script_name]
+			var missing_chars: Array[String] = []
+			for idx in range(sample.length()):
+				var ch := sample[idx]
+				if ch == " " or ch == "[" or ch == "]" or ch == "~":
+					continue
+				if not font.has_char(ch.unicode_at(0)):
+					missing_chars.append(ch)
+			var has_all := missing_chars.is_empty()
+			_check("font covers %s without tofu (tested %d chars)" % [script_name, sample.length()], has_all)
+			if not has_all:
+				print("[I18N] Missing glyphs for %s: %s" % [script_name, str(missing_chars)])

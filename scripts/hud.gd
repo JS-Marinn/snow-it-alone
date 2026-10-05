@@ -84,6 +84,8 @@ func _ready() -> void:
 	_build_settings_panel()
 	SettingsSystemScript.load_from_disk()
 	SettingsSystemScript.apply_to_engine()
+	if OS.get_cmdline_user_args().has("--pseudo-locale"):
+		LocalizationManagerScript.set_language("en_XA")
 	refresh_text()
 	if OS.get_cmdline_user_args().has("--rebind-shot"):
 		_run_rebind_shot()
@@ -321,6 +323,8 @@ func _run_settings_shot() -> void:
 	SettingsSystemScript.defaults()
 	var read_back: bool = SettingsSystemScript.load_from_disk()
 	SettingsSystemScript.apply_to_engine()
+	if OS.get_cmdline_user_args().has("--pseudo-locale"):
+		LocalizationManagerScript.set_language("en_XA")
 	print("[SETTINGS] wrote=%s read=%s -> %s" % [str(wrote), str(read_back), SettingsSystemScript.describe()])
 	var volume_ok: bool = absf(SettingsSystemScript.master_volume - 0.33) < 0.01
 	var invert_ok: bool = SettingsSystemScript.invert_look
@@ -476,21 +480,26 @@ func _process(delta: float) -> void:
 	_update_hint()
 
 func _update_tool_label() -> void:
-	if not label_tool_name or not player_ref:
+	if not label_tool_name:
 		return
-	if "current_tool" in player_ref:
-		match player_ref.current_tool:
-			0: # SHOVEL
-				label_tool_name.text = tr("HUD_TOOL_SHOVEL")
+	var tool_id: int = 0
+	if player_ref and "current_tool" in player_ref:
+		tool_id = player_ref.current_tool
+	match tool_id:
+		0: # SHOVEL
+			label_tool_name.text = tr("HUD_TOOL_SHOVEL")
+			if shovel_bar:
 				shovel_bar.visible = true
-				if "shovel_current_load" in player_ref:
+				if player_ref and "shovel_current_load" in player_ref:
 					shovel_bar.value = player_ref.shovel_current_load
 					shovel_bar.max_value = player_ref.shovel_capacity_max
-			1: # BLOWER
-				label_tool_name.text = tr("HUD_TOOL_BLOWER")
+		1: # BLOWER
+			label_tool_name.text = tr("HUD_TOOL_BLOWER")
+			if shovel_bar:
 				shovel_bar.visible = false
-			2: # SALT
-				label_tool_name.text = tr("HUD_TOOL_SALT")
+		2: # SALT
+			label_tool_name.text = tr("HUD_TOOL_SALT")
+			if shovel_bar:
 				shovel_bar.visible = false
 
 ## Snow across the face, driven by the player's reaction state.

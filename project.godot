@@ -113,3 +113,8 @@ jump={
 [internationalization]
 
 locale/fallback="en"
+
+[gui]
+
+theme/custom="res://default_theme.tres"
+theme/custom_font="res://fonts/default_font.tres"
