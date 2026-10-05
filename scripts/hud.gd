@@ -2,6 +2,7 @@ extends CanvasLayer
 
 const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 const SettingsSystemScript = preload("res://scripts/settings_system.gd")
+const InputBindingsScript = preload("res://scripts/input_bindings.gd")
 
 ## Emitted once when the level reaches the clear target, so the save file can be
 ## updated without the HUD knowing anything about persistence.
@@ -28,6 +29,9 @@ var _face_overlay: TextureRect
 ## The pause panel, and the physics frame count when it opened, for the diagnostic.
 var _pause_menu: PanelContainer
 var _settings_panel: PanelContainer
+var _controls_panel: PanelContainer
+var _control_buttons: Dictionary = {}
+var _listening_for: String = ""
 var _physics_frames_at_pause: int = 0
 
 const CLEAR_TARGET_PCT: float = 90.0
@@ -57,6 +61,8 @@ func _ready() -> void:
 	_build_settings_panel()
 	SettingsSystemScript.load_from_disk()
 	SettingsSystemScript.apply_to_engine()
+	if OS.get_cmdline_user_args().has("--rebind-shot"):
+		_run_rebind_shot()
 	if OS.get_cmdline_user_args().has("--settings-shot"):
 		_run_settings_shot()
 	if victory_panel:
@@ -434,3 +440,126 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.keycode == KEY_H:
 			if panel_controls:
 				panel_controls.visible = not panel_controls.visible
+
+
+## The controls screen. One row per action, showing what it is bound to right now.
+##
+## NOT yet reachable from the menu: the settings screen would need a "Controls" button and
+## the press-to-capture hook in _input. Until those two exist this is exercised by
+## --rebind-shot, which is deliberate: a screen a player can open but not use would be
+## worse than no screen.
+func _build_controls_panel() -> void:
+	if _controls_panel != null:
+		_refresh_control_buttons()
+		return
+	var centre := CenterContainer.new()
+	centre.name = "ControlsCentre"
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(centre)
+
+	_controls_panel = PanelContainer.new()
+	_controls_panel.name = "ControlsPanel"
+	_controls_panel.visible = false
+	_controls_panel.custom_minimum_size = Vector2(460.0, 0.0)
+	centre.add_child(_controls_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 20)
+	margin.add_theme_constant_override("margin_right", 20)
+	margin.add_theme_constant_override("margin_top", 16)
+	margin.add_theme_constant_override("margin_bottom", 16)
+	_controls_panel.add_child(margin)
+
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 7)
+	margin.add_child(column)
+
+	var title := Label.new()
+	title.text = "Controls"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 22)
+	column.add_child(title)
+
+	_control_buttons.clear()
+	for action in InputBindingsScript.ACTIONS:
+		if not InputMap.has_action(action):
+			continue
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		column.add_child(row)
+		var label := Label.new()
+		label.text = InputBindingsScript.action_label(action)
+		label.custom_minimum_size = Vector2(200.0, 0.0)
+		row.add_child(label)
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(200.0, 32.0)
+		button.pressed.connect(_start_listening.bind(action))
+		row.add_child(button)
+		_control_buttons[action] = button
+
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 10)
+	column.add_child(buttons)
+	buttons.add_child(_pause_button("Back", func() -> void: _show_controls(false)))
+	buttons.add_child(_pause_button("Reset controls", func() -> void:
+		InputBindingsScript.reset_to_defaults()
+		_refresh_control_buttons()))
+	_refresh_control_buttons()
+
+func _refresh_control_buttons() -> void:
+	for action in _control_buttons.keys():
+		var button: Button = _control_buttons[action]
+		if action == _listening_for:
+			button.text = "press a key or button"
+		else:
+			button.text = InputBindingsScript.binding_label(action)
+
+func _start_listening(action: String) -> void:
+	_listening_for = action
+	_refresh_control_buttons()
+	print("[BIND] listening for %s" % action)
+
+func _show_controls(visible_now: bool) -> void:
+	if _controls_panel == null:
+		return
+	_controls_panel.visible = visible_now
+	if _settings_panel:
+		_settings_panel.visible = not visible_now
+	if _pause_menu and visible_now:
+		_pause_menu.visible = false
+	if not visible_now:
+		_refresh_control_buttons()
+
+## Diagnostic: prove a rebinding survives a restart, which is the only thing that makes it
+## useful. Rebinds jump, wipes it deliberately, reloads from disk and checks it came back.
+func _run_rebind_shot() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	InputBindingsScript.capture_defaults()
+	var before := InputBindingsScript.binding_label("jump")
+	var key := InputEventKey.new()
+	key.keycode = KEY_J
+	var changed := InputBindingsScript.rebind("jump", key)
+	var after := InputBindingsScript.binding_label("jump")
+	InputMap.action_erase_events("jump")
+	var wiped := InputBindingsScript.binding_label("jump")
+	var reloaded := InputBindingsScript.load_from_disk()
+	var final := InputBindingsScript.binding_label("jump")
+	print("[BIND] jump %s -> %s (accepted=%s), wiped to %s, after reload %s (read=%s)" % [
+		before, after, str(changed), wiped, final, str(reloaded)])
+	print("[BIND] survived the restart: %s" % str(final.contains("J")))
+	var other := InputBindingsScript.binding_label("interact")
+	print("[BIND] a different action is untouched: interact = %s" % other)
+	_set_paused(true)
+	_build_controls_panel()
+	_show_controls(true)
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	var err := get_viewport().get_texture().get_image().save_png("res://controls_menu.png")
+	var rect := _controls_panel.get_global_rect()
+	var want: Vector2 = get_viewport().get_visible_rect().get_center()
+	var off := rect.get_center() - want
+	print("[BIND] controls screen visible=%s, %d rows, centre off by (%.0f, %.0f) px, shot err=%d" % [
+		str(_controls_panel.visible), _control_buttons.size(), off.x, off.y, err])
+	get_tree().create_timer(0.3).timeout.connect(get_tree().quit)
