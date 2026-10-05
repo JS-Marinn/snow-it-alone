@@ -1164,7 +1164,7 @@ func _release_carried(impulse: Vector3) -> void:
 		return
 	var body := carried
 	carried = null
-	body.end_carry(impulse)
+	body.end_carry(impulse, self)
 	carried_mass = 0.0
 	carry_two_hands = false
 	stagger = 0.0

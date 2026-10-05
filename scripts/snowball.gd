@@ -90,6 +90,10 @@ var _prev_velocity: Vector3 = Vector3.ZERO
 var _speed_history: Array[float] = []
 ## Maximum flight speed recorded, so contacts never lose initial throw velocity to solver damping.
 var _flight_max_speed: float = 0.0
+## Thrower grace: a ball just released/thrown ignores its carrier so it cannot instantly self-burst.
+const THROW_GRACE_DURATION: float = 0.35
+var thrower: Node = null
+var throw_grace_timer: float = 0.0
 
 var _mesh_instance: MeshInstance3D
 var _sphere_mesh: SphereMesh
@@ -423,6 +427,8 @@ func _check_impact_hits() -> void:
 	if speed < TIER_MIN_SPEED[ball_tier]:
 		return
 	for target in get_tree().get_nodes_in_group(IMPACT_GROUP):
+		if throw_grace_timer > 0.0 and target == thrower:
+			continue
 		if not target.has_method("impact_spheres"):
 			continue
 		var best_sphere: Dictionary = {}
@@ -466,6 +472,10 @@ func _physics_process(delta: float) -> void:
 	if _shattered:
 		return
 	_thud_cooldown = maxf(_thud_cooldown - delta, 0.0)
+	if throw_grace_timer > 0.0:
+		throw_grace_timer = maxf(throw_grace_timer - delta, 0.0)
+		if throw_grace_timer <= 0.0:
+			thrower = null
 	if is_carried:
 		return
 
@@ -499,6 +509,8 @@ func _on_body_entered(body: Node) -> void:
 	# the carrier's own capsule touches it: measured as a 124 kg ball bursting at 2.05 m
 	# of height and zero speed, which silently killed two phases of the physics battery.
 	if is_carried:
+		return
+	if throw_grace_timer > 0.0 and body == thrower:
 		return
 	# Hitting a person. Resolved from this actual contact if the sweep did not catch it:
 	if body != null and body.is_in_group(IMPACT_GROUP) and body.has_method("receive_ball_hit"):
@@ -594,6 +606,8 @@ func begin_carry() -> void:
 	_speed_history.clear()
 	_flight_max_speed = 0.0
 	_hit_applied = false
+	thrower = null
+	throw_grace_timer = 0.0
 	is_carried = true
 	freeze = true
 	freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
@@ -602,10 +616,13 @@ func begin_carry() -> void:
 func carry_to(target: Vector3, delta: float) -> void:
 	global_position = global_position.lerp(target, clampf(delta * 12.0, 0.0, 1.0))
 
-func end_carry(impulse_velocity: Vector3 = Vector3.ZERO) -> void:
+func end_carry(impulse_velocity: Vector3 = Vector3.ZERO, by_node: Node = null) -> void:
 	is_carried = false
 	freeze = false
 	_hit_applied = false
+	if by_node != null:
+		thrower = by_node
+		throw_grace_timer = THROW_GRACE_DURATION
 	linear_velocity = impulse_velocity
 	_flight_max_speed = impulse_velocity.length()
 	_last_harvest_pos = global_position

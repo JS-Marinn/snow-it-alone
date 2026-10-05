@@ -341,7 +341,7 @@ func begin_carry() -> void:
 func carry_to(target: Vector3, delta: float) -> void:
 	global_position = global_position.lerp(target, clampf(delta * 12.0, 0.0, 1.0))
 
-func end_carry(impulse_velocity: Vector3 = Vector3.ZERO) -> void:
+func end_carry(impulse_velocity: Vector3 = Vector3.ZERO, _by_node: Node = null) -> void:
 	is_carried = false
 	freeze = false
 	linear_velocity = impulse_velocity

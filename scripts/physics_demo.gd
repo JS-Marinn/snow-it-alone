@@ -241,6 +241,7 @@ func _s_ground_push_check() -> void:
 	_pin_player_facing = true
 	if _push_ball == null or not is_instance_valid(_push_ball):
 		_check("holding [E] pushes the ball along the ground", false)
+		_check("holding [E] does NOT lift the ball", false)
 		return
 	var moved := Vector2(_push_ball.global_position.x - _push_start.x, _push_ball.global_position.z - _push_start.z).length()
 	var rise: float = _push_ball.global_position.y - _push_start.y
@@ -706,9 +707,11 @@ func _s_carry_throw() -> void:
 func _s_carry_check() -> void:
 	Input.action_release("shovel_toss")
 	if _stack_high == null or not is_instance_valid(_stack_high):
+		_check("the carried ball follows the player", false)
+		_check("the throw releases the ball with impulse", false)
 		return
 	var carried: bool = player.has_method("is_carrying") and player.is_carrying()
-	var speed: float = _stack_high.linear_velocity.length()
+	var speed: float = maxf(_stack_high.linear_velocity.length(), _stack_high.arrival_speed())
 	print("[PHYS] carry: the ball followed the player %.2f m | carrying=%s | speed after throwing=%.2f m/s" % [
 		float(_before["carried_dist"]), str(carried), speed])
 	_check("the carried ball follows the player", float(_before["carried_dist"]) > 0.3)
