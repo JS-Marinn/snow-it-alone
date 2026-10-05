@@ -135,3 +135,37 @@ actually reports, which is how the earlier loss was found.
   at a time.**
 - A battery that hangs is a symptom, not a nuisance: the hang is what exposed the
   `class_name` mistake.
+
+---
+
+## 7. Both regressions resolved, and one of them was mine
+
+**The frame rate was never a regression. It was my own false alarm.** Measured back to back
+on the same machine: current code 55.6 FPS, and the commit that had previously measured
+119 FPS now measures 54.9 FPS. Identical. Nothing regressed; the machine measures roughly
+55 FPS in its present state and measured 119 earlier in the day when it was quieter.
+
+The lesson is about the gate, not the code: an **absolute FPS threshold in a battery is a
+machine-state detector, not a performance gate**. It was set at 60 and turned red for
+reasons that had nothing to do with the game. It now sits at 40 as a smoke check, and any
+serious performance claim should be made against a recorded baseline on a quiet machine,
+never against a number typed into a script.
+
+**The physics battery is genuinely losing coverage.** 37 checks are declared and 33 run.
+Six never execute:
+
+- a large ball is carried with both hands
+- the player staggers under its weight
+- it is held above the head
+- holding [E] pushes the ball along the ground
+- holding [E] does NOT lift the ball
+- the snowball is created
+
+That is two whole phases aborting early, not three stray assertions. Both begin with a
+precondition that returns silently: if the heavy ball is missing, its phase exits without a
+word. **A phase that cannot run must say so**, otherwise the battery reports success while
+testing less. The likely cause is real and worth chasing: the heavy ball is probably being
+destroyed before those phases by the new rule that a ball landing on a person always bursts.
+
+**What to do:** make an aborted phase print a FAIL (or an explicit skip that the runner
+counts), then fix whatever is eating the heavy ball.
