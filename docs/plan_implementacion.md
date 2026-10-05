@@ -207,25 +207,49 @@ El progreso de los contadores también es **compartido**: suman lo de los dos.
 
 ## 3. Mecánicas: especificaciones numéricas
 
-### 3.1 Movimiento con inercia y bunny hop ✅ **Implementado** (`PlayerMotor` dentro de `player_controller.gd`)
+### 3.1 Movimiento y bunny hop ✅ **Implementado** (en `player_controller.gd`)
+
+**El modelo es el de Quake, no una aproximación propia.** Referencias: el
+`PM_Accelerate`/`PM_Friction` de *Quake III* (`bg_pmove.c`) y el análisis de
+[QW physics air](https://www.quakeworld.nu/wiki/QW_physics_air). Tres reglas lo
+definen:
+
+1. **En el suelo la fricción se aplica SIEMPRE, también andando**, y después se
+   acelera hacia la velocidad deseada. Por eso el andar es contundente y está
+   acotado: no hay deslizamiento.
+2. **En el aire no hay fricción**, y la velocidad deseada se **recorta a un valor
+   pequeño** (`air_wish_speed`). La aceleración se limita a `wishspeed − v·wishdir`,
+   así que la única forma de ganar velocidad es **apuntar la dirección de empuje
+   perpendicular a la velocidad** y dejar que la aceleración la rote. Eso es el
+   *air strafe*.
+3. **El salto sólo aporta velocidad vertical.** Su premio es **saltarse la fricción
+   del frame de aterrizaje**: por eso el chequeo del salto va **antes** de la
+   fricción, igual que en `PM_WalkMove`. Un jugador que sólo mantiene adelante y
+   salta **no gana nada**.
 
 | Parámetro | Valor implementado | Medido con `--movement-lab` |
 |---|---|---|
-| Velocidad al andar / correr | 4,2 / 6,8 m/s | 3,15 / 5,29 m/s sobre polvo virgen |
-| Tope de bunny hop | **1,6 × carrera = 10,88 m/s** | la cadena llega al tope en **8 saltos** |
-| Ganancia por salto encadenado | ×1,06 | 4,89 → 10,88 m/s frente a un salto frío |
-| Ventana de encadenado | 0,12 s tras aterrizar | si se cierra, la velocidad cae (5,39 → 4,06) |
-| Air control | 0,35 · 4,0 m/s² de aceleración aérea | permite encadenar y ganar |
-| Fricción por superficie | ver §2.A.2 (por cohesión) | polvo 3,15 · compactado 4,41 m/s al andar |
+| Andar / correr | 4,2 / 6,8 m/s | 3,57 / 6,12 m/s sobre polvo (×0,85) |
+| `ground_accelerate` / `ground_friction` | 12 / 5 | el andar alcanza el objetivo exacto |
+| `ground_stop_speed` | 1,5 m/s | —— |
+| `air_accelerate` / `air_wish_speed` | 12 / 1,0 m/s | —— |
+| Tope del bhop | **2,0 × carrera = 13,6 m/s** | la cadena llega al tope en 8 saltos |
+| **Salto recto** (sólo adelante) | —— | run-up 5,99 → **5,78 m/s: no gana nada** |
+| **Air strafe ideal** | —— | run-up 6,66 → **13,60 m/s (+104 %)** |
+| Soltar el mando desde carrera | —— | **para en 0,37 s** |
+| Superficie por cohesión | polvo ≥0,45 compactado | polvo x0,85/fricción x1,2 · compactado x1,05/fricción x0,8 |
 | Compactación al aterrizar | `tamp` a 0,38 m, fuerza 0,18 | cada aterrizaje apelmaza y deja el suelo más rápido |
-| Deslizamiento en pendiente | ⬜ pendiente pendiente del Playground | —— |
-| Auto-bhop (accesibilidad) | `auto_bhop`, apagado por defecto | la prueba de cadena lo usa para encadenar |
+| Deslizamiento en pendiente | ⬜ pendiente del Playground | —— |
+| Auto-bhop (accesibilidad) | `auto_bhop`, apagado por defecto | saltarse el ritmo; no da velocidad por sí solo |
 
-**Prueba:** `--movement-lab` (9 comprobaciones) mide el andar y el correr por
-superficie, la cadena de saltos y su tope, el coste de aterrizar sin encadenar y la
-lectura de superficie (polvo virgen / compactado). **Limitación conocida:** el nivel
-actual es demasiado corto para una cadena completa, así que la carrera sale del
-campo simulado; el Playground necesitará una pista larga para medir la curva entera.
+**Prueba:** `--movement-lab` (10 comprobaciones) mide el andar/correr por superficie,
+que soltar frena en menos de medio segundo, que **saltar en línea recta no gana
+velocidad**, que **el air strafe sí** (con un bot que apunta el empuje perpendicular
+a la velocidad, o sea el caso ideal), el tope y el recuento de cadena.
+
+**Limitación conocida:** el nivel actual es corto (12 m de campo), así que las
+cadenas largas salen del campo simulado. El Playground necesitará una pista larga
+para medir la curva completa y las pendientes.
 
 ### 3.2 Impacto de bolas sobre jugadores ⬜ — **especificación cerrada**
 
