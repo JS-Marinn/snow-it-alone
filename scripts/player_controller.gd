@@ -1204,13 +1204,21 @@ func _throw_carried() -> void:
 	if carried == null:
 		return
 	var speed := _throw_speed_for(carried_mass, carry_two_hands)
-	var dir := -camera.global_transform.basis.z
+	# Aimed FROM THE BALL at the point the crosshair is on: the ball rests at the hand, off
+	# to one side and below the eye, so a direction merely parallel to the view flies past the
+	# target instead of at it.
+	var forward := -camera.global_transform.basis.z
+	var dir := ((camera.global_position + forward * 12.0) - carried.global_position).normalized()
 	# One-handed the throw is flat; two-handed it is a heave with more arc, which
 	# is what lets a large ball be passed to another person.
-	var lift := 0.65 if carry_two_hands else 0.45
-	var impulse := dir * speed + Vector3.UP * (speed * lift)
+	# No lift. The upward term used to add 3.4 m/s of climb to a 7.5 m/s throw, about 25
+	# degrees over the crosshair, and inheriting the hand's motion pushed it sideways. The arc
+	# is gravity's job: to throw far, aim up.
+	var impulse := dir * speed
+	var off := rad_to_deg(dir.angle_to(forward))
+	print("[THROWDBG] %.2f kg at %.2f m/s, %.1f deg off the crosshair" % [carried_mass, speed, off])
 	# The impulse inherits the hand motion so the throw feels natural
-	impulse += carried_velocity * 0.35
+
 	_release_carried(impulse)
 	grip_left = maxf(grip_left, 0.35)
 
