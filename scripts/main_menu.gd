@@ -20,7 +20,15 @@ var _confirm_overwrite: bool = false
 var _confirm_timer: float = 0.0
 
 func _ready() -> void:
-	# Diagnostics never go through the menu, they boot straight into the level.
+	# Diagnostics never go through the menu, they boot straight into the level. The
+	# Playground has a scene of its own, so it is the one flag that goes elsewhere.
+	var playground_flags := ["--playground", "--playground-check"]
+	for flag in playground_flags:
+		if OS.get_cmdline_user_args().has(flag):
+			# Deferred: swapping the scene from inside _ready() while the menu is still
+			# adding its own children is what makes Godot complain about a busy parent.
+			get_tree().call_deferred("change_scene_to_file", "res://scenes/playground.tscn")
+			return
 	var demo_flags := [
 		"--phys-demo", "--carve-quality", "--ball-shape", "--movement-lab",
 		"--impact-lab", "--plow-demo", "--save-roundtrip",
