@@ -342,6 +342,8 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 	# Rolling resistance: grows steeply with ball size
 	if _grounded:
+		if state.linear_velocity.length() < 0.2:
+			_flight_max_speed = 0.0
 		var omega := state.angular_velocity
 		if omega.length() > 0.02:
 			var size_ratio := clampf(radius / MAX_RADIUS, 0.0, 1.0)
@@ -476,9 +478,13 @@ func _check_impact_hits() -> void:
 func _segment_sphere_hit(from: Vector3, to: Vector3, center: Vector3, sphere_radius: float) -> Vector3:
 	var segment := to - from
 	var len_sq := segment.length_squared()
-	var t := 0.0
-	if len_sq > 1e-6:
-		t = clampf((center - from).dot(segment) / len_sq, 0.0, 1.0)
+	if len_sq <= 1e-6:
+		return Vector3.INF
+	var proj := (center - from).dot(segment)
+	# A segment moving away from the target sphere cannot be an incoming hit.
+	if proj <= 0.0:
+		return Vector3.INF
+	var t := clampf(proj / len_sq, 0.0, 1.0)
 	var closest := from + segment * t
 	if closest.distance_to(center) <= sphere_radius:
 		return closest
@@ -522,6 +528,19 @@ func arrival_speed() -> float:
 		fastest = maxf(fastest, s)
 	return fastest
 
+func _target_direction(target: Node) -> Vector3:
+	var target_center: Vector3 = (target as Node3D).global_position + Vector3(0.0, 0.9, 0.0) if target is Node3D else Vector3.ZERO
+	if target.has_method("impact_spheres"):
+		var min_d_sq: float = INF
+		for sphere in target.impact_spheres():
+			var c: Vector3 = sphere["center"]
+			var d_sq: float = global_position.distance_squared_to(c)
+			if d_sq < min_d_sq:
+				min_d_sq = d_sq
+				target_center = c
+	var diff: Vector3 = target_center - global_position
+	return diff.normalized() if diff.length_squared() > 1e-4 else Vector3.ZERO
+
 func _on_body_entered(body: Node) -> void:
 	if _shattered or _hit_applied:
 		return
@@ -537,12 +556,15 @@ func _on_body_entered(body: Node) -> void:
 		return
 	# Hitting a person. Resolved from this actual contact if the sweep did not catch it:
 	if body != null and body.is_in_group(IMPACT_GROUP) and body.has_method("receive_ball_hit"):
-		_hit_applied = true
 		var arrival := _prev_velocity
-		# The faster of the two. By the time a contact is reported the solver may already
-		# have cancelled the ball's velocity, and reading only one of these is how a ball
-		# thrown at 8 m/s failed its own size's speed gate and did nothing.
-		var hit_speed := maxf(arrival_speed(), linear_velocity.length())
+		var to_target := _target_direction(body)
+		var approach := arrival.dot(to_target)
+		# Only incoming projectiles approaching the person count as hits.
+		# A resting ball walked into or shoved by the player has approach <= 0 (stationary or moving away).
+		if approach <= 0.0:
+			return
+		_hit_applied = true
+		var hit_speed := maxf(arrival_speed(), approach)
 		var ball_tier := tier()
 		# The two ways this can end with no reaction recorded: the gate below refused the
 		# speed, or the target refused the hit because it was mid-reaction or immune. Both

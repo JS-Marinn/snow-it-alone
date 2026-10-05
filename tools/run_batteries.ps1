@@ -59,6 +59,7 @@ $batteries = @(
     @{ Flag = 'phys-demo';      Name = 'Physics';      Kind = 'result';     Gpu = $true  },
     @{ Flag = 'playground-check'; Name = 'Playground'; Kind = 'result';     Gpu = $true  },
     @{ Flag = 'beetle-roll';      Name = 'Dung beetle roll'; Kind = 'result'; Gpu = $true },
+    @{ Flag = 'contact-burst';    Name = 'Contact burst'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'carve-quality';    Name = 'Snow carving'; Kind = 'diagnostic'; Gpu = $true; MinFps = 40 }
 )
 

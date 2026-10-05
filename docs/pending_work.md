@@ -83,6 +83,29 @@ Status: **10 batteries registered in `tools/run_batteries.ps1` · 222 checks pas
   Escape genuinely pauses the scene tree (`_set_paused`), settings screen with persisted preferences (`_build_settings_panel`),
   controls rebinding screen (`_build_controls_panel`), and gamepad/Steam Deck stick look navigation.
 
+### Resting large snowball contact burst & false impact
+- **Problem**: When a player walked into a large snowball (`r = 0.45`) resting on the ground without throwing it,
+  the snowball burst and knocked down the player.
+- **Measured Cause**:
+  1. Walking into the ball caused the solver/push to accelerate the ball forward (away from the player) to ~3.64 m/s.
+  2. `_on_body_entered` measured `hit_speed := maxf(arrival_speed(), linear_velocity.length())`, which sampled the post-collision
+     shoved velocity (`3.64 m/s`), exceeding `TIER_MIN_SPEED[LARGE] = 2.5 m/s` despite the ball having `0.0 m/s` pre-contact speed.
+  3. `_check_impact_hits` sweep hit detection tested `_segment_sphere_hit` against the player's 1.0 m total hit sphere radius
+     without checking if the segment was moving towards the target, triggering on balls already in proximity being pushed away.
+  4. `_push_touched_bodies` in `player_controller.gd` called `other.push(pos, strength)` without passing `self`, preventing
+     `pusher` and `push_grace_timer` from protecting the player walking into the ball.
+  5. `_flight_max_speed` in `snowball.gd` persisted past drop/flight speeds indefinitely even while resting grounded.
+- **Fix**:
+  1. In `snowball.gd::_on_body_entered`, required incoming pre-contact velocity (`arrival`) to be directed towards the target
+     (`approach = arrival.dot(to_target) > 0.0`) using 3D closest impact sphere direction, rejecting stationary or retreating balls.
+  2. Evaluated `hit_speed := maxf(arrival_speed(), approach)`, eliminating solver shove acceleration from impact speed.
+  3. In `_segment_sphere_hit`, rejected segments moving away from or parallel to the target sphere (`proj <= 0.0`).
+  4. Reset `_flight_max_speed = 0.0` when resting on the ground in `_integrate_forces`.
+  5. Passed `self` as `by_node` to `other.push()` in `_push_touched_bodies`.
+- **Evidence**: Added `--contact-burst` dual regression battery to `tools/run_batteries.ps1` (12 batteries total, 232 checks, 100% ALL GREEN):
+  verifies (a) walking into a resting large ball for 2.0s does NOT burst the ball and does NOT knock down the player, and
+  (b) a large ball thrown at the player DOES burst and DOES knock down the player.
+
 ---
 
 ## 3. Environment traps & method notes (paid for in lost time)

@@ -1392,7 +1392,9 @@ func _push_touched_bodies(horiz_speed: float) -> void:
 			continue
 		if other == _push_target and is_ground_pushing:
 			continue
-		if (other is SnowBall or other is PinProp) and other.has_method("push"):
+		if other is SnowBall:
+			other.push(global_position, strength, self)
+		elif other is PinProp and other.has_method("push"):
 			other.push(global_position, strength)
 
 # Hand sway and position.
