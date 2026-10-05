@@ -182,7 +182,7 @@ edge stays clean. Associated settings:
   - The **grip** runs out (`0.05 + 0.22·stagger` per second) and, if it reaches zero,
     the ball **slips out of your hands**: the HUD warns from 30%.
   - **Throw**: the speed falls with mass in a **smoothed** way
-    (`v = 9·(1.7/m)^0.30`) and with two hands there is an extra force ×1.8 with more arc.
+    (`v = 9·(1.7/m)^0.30`) and with two hands there is an extra force ×1.8. Both throws leave flat along the aim: any arc comes from gravity, which is why throwing further means aiming up.
     It never beats the light ball: weight always takes away, but a large ball is
     thrown **with force** (146 kg → 3.6 m/s) instead of staying stuck.
     Measured: **1.7 kg → 7.5 m/s** versus **146 kg → 3.6 m/s**.
