@@ -1,29 +1,29 @@
 # Snow It Alone
 
-Simulador táctil, atmosférico y *cozy* en primera persona desarrollado en **Godot 4.7 (Forward+)**, centrado en la limpieza, manipulación y **física granular** de la nieve en una pintoresca cabaña nórdica de montaña.
+A tactile, atmospheric and *cozy* first-person simulator developed in **Godot 4.7 (Forward+)**, focused on cleaning, manipulating and the **granular physics** of snow in a picturesque Nordic mountain cabin.
 
-El proyecto nació inspirado en la satisfacción táctil y zen de juegos como *PowerWash Simulator*, combinada con la identidad visual vibrante, escultural y de materiales físicos curiosos al estilo *Donkey Kong Bananza* y los estándares de producción de Nintendo.
-
----
-
-## 1. Pilares fundamentales del juego
-
-### Física granular fiel en tiempo real (en GPU)
-La nieve no es un simple efecto cosmético ni un plano estático: es un medio físico con **volumen real**, **conservación estricta de masa**, ángulo de reposo, cohesión y resistencia. Cada centímetro cúbico de nieve empujado o recogido existe dentro de la economía física del mundo.
-
-### Atmósfera *cozy* y estilizada
-Una cabaña de troncos cálida con chimenea humeante, rodeada de un bosque denso de pinos nevados, postes de madera y faroles rústicos de latón iluminados al atardecer. La experiencia combina el relax de despejar un patio invernal con la riqueza táctil de los materiales.
-
-### Dirección de arte: *Pure Baked PBR*
-Siguiendo directivas estrictas de arte técnico: cero shaders de distorsión procedimental dependientes de cámara en runtime. Superficies modeladas y texturizadas con coordenadas de objeto 3D sin costuras, horneadas a mapas PBR físicos estándar (Albedo, Normal, Roughness, Metallic) con biseles suaves y respuesta lumínica de pieza de museo.
-
-> **Estado de esta directiva:** cumplida en el terreno y la escena (el desplazamiento de la nieve no depende de la cámara), **pendiente** en los objetos nuevos de juego (bolas, ramas, piedras, carbón), que hoy usan materiales planos creados en runtime.
+The project was born inspired by the tactile, zen satisfaction of games such as *PowerWash Simulator*, combined with the vibrant, sculptural visual identity and curious physical materials in the style of *Donkey Kong Bananza* and Nintendo's production standards.
 
 ---
 
-## 2. Arquitectura técnica y tecnologías
+## 1. Core pillars of the game
 
-El proyecto opera sobre una arquitectura de muy alto rendimiento orientada a exprimir el hardware sin micro-tirones:
+### Faithful real-time granular physics (on GPU)
+Snow is not a mere cosmetic effect or a static plane: it is a physical medium with **real volume**, **strict mass conservation**, angle of repose, cohesion and resistance. Every cubic centimetre of snow pushed or collected exists within the physical economy of the world.
+
+### *Cozy*, stylised atmosphere
+A warm log cabin with a smoking chimney, surrounded by a dense forest of snowy pines, wooden posts and rustic brass lanterns lit at sunset. The experience combines the relaxation of clearing a winter yard with the tactile richness of the materials.
+
+### Art direction: *Pure Baked PBR*
+Following strict technical art directives: zero runtime camera-dependent procedural distortion shaders. Surfaces modelled and textured with seamless 3D object coordinates, baked into standard physical PBR maps (Albedo, Normal, Roughness, Metallic) with soft bevels and museum-piece light response.
+
+> **Status of this directive:** met in the terrain and the scene (snow displacement does not depend on the camera), **pending** in the new game objects (snowballs, branches, stones, coal), which today use flat materials created at runtime.
+
+---
+
+## 2. Technical architecture and technologies
+
+The project runs on a very high-performance architecture aimed at squeezing the hardware without micro-stutters:
 
 ```
                           ┌────────────────────────────────────────────────────────┐
@@ -31,156 +31,156 @@ El proyecto opera sobre una arquitectura de muy alto rendimiento orientada a exp
                           │  - Forward+ Renderer                                   │
                           │  - Compute Shader: shaders/snow_sim.glsl               │
                           │  - Ping-Pong RGBA32F Storage Textures (Texture2DRD)    │
-                          │  - Espejo reducido 64x64 (resumen para gameplay)       │
+                          │  - Reduced 64x64 mirror (summary for gameplay)         │
                           └───────────▲────────────────────────────────▲───────────┘
                                       │ Read/Write Storage             │ Sampling
                                       │                                │
 ┌─────────────────────────────────────┴────────┐        ┌──────────────┴──────────────────────────┐
-│               SIMULACIÓN GPU                 │        │                 RENDERER                │
+│               GPU SIMULATION                 │        │                 RENDERER                │
 │             scripts/snow_field.gd            │        │     materials/snow_deform.gdshader      │
-│  - Pipeline Compute asíncrono (RenderingDev) │        │  - Desplazamiento vertical por vértice  │
-│  - Conservación de masa y volumen            │        │  - Cálculo de normales View-Space       │
-│  - Ángulo de reposo bi-fásico y cohesión     │        │  - Sombra azulada en oquedades          │
-│  - Cola de operaciones y sondas asíncronas   │        │  - Destellos sutiles de escarcha        │
+│  - Async Compute pipeline (RenderingDev)     │        │  - Vertical per-vertex displacement     │
+│  - Mass and volume conservation              │        │  - View-Space normal computation        │
+│  - Bi-phasic angle of repose and cohesion    │        │  - Bluish shadow in cavities            │
+│  - Operation queue and async probes          │        │  - Subtle frost glints                  │
 └──────────────────────▲───────────────────────┘        └─────────────────────────────────────────┘
-                       │ Llamadas de corte, vertido, palmeo y sondeo
+                       │ Cut, pour, pat and probe calls
 ┌──────────────────────┴──────────────────────────────────────────────────────────────────────────┐
-│                                    GAMEPLAY & CONTROLADORES                                    │
+│                                     GAMEPLAY & CONTROLLERS                                      │
 │                                                                                                 │
 │  scripts/player_controller.gd        scripts/snowball.gd      scripts/pin_prop.gd               │
-│  - 1ª persona con bob/sway           - Acreción R³            - Clavado con PinJoint3D           │
-│  - Sustentación sobre los montones   - Masa/inercia dinám.    - Extraíble tirando                │
-│  - Pala, Turbina, Salero             - Rodadura y surco       scripts/props_system.gd            │
-│  - Resistencia, vertido, palmeo      scripts/snow_chunk.gd    - Reparto de objetos y bolas       │
-│  - Coger/cargar/lanzar               - Reabsorción de terrones                                   │
+│  - First person with bob/sway        - Accretion R³           - Pinning with PinJoint3D         │
+│  - Support on the snow piles         - Dynamic mass/inertia   - Removable by pulling            │
+│  - Shovel, Turbine, Salt Shaker      - Rolling and groove      scripts/props_system.gd          │
+│  - Resistance, pour, pat            scripts/snow_chunk.gd    - Object and ball spawning         │
+│  - Pick up/carry/throw               - Clump reabsorption                                       │
 │                                                                                                 │
 │  scripts/hud.gd  ·  scripts/sound_effects.gd  ·  scripts/main.gd                                │
 └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Simulación en compute shader (`shaders/snow_sim.glsl`)
+### Simulation in a compute shader (`shaders/snow_sim.glsl`)
 
-Toda la deformación y el transporte de nieve ocurre directamente en la GPU mediante Vulkan `RenderingDevice`. La textura de simulación (512×512 RGBA32F) **nunca se descarga a la CPU**: sólo se lee un resumen de 64×64 texeles (16 KB por frame, de forma asíncrona) que alimenta al gameplay.
+All snow deformation and transport happens directly on the GPU through Vulkan `RenderingDevice`. The simulation texture (512×512 RGBA32F) **is never downloaded to the CPU**: only a 64×64 texel summary is read (16 KB per frame, asynchronously) to feed the gameplay.
 
-| Canal | Significado |
+| Channel | Meaning |
 |---|---|
-| R | altura total (1.0 = `snow_depth` metros) |
-| G | nieve **suelta** movilizable (sólo esta fracción puede fluir) |
-| B | **cohesión / humedad** (modula el ángulo de fricción interna) |
-| A | scratch de relajación: `+escala` = celda en reposo, `−escala` = en flujo |
+| R | total height (1.0 = `snow_depth` metres) |
+| G | **loose** movable snow (only this fraction can flow) |
+| B | **cohesion / moisture** (modulates the internal friction angle) |
+| A | relaxation scratch: `+scale` = cell at rest, `−scale` = flowing |
 
-| Modo | Función |
+| Mode | Function |
 |---|---|
-| 0 | **Recolección**: muestrea la nieve bajo la plancha y la acumula en cubetas internas de masa. Con `max_cut` > 0 la hoja trabaja como formón (esculpido de láminas finas). |
-| 1 | **Depósito**: distribuye la nieve frente a la hoja con perfil longitudinal y dispersión lateral gaussiana, con bermas de desborde. |
-| 2 | **Sellos**: huella de bota (hunde y compacta) y limpieza radial (la sal, además, rompe la cohesión). |
-| 3 | **Vertido libre**: inyecta volumen con perfil cónico marcado como nieve suelta y húmeda. |
-| 4-5 | **Relajación y ángulo de reposo**: evalúa el exceso de pendiente entre texeles y distribuye el flujo granular con **histéresis bi-fásica** (32° dinámico, +8° para arrancar desde el reposo; la cohesión lo eleva hasta 54°). |
-| 6 | **Estadísticas y sondas**: lee de forma asíncrona progreso global, alturas locales y el volumen retirado por cada operación. |
-| 7 | **Palmeo**: aplana por difusión y asienta plásticamente empujando la masa sobrante hacia fuera. |
-| 8 | **Siega cilíndrica**: retira nieve a lo largo de un segmento y reporta el volumen exacto (acreción de bolas y esculpido). |
-| 9 | **Espejo CPU**: resumen 64×64 (altura media, nieve suelta, cohesión y altura máxima por bloque). |
+| 0 | **Collection**: samples the snow under the blade and accumulates it in internal mass buckets. With `max_cut` > 0 the blade works as a chisel (sculpting thin shavings). |
+| 1 | **Deposit**: distributes the snow in front of the blade with a longitudinal profile and Gaussian lateral spread, with overflow berms. |
+| 2 | **Stamps**: boot print (sinks and compacts) and radial clearing (salt also breaks the cohesion). |
+| 3 | **Free pour**: injects volume with a conical profile marked as loose and wet snow. |
+| 4-5 | **Relaxation and angle of repose**: evaluates the excess slope between texels and distributes the granular flow with **bi-phasic hysteresis** (32° dynamic, +8° to start from rest; cohesion raises it up to 54°). |
+| 6 | **Statistics and probes**: asynchronously reads global progress, local heights and the volume removed by each operation. |
+| 7 | **Patting**: flattens by diffusion and settles plastically by pushing the surplus mass outwards. |
+| 8 | **Cylindrical mowing**: removes snow along a segment and reports the exact volume (snowball accretion and sculpting). |
+| 9 | **CPU mirror**: 64×64 summary (average height, loose snow, cohesion and maximum height per block). |
 
-### Malla de nieve y shader (`materials/snow_deform.gdshader`)
+### Snow mesh and shader (`materials/snow_deform.gdshader`)
 
-Un plano de **8 × 12 metros** subdividido densamente (200 × 260 vértices) que eleva su geometría según el mapa de alturas, con cálculo analítico de normales por fragmento para evitar dientes de sierra, y que revela un pavimento de adoquines estilizados con asfalto oscuro cuando la nieve llega a cota cero.
-
----
-
-## 3. Las herramientas del jugador
-
-### [1] Pala quitanieves manual
-La herramienta principal de trabajo físico.
-
-- **Click izquierdo (empujar/cortar):** abre una zanja rectangular limpia frente a los pies. La nieve se acumula en un montón frontal creciente y se desborda por los extremos en bermas laterales. Mirando al frente la hoja corta **láminas finas** (esculpido libre).
-- **Resistencia real, pero sin arrastrarse:** `F = μ·N + k_corte·ancho·h_nieve + M·a` se usa como lectura física y para decidir la traba, mientras que la velocidad de avance sale de un arrastre acotado `1/(1+arrastre)`. En la práctica: pala vacía en nieve virgen ≈ 80 % de la velocidad; pala llena (25 kg) paleando un montón de 45 cm ≈ 58 % (≈ 2,4 m/s). **La pala sólo se traba** ante un montón más alto que la hoja, y entonces basta con mirar al frente para cortar fino, verter, o palmear con `Q` para rebajarlo.
-- **Click derecho mantenido (Tilt & Dump):** la hoja se inclina y **vierte** la carga en chorro continuo justo bajo la hoja, transfiriendo la masa al terreno en tiempo real para rellenar hoyos o amontonar donde se quiera.
-- **Click derecho (pulsación corta):** **lanzamiento parabólico** de la carga como terrones físicos 3D volumétricos (`scripts/snow_chunk.gd`). Lanzados hacia los bancos laterales otorgan dinero y puntos extra.
-- **Q (palmeo):** golpea la nieve con la cara plana; aplana, compacta y sube la cohesión, dejando la superficie firme.
-
-### [2] Turbina quitanieves motorizada (Snowblower)
-Diseñada para desintegrar rápidamente grandes volúmenes de nieve. Absorbe la nieve frontal en un radio amplio y proyecta un chorro direccional hacia los laterales, con audio de motor a combustión continua.
-
-### [3] Esparcidor de sal térmica (Thermal Salt Shaker)
-Herramienta química/térmica para disolver parches delgados y películas resbaladizas. Derrite la nieve en un radio circular revelando el asfalto mojado, y **reduce la cohesión a cero**, de modo que la nieve tratada fluye como arena seca.
-
-### Manos libres (construcción emergente)
-- **E:** coger bolas y objetos (o extraerlos si están clavados) y **apelmazar nieve** con las manos. La bola apelmazada nace **directamente en las manos**, lista para lanzar con click derecho, sin caer al suelo.
-- **Click derecho mientras se carga:** lanzar el objeto o la bola con el impulso heredado del movimiento de la mano.
+A plane of **8 × 12 metres** densely subdivided (200 × 260 vertices) that raises its geometry according to the height map, with analytical per-fragment normal calculation to avoid sawtooth artifacts, and that reveals a pavement of stylised cobblestones with dark asphalt when the snow reaches zero level.
 
 ---
 
-## 4. Física emergente de construcción (sin botones de ensamblaje)
+## 3. The player's tools
 
-El muñeco de nieve no es una misión guiada: es el resultado natural de las mismas reglas que permiten hacer una muralla, una escultura o una pista de trineo.
+### [1] Manual snow shovel
+The main physical work tool.
 
-- **Bolas rodantes (Sistema 3, `scripts/snowball.gd`):** la sustentación se resuelve con un apoyo elástico a lo largo de la normal del terreno y la fricción se aplica sobre el **deslizamiento real en el punto de contacto**, así que el par genera rodadura pura. Cada 12 cm de recorrido la bola siega una franja y absorbe el volumen exacto que reporta la GPU, creciendo según `R = ∛(R³ + 3ΔV/4π)` y dejando el surco limpio detrás. La densidad **crece con el tamaño** (300 → 470 kg/m³), así que pesa más que un R³ puro: 2 kg con 12 cm de radio, 32 kg con 28 cm, 266 kg con 52 cm. Una bola pequeña rueda lejos y una gigante se frena casi de inmediato.
-- **Apilado por unión de nieve (Sistema 4):** cuando una bola se posa centrada sobre otra y ambas están casi quietas, se consolida una unión física (`Generic6DOFJoint3D`) que aporta la estabilidad mecánica del muñeco. Un impacto fuerte la rompe. Las bolas son siempre **esferas limpias**, sin geometría de deformación añadida.
-- **Peso y acarreo (preparado para cooperativo):** *tambalearse cuesta control, no velocidad*. La velocidad al andar cargando es `1/(1 + masa/300)` con **suelo del 75 %**; a partir de **35 kg** la bola se lleva **con las dos manos por encima de la cabeza** y el jugador **se tambalea** (deriva lateral, menos control, balanceo de cámara) hasta que el **agarre se agota** y la bola puede escapársele. El lanzamiento cae con la masa de forma suavizada (`v = 9·(1,7/m)^0,30`, extra ×1,8 a dos manos): **1,7 kg → 7,5 m/s** y **146 kg → 3,6 m/s**, con fuerza pero menos que una bola normal. Mientras cargas, las herramientas se guardan.
-- **Rotura por impacto (`scripts/snow_burst.gd`):** una bola que golpea a más de 7 m/s **se deshace**: el 55 % de su masa vuelve al manto en el punto del golpe y el resto sale en una lluvia de fragmentos con su nube de nieve pulverizada. Rodar o caer suave no la rompe. Los fragmentos y la nube son **provisionales**, con gancho (`SnowBurst.fragment_scene` / `puff_scene`) para sustituirlos por modelos reales pre-fracturados sin tocar la física.
-- **Clavado físico (`scripts/pin_prop.gd`):** ramas, piedras, zanahorias y carbón se fijan con un `PinJoint3D` real (o congelación cinemática) cuando su punta penetra nieve compacta o una bola. Se extraen tirando de ellas, saltan si la bola rueda rápido y **se caen solas si se palea la nieve que las sostiene**.
-- **Reabsorción de terrones:** todo fragmento que pierde su energía cinética se disuelve y reintegra su volumen al manto, de modo que la masa del sistema no se pierde por el camino.
+- **Left click (push/cut):** opens a clean rectangular trench in front of your feet. The snow accumulates in a growing frontal pile and overflows at the ends into lateral berms. Looking straight ahead the blade cuts **thin shavings** (free sculpting).
+- **Real resistance, but without crawling:** `F = μ·N + cut_k·width·snow_h + m·a` is used as a physical reading and to decide the jam, while the advance speed comes from a bounded drag `1/(1+drag)`. In practice: empty shovel in virgin snow ≈ 80% of speed; full shovel (25 kg) shovelling a 45 cm pile ≈ 58% (≈ 2.4 m/s). **The shovel only jams** against a pile taller than the blade, and then it is enough to look straight ahead to cut thin, pour, or pat with `Q` to lower it.
+- **Right click held (Tilt & Dump):** the blade tilts and **pours** the load in a continuous stream right under the blade, transferring the mass to the terrain in real time to fill holes or pile it up wherever you want.
+- **Right click (short press):** **parabolic throw** of the load as volumetric 3D physical clumps (`scripts/snow_chunk.gd`). Thrown towards the side banks they grant money and extra points.
+- **Q (patting):** strikes the snow with the flat face; it flattens, compacts and raises cohesion, leaving the surface firm.
 
----
+### [2] Motorised snow turbine (Snowblower)
+Designed to rapidly disintegrate large volumes of snow. It absorbs the snow in front of it over a wide radius and projects a directional jet towards the sides, with continuous combustion-engine audio.
 
-## 5. Entorno y escenario
+### [3] Thermal salt spreader (Thermal Salt Shaker)
+Chemical/thermal tool for dissolving thin patches and slippery films. It melts the snow over a circular radius, revealing the wet asphalt, and **reduces cohesion to zero**, so that the treated snow flows like dry sand.
 
-- **Cabaña nórdica cozy** (`cozy_cottage.glb`): madera rústica tallada con aleros nevados, chimenea y ventanas iluminadas.
-- **Bosque de pinos estilizados**: mallas distribuidas alrededor de la propiedad para crear sensación de aislamiento y calidez.
-- **Farolas de latón Poly Haven** (`lantern_01.glb`): montadas sobre postes de madera con luz omnidireccional cálida que proyecta sombras suaves sobre los montículos de nieve.
-- **Bancos de descanso** (`bench.glb`) y bordillos de madera rústica.
-
----
-
-## 6. Estado actual del desarrollo
-
-### Logrado
-- Caminata en primera persona con sustentación suave y estable; el jugador **se apoya y sube a los montones reales** de nieve (y desciende al hueco que deja al despejar).
-- Simulación completa en GPU con compute shader y **conservación de masa verificada** (error < 0,5 % en la batería de pruebas).
-- Reología granular con **cohesión/humedad** y **ángulo de reposo bi-fásico** (32° dinámico, 40° estático, hasta 54° en nieve húmeda).
-- Amontonamiento real frente a la pala con desborde lateral, **resistencia y traba** de la pala, y **palmeo** que aplana y compacta.
-- **Volcado suave (Tilt & Dump)** con click derecho mantenido, y lanzamiento parabólico con pulsación corta.
-- **Bolas rodantes con acreción de masa**, masa/inercia/colisión dinámicas, resistencia de rodadura por tamaño y surco limpio (sólo se siega con contacto continuo: lanzar una bola ya no deja una línea en la nieve).
-- **Ensamblaje universal**: apilado estable con rodal de nieve aplastada en el contacto (la bola siempre esférica), clavado físico de objetos y esculpido de láminas con la hoja.
-- Reabsorción de terrones en el manto (economía de masa cerrada).
-- HUD funcional con porcentaje despejado, kilogramos retirados, carga de la pala, dinero acumulado y **avisos contextuales** (pala trabada, carga en las manos, nieve apelmazándose).
-- Huellas de pisadas en la nieve con audio reactivo según si pisas nieve o pavimento limpio.
-- Lanzamiento de terrones físicos con detección de bancos laterales para recompensas.
-- **Bordes de lo recogido limpios**: la malla de nieve (320×480) y el shader del terreno comparten un mismo filtro de huella, así que el corte de la pala y el cráter de la turbina se ven nítidos y con labio biselado, sin dientes oscuros ni agujas de sombra (el viewmodel no proyecta sombra).
-
-### Pendiente / siguientes pasos
-- Arte técnico **Pure Baked PBR** para los objetos nuevos de juego (bolas, ramas, piedras, carbón, zanahorias): albedo/normal/roughness horneados con UV de objeto.
-- Comportamiento térmico real de la sal sobre el material del pavimento (húmedo, reflectivo y resbaladizo de forma persistente).
-- Carga física de objetos en la pala (hoy se cargan con las manos) y volcado sobre estructuras.
-- Sustituir bancos laterales de premio por geometría jugable con nieve interactiva.
-- Limpieza del repositorio: hay capturas de pruebas (`*_test.png`, `phys_*.png`, `carve_*.png`) y registros (`*_run.log`, `run_output.txt`) sueltos en la raíz.
+### Free hands (emergent construction)
+- **E:** pick up snowballs and objects (or extract them if they are pinned) and **pack snow** with your hands. The packed snowball is born **directly in your hands**, ready to be thrown with right click, without falling to the ground.
+- **Right click while carrying:** throw the object or the snowball with the impulse inherited from the hand's movement.
 
 ---
 
-## 7. Controles
+## 4. Emergent construction physics (no assembly buttons)
 
-| Tecla | Acción |
+The snowman is not a guided mission: it is the natural result of the same rules that allow you to build a wall, a sculpture or a sledding track.
+
+- **Rolling snowballs (System 3, `scripts/snowball.gd`):** support is resolved with an elastic contact along the terrain normal and friction is applied on the **real slip at the contact point**, so the torque produces pure rolling. Every 12 cm of travel the snowball mows a strip and absorbs the exact volume reported by the GPU, growing according to `R = ∛(R³ + 3ΔV/4π)` and leaving the groove clean behind. Density **grows with size** (300 → 470 kg/m³), so it weighs more than a pure R³: 2 kg at 12 cm radius, 32 kg at 28 cm, 266 kg at 52 cm. A small snowball rolls far and a giant one brakes almost immediately.
+- **Stacking by snow bonding (System 4):** when a snowball comes to rest centred on another and both are almost still, a physical bond (`Generic6DOFJoint3D`) consolidates that provides the snowman's mechanical stability. A strong impact breaks it. Snowballs are always **clean spheres**, with no added deformation geometry.
+- **Weight and carrying (ready for co-op):** *staggering costs control, not speed*. Walking speed while carrying is `1/(1 + mass/300)` with a **75% floor**; from **35 kg** the snowball is carried **with both hands above the head** and the player **staggers** (lateral drift, less control, camera sway) until the **grip runs out** and the snowball may slip away from them. The throw drops off with mass in a smoothed way (`v = 9·(1.7/m)^0.30`, extra ×1.8 two-handed): **1.7 kg → 7.5 m/s** and **146 kg → 3.6 m/s**, with force but less than a normal snowball. While you carry it, the tools are stowed.
+- **Impact breakage (`scripts/snow_burst.gd`):** a snowball that hits at more than 7 m/s **falls apart**: 55% of its mass returns to the snowpack at the point of impact and the rest comes out in a shower of fragments with their cloud of pulverised snow. Rolling or falling softly does not break it. The fragments and the cloud are **provisional**, with hooks (`SnowBurst.fragment_scene` / `puff_scene`) to replace them with real pre-fractured models without touching the physics.
+- **Physical pinning (`scripts/pin_prop.gd`):** branches, stones, carrots and coal are fixed with a real `PinJoint3D` (or kinematic freezing) when their tip penetrates compact snow or a snowball. They are extracted by pulling on them, they pop out if the snowball rolls fast and **they fall on their own if the snow holding them is shovelled away**.
+- **Clump reabsorption:** every fragment that loses its kinetic energy dissolves and reintegrates its volume into the snowpack, so that the system's mass is not lost along the way.
+
+---
+
+## 5. Environment and setting
+
+- **Cozy Nordic cabin** (`cozy_cottage.glb`): rustic carved wood with snowy eaves, chimney and lit windows.
+- **Stylised pine forest**: meshes distributed around the property to create a sense of isolation and warmth.
+- **Poly Haven brass lanterns** (`lantern_01.glb`): mounted on wooden posts with a warm omnidirectional light that casts soft shadows over the snow mounds.
+- **Rest benches** (`bench.glb`) and rustic wooden kerbs.
+
+---
+
+## 6. Current development status
+
+### Achieved
+- First-person walking with soft and stable support; the player **rests on and climbs the real snow piles** (and descends into the hollow left behind when clearing).
+- Full GPU simulation with a compute shader and **verified mass conservation** (error < 0.5% in the test battery).
+- Granular rheology with **cohesion/moisture** and **bi-phasic angle of repose** (32° dynamic, 40° static, up to 54° in wet snow).
+- Real piling in front of the shovel with lateral overflow, **resistance and jamming** of the shovel, and **patting** that flattens and compacts.
+- **Smooth dumping (Tilt & Dump)** with right click held, and parabolic throw with a short press.
+- **Rolling snowballs with mass accretion**, dynamic mass/inertia/collision, size-dependent rolling resistance and a clean groove (it only mows with continuous contact: throwing a snowball no longer leaves a line in the snow).
+- **Universal assembly**: stable stacking with a clump of crushed snow at the contact (the snowball always spherical), physical pinning of objects and thin-sheet sculpting with the blade.
+- Reabsorption of clumps into the snowpack (closed mass economy).
+- Functional HUD with cleared percentage, kilograms removed, shovel load, accumulated money and **contextual warnings** (jammed shovel, load in the hands, snow packing).
+- Footprints in the snow with reactive audio depending on whether you step on snow or clean pavement.
+- Throwing physical clumps with detection of side banks for rewards.
+- **Clean edges of what is collected**: the snow mesh (320×480) and the terrain shader share the same footprint filter, so the shovel cut and the turbine crater look sharp with a bevelled lip, without dark sawteeth or shadow spikes (the viewmodel does not cast a shadow).
+
+### Pending / next steps
+- **Pure Baked PBR** technical art for the new game objects (snowballs, branches, stones, coal, carrots): albedo/normal/roughness baked with object UVs.
+- Real thermal behaviour of salt on the pavement material (wet, reflective and persistently slippery).
+- Physical loading of objects onto the shovel (today they are carried with the hands) and dumping onto structures.
+- Replace the side reward banks with playable geometry with interactive snow.
+- Repository cleanup: there are test screenshots (`*_test.png`, `phys_*.png`, `carve_*.png`) and logs (`*_run.log`, `run_output.txt`) loose in the root.
+
+---
+
+## 7. Controls
+
+| Key | Action |
 |---|---|
-| W A S D / Shift / Espacio | Moverse, correr, saltar |
-| Click izquierdo | Empujar / cortar nieve |
-| Click derecho mantenido | Inclinar la pala y verter |
-| Click derecho (toque) | Lanzar nieve (o el objeto cargado) |
-| **Q** | Palmear / aplanar y compactar |
-| **E** (pulsación) | Coger objetos y bolas · apelmazar nieve con las manos |
-| **E** (mantener) | Empujar la bola pegada al suelo, sin levantarla |
-| 1 / 2 / 3 | Pala / Turbina / Salero |
-| R / ESC | Reiniciar nivel / liberar ratón |
-| **H** | Mostrar u ocultar la ayuda de teclas (por defecto está oculta para no tapar la escena) |
+| W A S D / Shift / Space | Move, run, jump |
+| Left click | Push / cut snow |
+| Right click held | Tilt the shovel and pour |
+| Right click (tap) | Throw snow (or the carried object) |
+| **Q** | Pat / flatten and compact |
+| **E** (press) | Pick up objects and snowballs · pack snow with your hands |
+| **E** (hold) | Push the snowball stuck to the ground, without lifting it |
+| 1 / 2 / 3 | Shovel / Turbine / Salt Shaker |
+| R / ESC | Restart level / release mouse |
+| **H** | Show or hide the key help (hidden by default so it does not cover the scene) |
 
 ---
 
-## 8. Verificación automática
+## 8. Automated verification
 
 ```
-godot --path . -- --phys-demo     # 21 comprobaciones de los 4 sistemas + balance de masa
-godot --path . -- --plow-demo     # demo original de empuje con la pala
+godot --path . -- --phys-demo     # 21 checks of the 4 systems + mass balance
+godot --path . -- --plow-demo     # original shovel-push demo
 ```
 
-La primera ejecuta una secuencia guionizada, mide la conservación de masa (manto + bolas frente al inicial) y guarda capturas `phys_01..10_*.png`. Resultado esperado: **21 OK / 0 fallos**.
+The first one runs a scripted sequence, measures mass conservation (snowpack + snowballs versus the initial one) and saves screenshots `phys_01..10_*.png`. Expected result: **21 OK / 0 failures**.
 
-Detalle técnico completo de los cuatro sistemas (canales, modos del compute, API pública y decisiones de diseño) en [`docs/fisicas_nieve.md`](docs/fisicas_nieve.md).
+Full technical detail of the four systems (channels, compute modes, public API and design decisions) in [`docs/fisicas_nieve.md`](docs/fisicas_nieve.md).

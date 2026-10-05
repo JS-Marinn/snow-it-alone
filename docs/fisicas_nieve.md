@@ -1,229 +1,229 @@
-# Físicas emergentes de nieve — Snow It Alone
+# Emergent snow physics — Snow It Alone
 
-Este documento describe el sistema de físicas de nieve implementado en el
-prototipo. La idea rectora es que **no hay misiones guiadas ni botones de
-ensamblaje**: hay cuatro sistemas que cooperan y el muñeco de nieve, la muralla
-o la escultura aparecen como consecuencia de las mismas reglas.
+This document describes the snow physics system implemented in the
+prototype. The guiding idea is that **there are no guided missions and no
+assembly buttons**: four systems cooperate and the snowman, the wall
+or the sculpture appear as a consequence of the same rules.
 
 ```
-SISTEMA 1  terreno continuo GPU (altura, nieve suelta, cohesión, avalanchas)
+SYSTEM 1  continuous GPU terrain (height, loose snow, cohesion, avalanches)
      ▲                                        ▲
-     │ transferencia de masa (dump / scoop)    │ rodadura y surco
+     │ mass transfer (dump / scoop)           │ rolling and furrow
      │                                        │
-SISTEMA 2  pala física          ◄──────►  SISTEMA 3  bolas y terrones 3D
-(resistencia, carga, vertido,                     (acreción R³, masa e inercia
- palmeo, esculpido)                                dinámicas, reabsorción)
-                                                  ▲
-                                                  │
-                                          SISTEMA 4  ensamblaje universal
-                                          (apilado por deformación, clavado)
+SYSTEM 2  physical shovel        ◄──────►  SYSTEM 3  3D balls and chunks
+(resistance, load, dumping,                (R³ accretion, dynamic mass and
+ patting, sculpting)                        inertia, reabsorption)
+                                                   ▲
+                                                   │
+                                           SYSTEM 4  universal assembly
+                                           (stacking by deformation, pinning)
 ```
 
-## Sistema 1 — Terreno continuo (`shaders/snow_sim.glsl`, `scripts/snow_field.gd`)
+## System 1 — Continuous terrain (`shaders/snow_sim.glsl`, `scripts/snow_field.gd`)
 
-Textura `RGBA32F` 512×512 en ping-pong sobre un campo de 8 × 12 m (32 cm de
-nieve virgen), con **conservación estricta de masa**:
+`RGBA32F` texture 512×512 in ping-pong over an 8 × 12 m field (32 cm of
+virgin snow), with **strict mass conservation**:
 
-| Canal | Significado |
+| Channel | Meaning |
 |---|---|
-| R | altura total (1.0 = `snow_depth` metros) |
-| G | nieve **suelta** movilizable (sólo esta fracción puede fluir) |
-| B | **cohesión / humedad** (modula el ángulo de fricción interna) |
-| A | scratch de relajación: `+escala` = celda en reposo, `−escala` = en flujo |
+| R | total height (1.0 = `snow_depth` metres) |
+| G | **loose**, movable snow (only this fraction can flow) |
+| B | **cohesion / moisture** (modulates the internal friction angle) |
+| A | relaxation scratch: `+scale` = cell at rest, `−scale` = flowing |
 
-**Ángulo de reposo bi-fásico (histéresis):** una celda en reposo necesita
-superar el ángulo *estático* (`dinámico + histéresis`, por defecto 32° + 8°)
-para arrancar, y una celda ya en movimiento se asienta en el ángulo
-*dinámico*. La cohesión eleva ambos: la nieve seca (B≈0) fluye a 32°, la nieve
-húmeda y apelmazada (B→1) sostiene 54°.
+**Two-phase angle of repose (hysteresis):** a cell at rest must exceed the
+*static* angle (`dynamic + hysteresis`, 32° + 8° by default)
+to start moving, and a cell already in motion settles at the
+*dynamic* angle. Cohesion raises both: dry snow (B≈0) flows at 32°, wet
+and packed snow (B→1) holds 54°.
 
-Modos del compute shader:
+Compute shader modes:
 
-| Modo | Función |
+| Mode | Function |
 |---|---|
-| 0 | La hoja recoge la nieve bajo la plancha (`max_cut` > 0 → formón: esculpido) |
-| 1 | La hoja deposita la carga frente a ella formando montón |
-| 2 | Sellos: huella de bota (hunde y compacta) y limpieza radial (la sal rompe la cohesión) |
-| 3 | **DUMP**: inyecta volumen libre con perfil cónico, marcado como nieve suelta y húmeda |
-| 4-5 | Relajación granular en dos pasadas (escala de salida + transferencia) |
-| 6 | Estadísticas, sondas y **volumen retirado por operación** |
-| 7 | **TAMP**: aplana por difusión y asienta plásticamente empujando masa hacia fuera |
-| 8 | **HARVEST**: siega cilíndrica a lo largo de un segmento (acreción y esculpido) |
-| 9 | Espejo reducido 64×64 para consultas de gameplay en CPU |
+| 0 | The blade collects the snow under the plate (`max_cut` > 0 → chisel: sculpting) |
+| 1 | The blade deposits its load in front of it, forming a heap |
+| 2 | Stamps: boot print (sinks and compacts) and radial clearing (salt breaks cohesion) |
+| 3 | **DUMP**: injects free volume with a conical profile, flagged as loose and wet snow |
+| 4-5 | Granular relaxation in two passes (output scale + transfer) |
+| 6 | Statistics, probes and **volume removed per operation** |
+| 7 | **TAMP**: flattens by diffusion and settles plastically by pushing mass outwards |
+| 8 | **HARVEST**: cylindrical mowing along a segment (accretion and sculpting) |
+| 9 | Reduced 64×64 mirror for CPU gameplay queries |
 
-**Espejo CPU:** cada frame la GPU escribe un resumen 64×64 (altura media, nieve
-suelta media, cohesión media y altura máxima por bloque) que la CPU lee de forma
-asíncrona. Con él se resuelven la sustentación del jugador sobre los montones,
-la resistencia de la pala, la rodadura de las bolas y el clavado de objetos, sin
-leer la textura completa.
+**CPU mirror:** every frame the GPU writes a 64×64 summary (mean height,
+mean loose snow, mean cohesion and maximum height per block) that the CPU reads
+asynchronously. It is used to resolve the player's support on the heaps,
+the shovel's resistance, the rolling of the balls and the pinning of objects,
+without reading the full texture.
 
-API pública relevante: `dump_snow(pos, kg, radio)`, `tamp(pos, radio, fuerza)`,
+Relevant public API: `dump_snow(pos, kg, radio)`, `tamp(pos, radio, fuerza)`,
 `request_harvest(owner, desde, hasta, radio, profundidad)`,
 `carve_shovel(pos, dir, ancho, largo, corte_máximo)`, `get_height_at(pos)`,
 `get_support_snow_height(pos)`, `get_cohesion_at(pos)`, `get_loose_fraction_at(pos)`.
 
-### Render y simulación: un único dato filtrado
+### Rendering and simulation: a single filtered value
 
-La rejilla de simulación tiene texeles de **1,56 × 2,34 cm** (512² sobre 8 × 12 m)
-y la malla de nieve un vértice cada **2,5 cm** (`mesh_subdiv_x/z` = 320 × 480).
-Muestrear el mapa a pelo con esa diferencia de rejillas producía **aliasing**: los
-bordes de lo recogido salían en "dientes" oscuros y con normales invertidas.
+The simulation grid has texels of **1.56 × 2.34 cm** (512² over 8 × 12 m)
+and the snow mesh has one vertex every **2.5 cm** (`mesh_subdiv_x/z` = 320 × 480).
+Sampling the map raw with that grid mismatch produced **aliasing**: the
+edges of what had been collected came out in dark "teeth" with inverted normals.
 
-Por eso `materials/snow_deform.gdshader` lee el mapa siempre por el mismo filtro
-de huella `sample_height()`, cuyo radio (`smooth_uv`) fija `SnowField` a partir de
-la subdivisión real de la malla. **Desplazamiento, máscara de color y normales usan
-ese mismo valor filtrado**, de modo que geometría e iluminación coinciden y el
-borde queda limpio. Ajustes asociados:
+That is why `materials/snow_deform.gdshader` always reads the map through the same
+footprint filter `sample_height()`, whose radius (`smooth_uv`) is set by `SnowField`
+from the actual mesh subdivision. **Displacement, colour mask and normals use
+that same filtered value**, so geometry and lighting agree and the
+edge stays clean. Associated settings:
 
-- Máscara nieve→pavimento estrecha (`smoothstep(0.010, 0.060, h)`) → borde limpio.
-- `SSAO` del entorno suavizado (radio 1,15 · intensidad 0,85): antes oscurecía en
-  exceso el fondo de las oquedades.
-- Pavimento más claro (pizarra húmeda) para que el contraste con la nieve no
-  convierta cualquier irregularidad en una mancha negra.
-- El **viewmodel no proyecta sombra** (`GeometryInstance3D.SHADOW_CASTING_SETTING_OFF`):
-  las planchas de la pala son muy finas y con sol rasante su sombra se estiraba en
-  una "aguja" azul sobre la nieve.
+- Narrow snow→pavement mask (`smoothstep(0.010, 0.060, h)`) → clean edge.
+- Environment `SSAO` softened (radius 1.15 · intensity 0.85): it used to darken
+  the bottom of the hollows too much.
+- Lighter pavement (wet slate) so that the contrast with the snow does not
+  turn any irregularity into a black patch.
+- The **viewmodel casts no shadow** (`GeometryInstance3D.SHADOW_CASTING_SETTING_OFF`):
+  the shovel plates are very thin and with a low sun their shadow stretched into
+  a blue "needle" over the snow.
 
-## Sistema 2 — Pala física (`scripts/player_controller.gd`)
+## System 2 — Physical shovel (`scripts/player_controller.gd`)
 
-- **Resistencia real, pero sin arrastrarse**: hay dos magnitudes separadas a
-  propósito.
-  - *Lectura física* `F = μ·N + k_corte·ancho·h_nieve + M·a` (`snow_resistance`
-    en N): se muestra en el HUD y decide la **traba**.
-  - *Arrastre de avance* `push_drag = plow_drag_per_m·h·bite + load_drag_per_kg·kg`
-    y velocidad `= base / (1 + push_drag)`: acotado por construcción, de modo que
-    la nieve frena pero nunca convierte andar en arrastrarse.
+- **Real resistance, but never dragging yourself along**: there are two magnitudes
+  kept separate on purpose.
+  - *Physical reading* `F = μ·N + cut_k·width·snow_h + m·a` (`snow_resistance`
+    in N): it is shown in the HUD and decides the **stall**.
+  - *Forward drag* `push_drag = plow_drag_per_m·h·bite + load_drag_per_kg·kg`
+    and speed `= base / (1 + push_drag)`: bounded by construction, so that
+    the snow slows you down but never turns walking into dragging.
 
-  Valores medidos con `--phys-demo`: pala vacía en nieve virgen ≈ **80 %** de la
-  velocidad; pala llena (25 kg) abriendo paso en un montón de 45 cm ≈ **58 %**
-  (≈ 2,4 m/s). La pala **sólo se traba** con un montón más alto que la hoja
-  (`stuck_height_m`) o una resistencia > `stuck_resistance`, y entonces avanza al
-  `stuck_speed_factor` con aviso en el HUD: se sale mirando al frente (corte
-  fino), vertiendo o palmeando con `Q`.
-- **Ángulo de ataque**: mirando al suelo la hoja muerde toda la capa; llana
-  trabaja como formón y levanta láminas finas (esculpido libre).
-- **Carga limitada por caudal**: la pala no se llena de un golpe (máx. 34 kg/s,
-  25 kg de capacidad).
-- **Click derecho mantenido** → la hoja se inclina y **vierte** en chorro
-  continuo bajo la hoja, transfiriendo masa al terreno en tiempo real.
-- **Click derecho (pulsación corta)** → **lanzamiento parabólico** de terrones.
-- **Q** → **palmeo**: aplana, compacta (G→0) y sube la cohesión.
+  Values measured with `--phys-demo`: empty shovel in virgin snow ≈ **80%** of
+  the speed; full shovel (25 kg) clearing a path through a 45 cm heap ≈ **58%**
+  (≈ 2.4 m/s). The shovel **only stalls** with a heap taller than the blade
+  (`stuck_height_m`) or a resistance > `stuck_resistance`, and then it advances at
+  `stuck_speed_factor` with a warning in the HUD: you get out by facing forward (fine
+  cut), dumping or patting with `Q`.
+- **Attack angle**: facing the ground the blade bites the whole layer; flat
+  it works like a chisel and lifts thin shavings (free sculpting).
+- **Flow-limited load**: the shovel does not fill up in one hit (max. 34 kg/s,
+  25 kg of capacity).
+- **Right click held** → the blade tilts and **pours** in a continuous stream
+  under the blade, transferring mass to the terrain in real time.
+- **Right click (short press)** → **parabolic throw** of chunks.
+- **Q** → **patting**: flattens, compacts (G→0) and raises cohesion.
 
-## Sistema 3 — Bolas rodantes (`scripts/snowball.gd`)
+## System 3 — Rolling balls (`scripts/snowball.gd`)
 
-- La sustentación se resuelve con un resorte-amortiguador a lo largo de la
-  **normal del terreno** (críticamente amortiguado, penetración en reposo
-  ≈ 2,4 cm) y la fricción se aplica sobre el **deslizamiento real en el punto
-  de contacto**, de modo que el par genera rodadura pura en lugar de frenar la
-  bola.
-- **Acreción**: cada 12 cm de recorrido la bola siega una franja del ancho de su
-  huella y absorbe el volumen exacto que la GPU reporta
-  (`R = ∛(R³ + 3ΔV/4π)`), dejando el surco limpio detrás.
-  La siega sólo une puntos con **contacto continuo con el manto**: el ancla se
-  invalida en cuanto la bola queda claramente en el aire (lanzada, cayendo o
-  rebotando) y cualquier salto mayor de `MAX_HARVEST_STEP` (0,45 m) reancla sin
-  segar. Sin eso, al aterrizar tras un lanzamiento se arañaba una franja recta
-  desde el punto de lanzamiento hasta el de caída: una "línea" antinatural.
-- **Masa e inercia dinámicas, con densidad creciente**: `m = 4/3·π·R³·ρ(R)` y
-  `ρ(R)` sube de **300 a 470 kg/m³** con el tamaño (la nieve se compacta y expulsa
-  aire al rodar). La bola pesa por tanto **más** que un R³ puro: 2 kg con
-  r=0,12 · 32 kg con r=0,28 · 73 kg con r=0,36 · 266 kg con r=0,52. La inercia la
-  deriva Godot de la masa y la forma, así que se actualiza sola.
-- **Resistencia a la rodadura** que crece con el cubo del tamaño: una bola
-  pequeña rueda lejos y una gigante se frena casi de inmediato.
-- **Empuje por FUERZA, no por aceleración** (`PUSH_FORCE_NEWTONS` = 260 N, con tope
-  de 26 m/s²): el jugador empuja con el cuerpo y la misma fuerza mueve mucho una
-  bola ligera y apenas una pesada.
-- **Terrones** (`scripts/snow_chunk.gd`): todo fragmento que pierde su energía
-  se disuelve y **reintegra su volumen** al manto.
-- **Rotura por impacto** (`scripts/snow_burst.gd`): si una bola golpea a más de
-  `break_speed_threshold` (7 m/s) **se deshace**. El 55 % de su masa vuelve al
-  manto justo en el punto del golpe (`dump_snow`) y el resto se reparte en una
-  lluvia de fragmentos con velocidades de dispersión, más una nube de nieve
-  pulverizada y su sonido. Rodar o caer suave no la rompe. La masa queda así
-  cerrada: lo que era bola pasa a montón + terrones que se reabsorben.
-  - **Gancho para arte final**: los fragmentos y la nube son **provisionales**
-    (terrones esféricos y `CPUParticles3D`). Basta con asignar
-    `SnowBurst.fragment_scene` / `SnowBurst.puff_scene` a un `PackedScene` para
-    que `_make_fragment()` instancie el modelo real pre-fracturado; el resto del
-    sistema (masa, impulsos, reabsorción) no cambia.
+- The support is resolved with a spring-damper along the
+  **terrain normal** (critically damped, rest penetration
+  ≈ 2.4 cm) and friction is applied to the **actual sliding at the contact
+  point**, so that the torque produces pure rolling instead of braking the
+  ball.
+- **Accretion**: every 12 cm travelled the ball mows a strip the width of its
+  footprint and absorbs the exact volume the GPU reports
+  (`R = ∛(R³ + 3ΔV/4π)`), leaving the clean furrow behind.
+  The mowing only joins points with **continuous contact with the snowpack**: the anchor is
+  invalidated as soon as the ball is clearly in the air (thrown, falling or
+  bouncing) and any jump larger than `MAX_HARVEST_STEP` (0.45 m) re-anchors without
+  mowing. Without that, on landing after a throw a straight strip was scratched
+  from the throw point to the landing point: an unnatural "line".
+- **Dynamic mass and inertia, with increasing density**: `m = 4/3·π·R³·ρ(R)` and
+  `ρ(R)` rises from **300 to 470 kg/m³** with size (the snow compacts and expels
+  air as it rolls). The ball therefore weighs **more** than a pure R³: 2 kg with
+  r=0.12 · 32 kg with r=0.28 · 73 kg with r=0.36 · 266 kg with r=0.52. Godot
+  derives the inertia from the mass and the shape, so it updates itself.
+- **Rolling resistance** that grows with the cube of the size: a small ball
+  rolls a long way and a giant one is stopped almost immediately.
+- **Push by FORCE, not by acceleration** (`PUSH_FORCE_NEWTONS` = 260 N, capped
+  at 26 m/s²): the player pushes with their body and the same force moves a light
+  ball a lot and a heavy one barely at all.
+- **Chunks** (`scripts/snow_chunk.gd`): any fragment that loses its energy
+  dissolves and **reintegrates its volume** into the snowpack.
+- **Impact breakage** (`scripts/snow_burst.gd`): if a ball hits above
+  `break_speed_threshold` (7 m/s) **it breaks apart**. 55% of its mass returns to
+  the snowpack right at the point of impact (`dump_snow`) and the rest is spread in a
+  shower of fragments with scatter velocities, plus a cloud of powdered
+  snow and its sound. Rolling or falling gently does not break it. The mass is thus
+  kept closed: what was a ball becomes a heap + chunks that are reabsorbed.
+  - **Hook for final art**: the fragments and the cloud are **provisional**
+    (spherical chunks and `CPUParticles3D`). It is enough to assign
+    `SnowBurst.fragment_scene` / `SnowBurst.puff_scene` to a `PackedScene` for
+    `_make_fragment()` to instantiate the real pre-fractured model; the rest of the
+    system (mass, impulses, reabsorption) does not change.
 
-## Sistema 4 — Ensamblaje universal (`scripts/snowball.gd`, `scripts/pin_prop.gd`, `scripts/props_system.gd`)
+## System 4 — Universal assembly (`scripts/snowball.gd`, `scripts/pin_prop.gd`, `scripts/props_system.gd`)
 
-- **Apilado por unión de nieve**: cuando una bola se posa centrada sobre otra y
-  ambas están casi quietas, se consolida una **unión física**
-  (`Generic6DOFJoint3D` bloqueado) que aporta la estabilidad mecánica del muñeco.
-  Un impacto fuerte la rompe. Las bolas son **siempre esferas limpias**: no hay
-  geometría de deformación añadida (lo verifica `--ball-shape`).
-- **Clavado**: ramas, piedras, zanahorias y carbón llevan `sharpness`. Si la
-  punta penetra nieve con suficiente cohesión (o una bola) se fijan con un
-  **`PinJoint3D`** real o con congelación cinemática. Se extraen tirando de
-  ellas, saltan si la bola rueda rápido y **se caen solas si se palea la nieve
-  que las sostiene**.
-- **Carga con las manos** — `E` tiene tres comportamientos según cómo se use:
-  - **pulsación corta sobre algo** → cogerlo (o extraerlo si está clavado);
-  - **pulsación sobre nieve** → **apelmazar** una bola: la masa se siega del manto
-    con `request_harvest` y la bola nace **ya en las manos**, en el punto de
-    agarre y en modo carga en el mismo frame, sin caer al suelo;
-  - **mantener sobre una bola** → **empujarla pegada al suelo**: sigue siendo un
-    cuerpo dinámico apoyado en el manto (nunca se levanta) y la fuerza está
-    acotada, así que cuanto más pesa más cuesta moverla.
-  Click derecho mientras se carga **lanza**. El agarre se adapta al tamaño
-  (`_carry_anchor`): una bola de mano a ~0,7 m y una grande a ~1,3 m.
-- **Peso real al transportar** (pensado para cooperativo), buscando que sea
-  agradable: *tambalearse cuesta CONTROL, no velocidad*.
-  - La velocidad al andar cargando es `1/(1 + masa/300)` con **suelo del 75 %**:
-    17 kg → 95 %, 124 kg → 75 %. Nunca se convierte en arrastrarse.
-  - A partir de **35 kg** la bola se sujeta con las **DOS manos por encima de la
-    cabeza** (anclaje al cuerpo, no a la vista: mirar al suelo no la hunde).
-  - Con más peso el jugador **se tambalea**: deriva lateral oscilante, menos
-    control de aceleración y balanceo de cámara, proporcionales a
-    `stagger = (masa − 35)/(150 − 35)`.
-  - El **agarre** se agota (`0,05 + 0,22·stagger` por segundo) y, si llega a cero,
-    la bola **se le escapa de las manos**: el HUD avisa a partir del 30 %.
-  - **Lanzamiento**: la velocidad cae con la masa de forma **suavizada**
-    (`v = 9·(1,7/m)^0,30`) y a dos manos hay un extra de fuerza ×1,8 con más arco.
-    Nunca supera a la bola ligera: el peso siempre resta, pero una bola grande se
-    lanza **con fuerza** (146 kg → 3,6 m/s) en vez de quedarse clavada.
-    Medido: **1,7 kg → 7,5 m/s** frente a **146 kg → 3,6 m/s**.
-  - Mientras llevas algo, las herramientas se guardan (las manos están ocupadas).
+- **Stacking by snow bonding**: when a ball rests centred on another and
+  both are almost still, a **physical joint** is consolidated
+  (`Generic6DOFJoint3D` locked) that provides the mechanical stability of the snowman.
+  A strong impact breaks it. The balls are **always clean spheres**: there is no
+  added deformation geometry (verified by `--ball-shape`).
+- **Pinning**: branches, stones, carrots and coal carry `sharpness`. If the
+  tip penetrates snow with enough cohesion (or a ball) they are fixed with a
+  real **`PinJoint3D`** or with kinematic freezing. They are extracted by pulling on
+  them, they pop off if the ball rolls fast and **they fall on their own if the snow
+  that holds them is shovelled away**.
+- **Carrying with the hands** — `E` has three behaviours depending on how it is used:
+  - **short press on something** → pick it up (or extract it if it is pinned);
+  - **press on snow** → **pack** a ball: the mass is mowed from the snowpack
+    with `request_harvest` and the ball is born **already in the hands**, at the carry
+    point and in carry mode in the same frame, without falling to the ground;
+  - **hold on a ball** → **push it glued to the ground**: it remains a
+    dynamic body resting on the snowpack (it never lifts) and the force is
+    bounded, so the heavier it is the harder it is to move.
+  Right click while carrying **throws**. The grip adapts to size
+  (`_carry_anchor`): a hand-sized ball at ~0.7 m and a large one at ~1.3 m.
+- **Real weight when carrying** (designed for co-op), aiming to feel
+  pleasant: *staggering costs CONTROL, not speed*.
+  - Walking speed while carrying is `1/(1 + mass/300)` with a **floor of 75%**:
+    17 kg → 95%, 124 kg → 75%. It never turns into dragging yourself along.
+  - From **35 kg** the ball is held with **BOTH hands above the
+    head** (anchored to the body, not to the view: looking at the ground does not sink it).
+  - With more weight the player **staggers**: oscillating lateral drift, less
+    acceleration control and camera sway, proportional to
+    `stagger = (mass − 35)/(150 − 35)`.
+  - The **grip** runs out (`0.05 + 0.22·stagger` per second) and, if it reaches zero,
+    the ball **slips out of your hands**: the HUD warns from 30%.
+  - **Throw**: the speed falls with mass in a **smoothed** way
+    (`v = 9·(1.7/m)^0.30`) and with two hands there is an extra force ×1.8 with more arc.
+    It never beats the light ball: weight always takes away, but a large ball is
+    thrown **with force** (146 kg → 3.6 m/s) instead of staying stuck.
+    Measured: **1.7 kg → 7.5 m/s** versus **146 kg → 3.6 m/s**.
+  - While you are carrying something, the tools are stowed (your hands are busy).
 
-## Controles
+## Controls
 
-| Tecla | Acción |
+| Key | Action |
 |---|---|
-| W A S D / Shift / Espacio | Moverse, correr, saltar |
-| Click izquierdo | Empujar / cortar nieve |
-| Click derecho mantenido | Inclinar la pala y verter |
-| Click derecho (toque) | Lanzar nieve (o el objeto cargado) |
-| **Q** | Palmear / aplanar y compactar |
-| **E** (pulsación) | Coger objetos y bolas · apelmazar nieve con las manos |
-| **E** (mantener) | Empujar la bola pegada al suelo, sin levantarla |
-| 1 2 3 | Pala / Turbina / Salero |
-| R / ESC | Reiniciar nivel / liberar ratón |
-| **H** | Mostrar u ocultar la ayuda de teclas (empieza oculta) |
+| W A S D / Shift / Space | Move, run, jump |
+| Left click | Push / cut snow |
+| Right click held | Tilt the shovel and pour |
+| Right click (tap) | Throw snow (or the carried object) |
+| **Q** | Pat / flatten and compact |
+| **E** (press) | Pick up objects and balls · pack snow with the hands |
+| **E** (hold) | Push the ball glued to the ground, without lifting it |
+| 1 2 3 | Shovel / Turbine / Salter |
+| R / ESC | Restart level / release mouse |
+| **H** | Show or hide the key help (starts hidden) |
 
-## Verificación automática
+## Automated verification
 
 ```
 godot --path . -- --phys-demo
 ```
 
-Ejecuta una secuencia guionizada que comprueba los cuatro sistemas, mide la
-**conservación de masa** (manto + bolas frente al inicial), verifica el peso y el
-acarreo (**dos manos, tambaleo sin ir lento, empuje con `E` mantenida, lanzamiento
-por masa y rotura por impacto**) y guarda capturas `phys_01..12_*.png`. Resultado
-esperado: **36 OK / 0 fallos**, con un error de masa inferior al 0,5 %.
+It runs a scripted sequence that checks the four systems, measures
+**mass conservation** (snowpack + balls versus the initial state), verifies the weight and
+carrying (**two hands, staggering without going slow, pushing with `E` held, throwing
+by mass and impact breakage**) and saves captures `phys_01..12_*.png`. Expected
+result: **36 OK / 0 failures**, with a mass error below 0.5%.
 
-Datos medidos en la última ejecución: paleado 2,4 m/s · cargando 124 kg **3,13 m/s
-(74 % de la velocidad normal)** con tambaleo 0,77 · empuje con `E`: 0,84 m sin
-levantar la bola · lanzamiento 1,7 kg → **7,5 m/s**, 146 kg → **3,6 m/s** · rotura:
-11 fragmentos y el manto sube de 0,320 a 0,588 m en el punto del golpe.
+Data measured in the last run: shovelling 2.4 m/s · carrying 124 kg **3.13 m/s
+(74% of the normal speed)** with stagger 0.77 · pushing with `E`: 0.84 m without
+lifting the ball · throw 1.7 kg → **7.5 m/s**, 146 kg → **3.6 m/s** · breakage:
+11 fragments and the snowpack rises from 0.320 to 0.588 m at the point of impact.
 
-### Otras baterías de diagnóstico
+### Other diagnostic batteries
 
-| Comando | Qué comprueba |
+| Command | What it checks |
 |---|---|
-| `--ball-shape` | Que la bola es **siempre esférica** (al crecer y al apilarse) y que **lanzarla no araña una línea** en el manto: mide malla, escala, AABB renderizado y el perfil de alturas del vuelo. |
-| `--carve-quality` | Calidad del terreno al recoger: abre zanja y cráter, vuelca el perfil de alturas y guarda capturas. |
-| `--plow-demo` | Demo original de empuje con la pala. |
+| `--ball-shape` | That the ball is **always spherical** (when growing and when stacking) and that **throwing it does not scratch a line** in the snowpack: it measures mesh, scale, rendered AABB and the height profile of the flight. |
+| `--carve-quality` | Terrain quality when collecting: it opens a trench and a crater, dumps the height profile and saves captures. |
+| `--plow-demo` | Original shovel pushing demo. |

@@ -1,489 +1,489 @@
-# Plan de implementación — Sistemas y mecánicas
+# Implementation plan — Systems and mechanics
 
-> **Alcance de este documento:** construir los *sistemas* y las *mecánicas* del
-> juego. **No hay contenido**: ni niveles, ni escenario, ni arte final. Todo se
-> valida en un **Playground** temporal (§4).
+> **Scope of this document:** build the *systems* and the *mechanics* of the
+> game. **There is no content**: no levels, no scenario, no final art. Everything is
+> validated in a temporary **Playground** (§4).
 >
-> Documento hermano: `plan_juego.md` (diseño y producto). Cuando algo cambie aquí,
-> se anota allí.
+> Sibling document: `plan_juego.md` (design and product). When something changes here,
+> it is noted there.
 >
-> Marcas: ✅ ya existe en el prototipo · ⬜ por hacer · 🔧 extensión de algo existente.
+> Marks: ✅ already exists in the prototype · ⬜ to do · 🔧 extension of something that exists.
 
 ---
 
-## 0. Reglas de trabajo y "hecho"
+## 0. Working rules and "done"
 
-### 0.1 Los tres invariantes del proyecto
+### 0.1 The project's three invariants
 
-1. **Solo y coop son igual de buenos.** Ningún sistema se diseña "para coop y ya se
-   verá en solo" ni al revés. **Cada ficha declara su comportamiento con N=1 y con
-   N=2**, y ambos casos entran en las pruebas. El cooperativo no es un modo: es una
-   variable del sistema (`player_count`), y el juego se dimensiona con **reglas de
-   sesión** (§2.G.25), no recortando niveles.
-2. **La masa se conserva.** Cualquier mecánica nueva (compactar, derretir, volar,
-   empujar a un jugador) tiene que cuadrar en el libro de cuentas del manto. Test
-   obligatorio en cada fase.
-3. **Nada de contenido en esta fase.** Si algo necesita un nivel bonito para
-   probarse, está mal planteado: se prueba en el Playground.
+1. **Solo and co-op are equally good.** No system is designed "for co-op and we will
+   see about solo later" or the other way round. **Every spec sheet declares its behavior with N=1 and with
+   N=2**, and both cases go into the tests. Co-op is not a mode: it is a
+   system variable (`player_count`), and the game is sized with **session
+   rules** (§2.G.25), not by trimming levels.
+2. **Mass is conserved.** Any new mechanic (compacting, melting, blowing,
+   pushing a player) has to balance in the snowpack's ledger. A test
+   is mandatory in every phase.
+3. **No content in this phase.** If something needs a pretty level to
+   be tested, it is badly conceived: it is tested in the Playground.
 
-### 0.2 Definition of Done de un sistema
+### 0.2 Definition of Done for a system
 
-- [ ] Ficha completada en este documento (API, datos, parámetros exportados).
-- [ ] Implementado **sin literales de texto** (todo clave de traducción desde el día 1).
-- [ ] **Cero números mágicos**: todo parámetro `@export` o recurso de datos.
-- [ ] Declarado y probado con **N=1 y N=2**.
-- [ ] Una prueba automática propia en el Playground o en una batería (§6).
-- [ ] Sin regresión: las baterías existentes (`--phys-demo`, `--carve-quality`,
-      `--ball-shape`) siguen en verde.
-- [ ] Presupuesto de frame respetado (≤ 3 ms de simulación, ver `plan_juego.md`).
+- [ ] Spec sheet completed in this document (API, data, exported parameters).
+- [ ] Implemented **without text literals** (everything a translation key from day 1).
+- [ ] **Zero magic numbers**: every parameter `@export` or a data resource.
+- [ ] Declared and tested with **N=1 and N=2**.
+- [ ] Its own automated test in the Playground or in a battery (§6).
+- [ ] No regression: the existing batteries (`--phys-demo`, `--carve-quality`,
+      `--ball-shape`) stay green.
+- [ ] Frame budget respected (≤ 3 ms of simulation, see `plan_juego.md`).
 
-### 0.3 Convenciones
+### 0.3 Conventions
 
-- Una carpeta por familia (`scripts/player/`, `scripts/tools/`, `scripts/balls/`,
+- One folder per family (`scripts/player/`, `scripts/tools/`, `scripts/balls/`,
   `scripts/session/`, `scripts/progression/`, `scripts/ui/`, `scripts/net/`,
   `scripts/playground/`).
-- **Comunicación por señales**, no por referencias cruzadas: el HUD no conoce al
-  motor de movimiento; escucha.
-- Un sistema nunca escribe en otro: pide (API) o avisa (señal).
+- **Communication through signals**, not through cross-references: the HUD does not know the
+  movement engine; it listens.
+- A system never writes into another: it asks (API) or notifies (signal).
 
 ---
 
-## 1. Capas y mapa de sistemas
+## 1. Layers and system map
 
 ```
-Capa 6  PLATAFORMA      Steam · guardado · red · telemetría
-Capa 5  PRESENTACIÓN    HUD · menús · ajustes · i18n · audio · VFX · foto
-Capa 4  PROGRESO        objetivos · sellos · economía · logros (compartidos)
-Capa 3  SESIÓN          player_count · modo (Trabajo/Jaleo/Duelo) · escalado
-Capa 2  JUGADOR         motor de movimiento · estados · herramientas · interacción
-Capa 1  MUNDO FÍSICO    bolas · objetos agarrables · contenedores · vehículos · dummies
-Capa 0  SIMULACIÓN ✅   manto de nieve granular con masa conservada
+Layer 6  PLATFORM       Steam · saving · network · telemetry
+Layer 5  PRESENTATION   HUD · menus · settings · i18n · audio · VFX · photo
+Layer 4  PROGRESSION    objectives · seals · economy · achievements (shared)
+Layer 3  SESSION        player_count · mode (Work/Ruckus/Duel) · scaling
+Layer 2  PLAYER         movement engine · states · tools · interaction
+Layer 1  PHYSICAL WORLD balls · grabbable objects · containers · vehicles · dummies
+Layer 0  SIMULATION ✅  granular snowpack with conserved mass
 ```
 
-Toda dependencia va **hacia abajo**. La capa 0 existe y funciona; el trabajo está
-en las capas 1–6.
+Every dependency goes **downward**. Layer 0 exists and works; the work is
+in layers 1–6.
 
 ---
 
-## 2. Fichas de sistemas
+## 2. System spec sheets
 
-### A. Núcleo de simulación (capa 0) — extensiones 🔧
+### A. Simulation core (layer 0) — extensions 🔧
 
-| # | Sistema | Responsabilidad | API clave | Estado |
+| # | System | Responsibility | Key API | Status |
 |---|---|---|---|---|
-| 1 | `SnowField` | Manto granular, ops y masa | `carve/dump/tamp/harvest` ✅ | ✅ |
-| 2 | `SnowSurfaceQuery` | **Tipo de superficie y fricción por posición** | `surface_at(pos) → {friction, depth, compact, slush}` | 🔧 |
-| 3 | `SnowCompaction` | **Compactar** nieve sin retirarla (nueva op de GPU) | `compact(pos, radius, amount)` | ⬜ |
-| 4 | `MassZone` | Volúmenes que aceptan/expulsan masa y la contabilizan | `accepts(pos)`, `mass_in()`, `signal mass_changed` | ⬜ |
-| 5 | `MassLedger` | Libro de cuentas total (manto + bolas + contenedores + fragmentos) | `total_mass()`, `report()` | 🔧 |
+| 1 | `SnowField` | Granular snowpack, ops and mass | `carve/dump/tamp/harvest` ✅ | ✅ |
+| 2 | `SnowSurfaceQuery` | **Surface type and friction per position** | `surface_at(pos) → {friction, depth, compact, slush}` | 🔧 |
+| 3 | `SnowCompaction` | **Compact** snow without removing it (new GPU op) | `compact(pos, radius, amount)` | ⬜ |
+| 4 | `MassZone` | Volumes that accept/expel mass and account for it | `accepts(pos)`, `mass_in()`, `signal mass_changed` | ⬜ |
+| 5 | `MassLedger` | Total ledger (snowpack + balls + containers + fragments) | `total_mass()`, `report()` | 🔧 |
 
-**2. `SnowSurfaceQuery`** es la pieza que hace funcionar el movimiento, las
-herramientas y el bunny hop. Combina canales que ya existen (altura, nieve suelta,
-cohesión) en una lectura de *tipo de superficie*:
+**2. `SnowSurfaceQuery`** is the piece that makes movement, the
+tools and the bunny hop work. It combines channels that already exist (height, loose snow,
+cohesion) into a *surface type* reading:
 
-| Tipo | Condición | Fricción | Efecto |
+| Type | Condition | Friction | Effect |
 |---|---|---|---|
-| Despejado / compactado | `h < 0.02` o `compact > 0.7` | muy baja | corres y mantienes impulso |
-| Nieve polvo | `cohesion < 0.35` y `compact < 0.4` | alta | te hundes, se corta la velocidad |
-| Nieve húmeda / pesada | `cohesion > 0.7` | media-alta | pesa, se pega |
-| Slush / hielo | `slush > 0.6` | casi nula | resbalas, no frenas |
+| Clear / compacted | `h < 0.02` or `compact > 0.7` | very low | you run and keep momentum |
+| Powder snow | `cohesion < 0.35` and `compact < 0.4` | high | you sink, speed is cut |
+| Wet / heavy snow | `cohesion > 0.7` | medium-high | it feels heavy, it sticks |
+| Slush / ice | `slush > 0.6` | nearly none | you slip, you do not brake |
 
-**3. `SnowCompaction`** es una operación nueva del shader (modo 10) que **sube el
-canal de compactación sin tocar la altura**: transferencia de masa cero, sólo cambio
-de estado. Es lo que permite que el bunny hop trace caminos y que el palmeo tenga
-sentido económico (compactar es *más barato* que retirar... pero no despeja el 100 %).
+**3. `SnowCompaction`** is a new shader operation (mode 10) that **raises the
+compaction channel without touching height**: zero mass transfer, only a change
+of state. It is what lets the bunny hop trace paths and lets tamping have
+economic sense (compacting is *cheaper* than removing... but does not clear 100%).
 
-**5. `MassLedger`** convierte el invariante #2 en algo medible en tiempo real:
-`manto + bolas + contenedores + fragmentos + agua = constante`. El HUD de desarrollo
-lo muestra; las baterías lo verifican.
+**5. `MassLedger`** turns invariant #2 into something measurable in real time:
+`snowpack + balls + containers + fragments + water = constant`. The development HUD
+displays it; the batteries verify it.
 
-### B. Jugador (capa 2)
+### B. Player (layer 2)
 
-| # | Sistema | Responsabilidad | API clave | N=1 / N=2 |
+| # | System | Responsibility | Key API | N=1 / N=2 |
 |---|---|---|---|---|
-| 6 | `PlayerMotor` | Movimiento con inercia: fricción por superficie, air control, bunny hop, deslizamiento, agacharse | `set_input()`, `speed`, `is_sliding` | idéntico |
-| 7 | `PlayerState` | Máquina de estados: normal · cegado por nieve · desestabilizado · derribado · sepultado · montando | `apply_hit(tier, zone)`, `state`, señales | idéntico |
-| 8 | `PlayerAvatar` | Cuerpo visible para el compañero + animación procedural | `pose_from(state, velocity)` | sólo en N=2 |
-| 9 | `PlayerInteraction` | `E` (coger/apelmazar/empujar), patada, arrastrar, **agarrar al compañero** | `try_interact()`, `grab_partner()` | en N=1 el "compañero" no existe: se ignora |
-| 10 | `PlayerCamera` | Cabeceo, tambaleo, roll, FOV dinámico, sacudida y **overlay de nieve en la cara** | `add_shake()`, `set_face_snow(0..1)` | idéntico |
-| 11 | `PlayerAudio` | Pasos por superficie, esfuerzo, impacto, gritos | eventos | idéntico |
+| 6 | `PlayerMotor` | Movement with inertia: friction per surface, air control, bunny hop, sliding, crouching | `set_input()`, `speed`, `is_sliding` | identical |
+| 7 | `PlayerState` | State machine: normal · snow-blinded · destabilized · knocked down · buried · riding | `apply_hit(tier, zone)`, `state`, signals | identical |
+| 8 | `PlayerAvatar` | Body visible to the partner + procedural animation | `pose_from(state, velocity)` | only in N=2 |
+| 9 | `PlayerInteraction` | `E` (pick up/tamp/push), kick, drag, **grab the partner** | `try_interact()`, `grab_partner()` | in N=1 the "partner" does not exist: it is ignored |
+| 10 | `PlayerCamera` | Head bob, sway, roll, dynamic FOV, shake and **snow overlay on the face** | `add_shake()`, `set_face_snow(0..1)` | identical |
+| 11 | `PlayerAudio` | Footsteps per surface, effort, impact, shouts | events | identical |
 
-**7. `PlayerState`** es el sistema que recibe los impactos (§3.2) y **el único que
-puede bloquear acciones**. Reglas duras:
+**7. `PlayerState`** is the system that receives impacts (§3.2) and **the only one that
+can block actions**. Hard rules:
 
-- Un estado **nunca** quita progreso (invariante de diseño): sólo tiempo.
-- **Inmunidad de 1,5 s** al salir de cualquier estado → no existe el *stun-lock*.
-- En **modo Trabajo** los estados por impacto de bola **no se aplican** (inmunidad).
-- Al **derribarse** se suelta lo que se llevaba en las manos (y eso es divertido y
-  físicamente coherente).
+- A state **never** takes away progress (design invariant): only time.
+- **1.5 s immunity** when leaving any state → *stun-lock* does not exist.
+- In **Work mode** the states from ball impact **are not applied** (immunity).
+- When **knocked down** you drop what you were carrying in your hands (and that is fun and
+  physically coherent).
 
-### C. Herramientas (capa 2) — sistema de datos
+### C. Tools (layer 2) — data system
 
-| # | Sistema | Responsabilidad |
+| # | System | Responsibility |
 |---|---|---|
-| 12 | `ToolSystem` | Marco común: ranuras, cambio, viewmodel, animaciones, estadísticas, mejoras 1–3 |
-| 13 | `ToolDefinition` | **Recurso** que describe una herramienta (verbo, parámetros, coste, mejoras) |
-| 14 | Verbos | `Carve/Push` (pala, empujadora) ✅ · `Blow` (turbina) ✅ · `Salt` (salero) ✅ · `Pick` (pico) ⬜ · `Rake` (rastrillo) ⬜ · `Melt` (manguera) ⬜ · `Pack` (manos) ✅ · `Tamp` ✅ · `Throw` ✅ |
+| 12 | `ToolSystem` | Shared framework: slots, switching, viewmodel, animations, stats, upgrades 1–3 |
+| 13 | `ToolDefinition` | **Resource** that describes a tool (verb, parameters, cost, upgrades) |
+| 14 | Verbs | `Carve/Push` (shovel, pusher) ✅ · `Blow` (turbine) ✅ · `Salt` (salt shaker) ✅ · `Pick` (pickaxe) ⬜ · `Rake` (rake) ⬜ · `Melt` (hose) ⬜ · `Pack` (hands) ✅ · `Tamp` ✅ · `Throw` ✅ |
 
-Una herramienta nueva **no toca código**: es un `.tres` + un verbo ya existente.
-Eso es lo que permite añadir las 8 sin inflar el proyecto.
+A new tool **does not touch code**: it is a `.tres` + a verb that already exists.
+That is what makes it possible to add the 8 without inflating the project.
 
-### D. Bolas y proyectiles (capa 1)
+### D. Balls and projectiles (layer 1)
 
-| # | Sistema | Responsabilidad | Estado |
+| # | System | Responsibility | Status |
 |---|---|---|---|
-| 15 | `SnowBall` | Bola física: acreción, masa, densidad, apilado, rotura | ✅ |
-| 16 | `BallTier` | **Clasificación por tamaño** (pequeña/mediana/grande) y umbrales | ⬜ |
-| 17 | `BallBallistics` | Vuelo, predicción de parábola para apuntar, viento (opcional) | ⬜ |
-| 18 | `ImpactResolver` | **Decide el efecto**: tamaño × zona del cuerpo × velocidad → estado | ⬜ |
-| 19 | `FaceSnow` | Capa de nieve en la cara: overlay, auto-limpieza, limpieza manual | ⬜ |
-| 20 | `BallHandoff` | Recibir/pasar bolas entre jugadores (pulsación de `E` cerca) | ⬜ |
-| 21 | `TrainingDummy` | **Muñeco de pruebas** que recibe los mismos impactos que un jugador | ⬜ |
+| 15 | `SnowBall` | Physical ball: accretion, mass, density, stacking, breaking | ✅ |
+| 16 | `BallTier` | **Classification by size** (small/medium/large) and thresholds | ⬜ |
+| 17 | `BallBallistics` | Flight, parabola prediction for aiming, wind (optional) | ⬜ |
+| 18 | `ImpactResolver` | **Decides the effect**: size × body zone × speed → state | ⬜ |
+| 19 | `FaceSnow` | Snow layer on the face: overlay, auto-clearing, manual clearing | ⬜ |
+| 20 | `BallHandoff` | Receiving/passing balls between players (`E` tap when close) | ⬜ |
+| 21 | `TrainingDummy` | **Test dummy** that receives the same impacts as a player | ⬜ |
 
-**21. `TrainingDummy` es clave para el invariante #1**: implementa la misma interfaz
-`ImpactReceiver` que el jugador, así que **todo el sistema de impactos se puede
-probar y disfrutar en solitario** sin depender de una segunda persona. Es también lo
-que permite que los logros de "aciertos" sean obtenibles solo.
+**21. `TrainingDummy` is key to invariant #1**: it implements the same interface
+`ImpactReceiver` as the player, so **the entire impact system can be
+tested and enjoyed solo** without depending on a second person. It is also what
+makes the "hits" achievements attainable solo.
 
-### E. Objetos y cooperación física (capa 1)
+### E. Objects and physical cooperation (layer 1)
 
-| # | Sistema | Responsabilidad |
+| # | System | Responsibility |
 |---|---|---|
-| 22 | `Grabbable` | Interfaz común: coger, llevar, soltar, lanzar, dos manos |
-| 23 | `TwoPersonCarry` | **Agarrar entre dos**: reparte peso, mitiga tambaleo y gasto de agarre, sincroniza poses |
-| 24 | `Container` | Carretilla, cubo, caja del camión: llenar, vaciar, pesar (masa real) |
-| 25 | `Vehicle` | Quad con pala y trineo: conducir, pasajero, pala que siega, volcar |
-| 26 | `Pushable` | Empujar con el cuerpo o entre dos (fuerza que suma) |
+| 22 | `Grabbable` | Shared interface: pick up, carry, drop, throw, two hands |
+| 23 | `TwoPersonCarry` | **Two-person grip**: splits weight, mitigates wobble and grip drain, synchronizes poses |
+| 24 | `Container` | Wheelbarrow, bucket, truck box: fill, empty, weigh (real mass) |
+| 25 | `Vehicle` | Quad with plow and sled: driving, passenger, blade that mows, tipping over |
+| 26 | `Pushable` | Push with the body or between two (force that adds up) |
 
-### F. Gamberrismo y estados sociales (capa 3)
+### F. Pranks and social states (layer 3)
 
-| # | Sistema | Responsabilidad |
+| # | System | Responsibility |
 |---|---|---|
-| 27 | `SessionMode` | **Trabajo / Jaleo / Duelo**: gobierna si las bolas afectan a jugadores |
-| 28 | `PrankStats` | Contadores por jugador: bolas lanzadas/recibidas, enterrados, pilas destruidas, kg re-esparcidos |
-| 29 | `Chronicle` | Resumen final con premios absurdos (se ensambla de `PrankStats`) |
-| 30 | `DuelMode` | Marcador, rondas, mutadores de arena |
+| 27 | `SessionMode` | **Work / Ruckus / Duel**: governs whether balls affect players |
+| 28 | `PrankStats` | Per-player counters: balls thrown/received, times buried, piles destroyed, kg re-scattered |
+| 29 | `Chronicle` | Final summary with absurd awards (assembled from `PrankStats`) |
+| 30 | `DuelMode` | Scoreboard, rounds, arena mutators |
 
-### G. Sesión, progreso y logros (capas 3–4)
+### G. Session, progression and achievements (layers 3–4)
 
-| # | Sistema | Responsabilidad | Nota |
+| # | System | Responsibility | Note |
 |---|---|---|---|
-| 31 | `SessionRules` | Reglas de la partida: `player_count`, modo, dificultad/asistencia | —— |
-| 32 | `PlayerCountScaler` | **Hace que N=1 y N=2 se sientan igual de bien** (§3.4) | el sistema más delicado |
-| 33 | `ObjectiveSystem` | Condiciones componibles evaluadas por tick + sellos de nivel | —— |
-| 34 | `ProgressionSystem` | Dinero, estrellas, desbloqueos, mejoras | —— |
-| 35 | `AchievementSystem` | **Logros COMPARTIDOS** de la partida (§2.G.35) | —— |
-| 36 | `SaveSystem` | Perfiles, esquema versionado, guardado de nivel a medias | —— |
+| 31 | `SessionRules` | Match rules: `player_count`, mode, difficulty/assistance | —— |
+| 32 | `PlayerCountScaler` | **Makes N=1 and N=2 feel equally good** (§3.4) | the most delicate system |
+| 33 | `ObjectiveSystem` | Composable conditions evaluated per tick + level seals | —— |
+| 34 | `ProgressionSystem` | Money, stars, unlocks, upgrades | —— |
+| 35 | `AchievementSystem` | **SHARED achievements** of the match (§2.G.35) | —— |
+| 36 | `SaveSystem` | Profiles, versioned schema, mid-level saving | —— |
 
-**35. `AchievementSystem` — logros compartidos.** Dos reglas que se verifican
-automáticamente:
+**35. `AchievementSystem` — shared achievements.** Two rules that are verified
+automatically:
 
-1. **Se desbloquean para toda la partida**: si se consigue en coop, lo reciben
-   **los dos jugadores** (mismo logro, misma vez, sin reparto). El host valida y
-   emite; el cliente lo aplica. Nada de "yo sí y tú no".
-2. **Todos son obtenibles en solitario.** Un logro nunca puede exigir una segunda
-   persona (`--ach-check` lo comprueba: cada logro declara `solo_attainable = true`
-   y las condiciones se evalúan en un Playground de un jugador, usando
-   `TrainingDummy`/dianas cuando el logro hable de impactos).
+1. **They unlock for the whole match**: if it is earned in co-op, **both players**
+   receive it (same achievement, same time, no splitting). The host validates and
+   emits; the client applies it. No "I got it and you did not".
+2. **All of them are attainable solo.** An achievement can never require a second
+   person (`--ach-check` verifies it: every achievement declares `solo_attainable = true`
+   and the conditions are evaluated in a one-player Playground, using
+   `TrainingDummy`/targets when the achievement talks about impacts).
 
-El progreso de los contadores también es **compartido**: suman lo de los dos.
+Counter progress is also **shared**: it adds up both players'.
 
-### H. Presentación y plataforma (capas 5–6)
+### H. Presentation and platform (layers 5–6)
 
-| # | Sistema | Responsabilidad |
+| # | System | Responsibility |
 |---|---|---|
-| 37 | `UIManager` | Flujo de pantallas y foco (mando y ratón) |
-| 38 | `HUD` | % despejado, masa, herramienta, carga, objetivos, avisos de estado (cegado/derribado) |
-| 39 | `SettingsSystem` | Vídeo · audio · controles · juego · accesibilidad · red · datos (aplicación en vivo) |
-| 40 | `InputManager` | Remapeo, prompts por dispositivo, *mantener/alternar*, auto-bhop |
-| 41 | `LocalizationManager` | Claves, plurales por idioma, formato locale, modo QA |
-| 42 | `AudioManager` | Buses, capas de nieve por superficie/herramienta, música por progreso |
-| 43 | `VFXManager` | Nieve levantada, nube de rotura ✅, impactos, huellas |
-| 44 | `PhotoMode` | Cámara libre, filtros, poses |
-| 45 | `NetworkManager` | Host/join, replicación de ops, resync RLE, predicción, lobby |
-| 46 | `PerfGuard` | Presets de simulación, sim a 30 Hz, presupuesto de frame, telemetría |
+| 37 | `UIManager` | Screen flow and focus (gamepad and mouse) |
+| 38 | `HUD` | % cleared, mass, tool, load, objectives, state warnings (blinded/knocked down) |
+| 39 | `SettingsSystem` | Video · audio · controls · game · accessibility · network · data (live application) |
+| 40 | `InputManager` | Remapping, per-device pRuckusts, *hold/toggle*, auto-bhop |
+| 41 | `LocalizationManager` | Keys, per-language plurals, locale format, QA mode |
+| 42 | `AudioManager` | Buses, snow layers per surface/tool, music by progress |
+| 43 | `VFXManager` | Lifted snow, break cloud ✅, impacts, footprints |
+| 44 | `PhotoMode` | Free camera, filters, poses |
+| 45 | `NetworkManager` | Host/join, op replication, RLE resync, prediction, lobby |
+| 46 | `PerfGuard` | Simulation presets, sim at 30 Hz, frame budget, telemetry |
 
 ---
 
-## 3. Mecánicas: especificaciones numéricas
+## 3. Mechanics: numeric specifications
 
-### 3.1 Movimiento y bunny hop ✅ **Implementado** (en `player_controller.gd`)
+### 3.1 Movement and bunny hop ✅ **Implemented** (in `player_controller.gd`)
 
-**El modelo es el de Quake, no una aproximación propia.** Referencias: el
-`PM_Accelerate`/`PM_Friction` de *Quake III* (`bg_pmove.c`) y el análisis de
-[QW physics air](https://www.quakeworld.nu/wiki/QW_physics_air). Tres reglas lo
-definen:
+**The model is Quake's, not a homegrown approximation.** References:
+*Quake III*'s `PM_Accelerate`/`PM_Friction` (`bg_pmove.c`) and the analysis at
+[QW physics air](https://www.quakeworld.nu/wiki/QW_physics_air). Three rules
+define it:
 
-1. **En el suelo la fricción se aplica SIEMPRE, también andando**, y después se
-   acelera hacia la velocidad deseada. Por eso el andar es contundente y está
-   acotado: no hay deslizamiento.
-2. **En el aire no hay fricción**, y la velocidad deseada se **recorta a un valor
-   pequeño** (`air_wish_speed`). La aceleración se limita a `wishspeed − v·wishdir`,
-   así que la única forma de ganar velocidad es **apuntar la dirección de empuje
-   perpendicular a la velocidad** y dejar que la aceleración la rote. Eso es el
+1. **On the ground friction is applied ALWAYS, also while walking**, and then you
+   accelerate toward the desired speed. That is why walking feels weighty and is
+   bounded: there is no sliding.
+2. **In the air there is no friction**, and the desired speed is **clipped to a small
+   value** (`air_wish_speed`). The acceleration is limited to `wishspeed − v·wishdir`,
+   so the only way to gain speed is **to aim the push direction
+   perpendicular to velocity** and let the acceleration rotate it. That is
    *air strafe*.
-3. **El salto sólo aporta velocidad vertical.** Su premio es **saltarse la fricción
-   del frame de aterrizaje**: por eso el chequeo del salto va **antes** de la
-   fricción, igual que en `PM_WalkMove`. Un jugador que sólo mantiene adelante y
-   salta **no gana nada**.
+3. **Jumping only adds vertical speed.** Its reward is **skipping the friction
+   of the landing frame**: that is why the jump check runs **before**
+   friction, just like in `PM_WalkMove`. A player who only holds forward and
+   jumps **gains nothing**.
 
-| Parámetro | Valor implementado | Medido con `--movement-lab` |
+| Parameter | Implemented value | Measured with `--movement-lab` |
 |---|---|---|
-| Andar / correr | 4,2 / 6,8 m/s | 3,57 / 6,12 m/s sobre polvo (×0,85) |
-| `ground_accelerate` / `ground_friction` | 12 / 5 | el andar alcanza el objetivo exacto |
-| `ground_stop_speed` | 1,5 m/s | —— |
-| `air_accelerate` / `air_wish_speed` | 12 / 1,0 m/s | —— |
-| Tope del bhop | **2,0 × carrera = 13,6 m/s** | la cadena llega al tope en 8 saltos |
-| **Salto recto** (sólo adelante) | —— | run-up 5,99 → **5,78 m/s: no gana nada** |
-| **Air strafe ideal** | —— | run-up 6,66 → **13,60 m/s (+104 %)** |
-| Soltar el mando desde carrera | —— | **para en 0,37 s** |
-| Superficie por cohesión | polvo ≥0,45 compactado | polvo x0,85/fricción x1,2 · compactado x1,05/fricción x0,8 |
-| Compactación al aterrizar | `tamp` a 0,38 m, fuerza 0,18 | cada aterrizaje apelmaza y deja el suelo más rápido |
-| Deslizamiento en pendiente | ⬜ pendiente del Playground | —— |
-| Auto-bhop (accesibilidad) | `auto_bhop`, apagado por defecto | saltarse el ritmo; no da velocidad por sí solo |
+| Walk / run | 4.2 / 6.8 m/s | 3.57 / 6.12 m/s on powder (×0.85) |
+| `ground_accelerate` / `ground_friction` | 12 / 5 | walking reaches the exact target |
+| `ground_stop_speed` | 1.5 m/s | —— |
+| `air_accelerate` / `air_wish_speed` | 12 / 1.0 m/s | —— |
+| Bhop cap | **2.0 × run = 13.6 m/s** | the chain reaches the cap in 8 jumps |
+| **Straight jump** (forward only) | —— | run-up 5.99 → **5.78 m/s: gains nothing** |
+| **Air strafe ideal** | —— | run-up 6.66 → **13.60 m/s (+104%)** |
+| Releasing the stick from a run | —— | **stops in 0.37 s** |
+| Surface by cohesion | powder ≥0.45 compacted | powder x0.85/friction x1.2 · compacted x1.05/friction x0.8 |
+| Compaction on landing | `tamp` at 0.38 m, force 0.18 | every landing packs the snow down and leaves the ground faster |
+| Sliding on slopes | ⬜ Playground slope | —— |
+| Auto-bhop (accessibility) | `auto_bhop`, off by default | skipping the rhythm; it does not give speed by itself |
 
-**Prueba:** `--movement-lab` (10 comprobaciones) mide el andar/correr por superficie,
-que soltar frena en menos de medio segundo, que **saltar en línea recta no gana
-velocidad**, que **el air strafe sí** (con un bot que apunta el empuje perpendicular
-a la velocidad, o sea el caso ideal), el tope y el recuento de cadena.
+**Test:** `--movement-lab` (10 checks) measures walking/running per surface,
+that releasing brakes in less than half a second, that **jumping in a straight line
+gains no speed**, that **air strafe does** (with a bot that aims the push perpendicular
+to velocity, that is, the ideal case), the cap and the chain count.
 
-**Limitación conocida:** el nivel actual es corto (12 m de campo), así que las
-cadenas largas salen del campo simulado. El Playground necesitará una pista larga
-para medir la curva completa y las pendientes.
+**Known limitation:** the current level is short (12 m of field), so the
+long chains leave the simulated field. The Playground will need a long track
+to measure the full curve and the slopes.
 
-### 3.2 Impacto de bolas sobre jugadores ✅ **Implementado**
+### 3.2 Ball impact on players ✅ **Implemented**
 
-**Clasificación por tamaño** (radio medido, con la masa que sale de la densidad
-variable). En código: `SnowBall.tier_for_radius()`.
+**Classification by size** (measured radius, with the mass that comes from the variable
+density). In code: `SnowBall.tier_for_radius()`.
 
-| Categoría | Radio | Masa aprox. | Cómo se lanza |
+| Category | Radius | Approx. mass | How it is thrown |
 |---|---|---|---|
-| **Pequeña** | `r < 0,18 m` | 1–8 kg | una mano, rápido |
-| **Mediana** | `0,18 ≤ r < 0,34 m` | 8–60 kg | una o dos manos, lento |
-| **Grande** | `r ≥ 0,34 m` | > 60 kg | **dos manos**, sólo "heave" |
+| **Small** | `r < 0.18 m` | 1–8 kg | one hand, fast |
+| **Medium** | `0.18 ≤ r < 0.34 m` | 8–60 kg | one or two hands, slow |
+| **Large** | `r ≥ 0.34 m` | > 60 kg | **two hands**, "heave" only |
 
-**Efectos** (requieren que la bola venga lanzada, no rodando):
+**Effects** (they require the ball to have been thrown, not rolling):
 
-| Categoría | Impacto en el **cuerpo** | Impacto en la **cara** | Velocidad mínima | Medido |
+| Category | Impact on the **body** | Impact on the **face** | Minimum speed | Measured |
 |---|---|---|---|---|
-| **Pequeña** | Nada (sólo sonido y salpicadura) | **`NADIEVE`**: cara llena de nieve | 5,0 m/s | ✅ 3,3 s de nieve, sin desestabilizar |
-| **Mediana** | **`DESESTABILIZADO` 1,0 s** | `DESESTABILIZADO` + **`NADIEVE`** | 3,5 m/s | ✅ estado 1, nieve 3,3 s |
-| **Grande** | **`DERRIBADO` 2,0 s** | `DERRIBADO` + **`NADIEVE`** | 2,5 m/s | ✅ estado 2 y suelta la carga |
+| **Small** | Nothing (only sound and splash) | **`NADIEVE`**: face full of snow | 5.0 m/s | ✅ 3.3 s of snow, without destabilizing |
+| **Medium** | **`DESESTABILIZADO` 1.0 s** | `DESESTABILIZADO` + **`NADIEVE`** | 3.5 m/s | ✅ state 1, snow 3.3 s |
+| **Large** | **`DERRIBADO` 2.0 s** | `DERRIBADO` + **`NADIEVE`** | 2.5 m/s | ✅ state 2 and it drops the load |
 
-**`NADIEVE` (nieve en la cara)**:
-- Duración **automática 3,5 s** y se quita sola.
-- **Limpieza manual**: mantener la acción de interacción **[E]** la quita en
-  **0,6 s**. Medido: 3,28 s de nieve → 0 en 0,9 s de limpieza.
-- Efecto visual: overlay de nieve en pantalla, generado por código (una mancha
-  blanca procedural, sin assets). **No inmoviliza**: puedes andar y usar
-  herramientas; sólo ves mal.
-- Ajuste `snow_face_auto_clear`: **Normal = sí** (se quita sola) · **Realista = no**
-  (sólo manual). Es el "(esto en modo normal)" que pediste, convertido en ajuste.
+**`NADIEVE` (snow on the face)**:
+- **Automatic duration 3.5 s** and it removes itself.
+- **Manual clearing**: holding the interaction action **[E]** removes it in
+  **0.6 s**. Measured: 3.28 s of snow → 0 in 0.9 s of clearing.
+- Visual effect: snow overlay on screen, generated by code (a procedural
+  white splotch, no assets). **It does not immobilize you**: you can walk and use
+  tools; you just see badly.
+- Setting `snow_face_auto_clear`: **Normal = yes** (it removes itself) · **Realistic = no**
+  (manual only). It is the "(this in normal mode)" you asked for, turned into a setting.
 
-**`DESESTABILIZADO` (1,0 s)**: se pierde el control fino — no se puede usar
-herramienta, el movimiento conserva la inercia con vaivén lateral y la cámara se
-balancea y tiembla.
+**`DESESTABILIZADO` (1.0 s)**: fine control is lost — you cannot use a
+tool, movement keeps inertia with a lateral sway and the camera
+sways and trembles.
 
-**`DERRIBADO` (2,0 s)**: no se puede actuar; **se suelta lo que se llevaba** ✅
-medido. La cámara cae hacia la nieve y se levanta con una curva, no de golpe.
+**`DERRIBADO` (2.0 s)**: you cannot act; **you drop what you were carrying** ✅
+measured. The camera falls toward the snow and rises on a curve, not abruptly.
 
-**Reglas de convivencia (anti-frustración) 🔒 blindadas:**
-- Ningún golpe entra **mientras dura un estado** ni durante los **1,5 s** de
-  inmunidad al salir. Medido: tres bolas seguidas → `hits_taken` se queda en 1.
-- `hit_reactions_enabled = false` es el "Modo Trabajo" (las bolas atraviesan).
-  Por defecto **activado**, que es el Jaleo.
-- Detección de **cara** analítica: dos esferas por persona (`impact_spheres()`,
-  cabeza y torso) y la bola decide por altura. Sin *hitbox* extra.
-- En **solitario**: hay un `TrainingDummy` en el nivel al lado del camino ✅ y
-  recibe exactamente los mismos golpes que un jugador (probado).
+**Coexistence rules (anti-frustration) 🔒 hardened:**
+- No hit lands **while a state lasts** or during the **1.5 s** of
+  immunity on exit. Measured: three balls in a row → `hits_taken` stays at 1.
+- `hit_reactions_enabled = false` is "Work Mode" (balls pass through).
+  By default **enabled**, which is Ruckus.
+- Analytic **face** detection: two spheres per person (`impact_spheres()`,
+  head and torso) and the ball decides by height. No extra *hitbox*.
+- In **solo**: there is a `TrainingDummy` in the level next to the path ✅ and
+  it receives exactly the same hits as a player (tested).
 
-**Dos caminos de detección, por una razón medida:** un jugador tiene cuerpo de
-colisión y **para la bola antes** de que entre en las esferas analíticas, así que
-su golpe se resuelve por el contacto real; el muñeco no tiene cuerpo, así que su
-golpe lo resuelve un barrido del segmento. Mezclar los dos caminos contaría el
-golpe dos veces, así que cada objetivo usa el suyo. Como el contacto se notifica
-**después** de que el solver ya haya frenado la bola (medido: una bola de 7 m/s
-llegaba con 4,81 m/s), la velocidad de llegada es la **máxima de los últimos 4
+**Two detection paths, for a measured reason:** a player has a collision
+body and **stops the ball before** it enters the analytic spheres, so
+its hit is resolved by the real contact; the dummy has no body, so its
+hit is resolved by a segment sweep. Mixing the two paths would count the
+hit twice, so each target uses its own. Since the contact is notified
+**after** the solver has already slowed the ball (measured: a ball of 7 m/s
+arrived at 4.81 m/s), the arrival speed is the **maximum of the last 4
 frames**.
 
-**Prueba:** `--impact-lab` (18 comprobaciones): clasificación de los 3 tamaños,
-cara/cuerpo por tamaño, duración y fin de cada estado, inmunidad, bola lenta que
-no hace nada, limpieza manual y el muñeco de entrenamiento.
+**Test:** `--impact-lab` (18 checks): classification of the 3 sizes,
+face/body per size, duration and end of each state, immunity, a slow ball that
+does nothing, manual clearing and the training dummy.
 
-**Pendiente de este apartado:** el `--impact-matrix` completo (3 tamaños × 3 zonas ×
-3 velocidades) cuando exista el `PlayerState` compartido con el modo de sesión, y el
-desenfoque/audio amortiguado de `NADIEVE` (hoy sólo es el overlay).
+**Pending for this section:** the full `--impact-matrix` (3 sizes × 3 zones ×
+3 speeds) once the `PlayerState` shared with the session mode exists, and the
+blur/muffled audio of `NADIEVE` (today it is only the overlay).
 
-### 3.3 Cooperación física ⬜
+### 3.3 Physical cooperation ⬜
 
-| Mecánica | Regla | N=1 / N=2 |
+| Mechanic | Rule | N=1 / N=2 |
 |---|---|---|
-| **Levantar entre dos** | Si dos jugadores sostienen el mismo objeto: tambaleo × 0,4, gasto de agarre × 0,5, velocidad de carga × 1,25 | en N=1 el comportamiento actual ✅ |
-| **Empujar entre dos** | Las fuerzas se suman, con el tope por objeto | en N=1 fuerza simple ✅ |
-| **Pasar una bola** | Pulsación de `E` cerca de una bola en vuelo o rodando: se acopla a las manos | N=1: recoges del suelo ✅ |
-| **Impulsar al compañero** | Subirse a un montón o a una bola y que el otro empuje | N=1: te subes solo |
-| **Rescate** | Desenterrar al compañero sepultado (mash de acción) | N=1: te liberas tú |
-| **Contenedores** | La masa dentro cuenta en el libro de cuentas; al volcar, sale de verdad | idéntico |
+| **Two-person lift** | If two players hold the same object: wobble × 0.4, grip drain × 0.5, carry speed × 1.25 | in N=1 the current behavior ✅ |
+| **Two-person push** | The forces add up, with the per-object cap | in N=1 simple force ✅ |
+| **Passing a ball** | `E` tap near a ball in flight or rolling: it couples to the hands | N=1: you pick it up from the ground ✅ |
+| **Boosting the partner** | Climbing onto a pile or a ball and having the other one push | N=1: you climb by yourself |
+| **Rescue** | Digging out a buried partner (action mash) | N=1: you free yourself |
+| **Containers** | The mass inside counts in the ledger; when tipped over, it really comes out | identical |
 
-### 3.4 `PlayerCountScaler` — el sistema que iguala solo y coop ⬜
+### 3.4 `PlayerCountScaler` — the system that equalizes solo and co-op ⬜
 
-**Problema:** si dimensiono para 2, en solitario es un castigo; si dimensiono para 1,
-en coop se acaba en tres minutos. **Solución: escalar los requisitos, nunca la
-física.** La masa del mundo, la resistencia de la nieve y el peso de los objetos son
-idénticos con 1 o 2 jugadores (es lo que hace que la física sea creíble y comparable).
+**Problem:** if I size for 2, solo is a punishment; if I size for 1,
+in co-op it is over in three minutes. **Solution: scale the requirements, never the
+physics.** The world's mass, the snow's resistance and the objects' weight are
+identical with 1 or 2 players (that is what makes the physics credible and comparable).
 
-| Qué escala | N=1 | N=2 |
+| What scales | N=1 | N=2 |
 |---|---|---|
-| Requisito de cobertura del objetivo | × 1,0 | × 1,0 en zona común; las **zonas opcionales** se activan |
-| Tiempo objetivo de los sellos | × 1,0 | × 1,55 |
-| Objetivos opcionales disponibles | subconjunto | todos |
-| Ayudas de solista | quad con pala / vecino (a decidir con playtest) | —— |
-| Logros | **los mismos** (compartidos, todos obtenibles) | **los mismos** |
+| Objective coverage requirement | × 1.0 | × 1.0 in the common zone; the **optional zones** activate |
+| Target time of the seals | × 1.0 | × 1.55 |
+| Optional objectives available | subset | all |
+| Soloist aids | quad with plow / neighbor (to be decided with playtest) | —— |
+| Achievements | **the same** (shared, all attainable) | **the same** |
 
-**Regla de oro:** con 2 jugadores se hace **más superficie en el mismo tiempo**, no
-la misma superficie con el doble de prisa. Y en solitario **nunca** se pide lo que
-requiere dos manos.
+**Golden rule:** with 2 players you clear **more surface in the same time**, not
+the same surface twice as fast. And in solo, **nothing** is ever asked that
+requires two hands.
 
-**Prueba:** `--coop-rules` evalúa el mismo objetivo con N=1 y N=2 simulados y
-comprueba que la relación trabajo/requisito se mantiene dentro del ±15 %.
+**Test:** `--coop-rules` evaluates the same objective with simulated N=1 and N=2 and
+checks that the work/requirement ratio stays within ±15%.
 
-### 3.5 Estados y acciones: matriz de bloqueo
+### 3.5 States and actions: blocking matrix
 
-| Acción | Normal | Cegado (nieve) | Desestabilizado | Derribado | Sepultado |
+| Action | Normal | Blinded (snow) | Destabilized | Knocked down | Buried |
 |---|---|---|---|---|---|
-| Andar / correr | ✅ | ✅ (peor visión) | parcial | ❌ | ❌ |
-| Usar herramienta | ✅ | ✅ (peor puntería) | ❌ | ❌ | ❌ |
-| Coger / llevar | ✅ | ✅ | ❌ | ❌ (suelta) | ❌ |
-| Limpiarse la cara | —— | ✅ (manual 0,6 s) | ❌ | ❌ | ❌ |
+| Walk / run | ✅ | ✅ (worse vision) | partial | ❌ | ❌ |
+| Use tool | ✅ | ✅ (worse aim) | ❌ | ❌ | ❌ |
+| Pick up / carry | ✅ | ✅ | ❌ | ❌ (drops) | ❌ |
+| Clear your face | —— | ✅ (manual 0.6 s) | ❌ | ❌ | ❌ |
 | Bunny hop | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Liberarse | —— | —— | —— | ✅ (se levanta solo) | ✅ (mash) |
+| Free yourself | —— | —— | —— | ✅ (stands up on its own) | ✅ (mash) |
 
 ---
 
-## 4. Playground — banco de pruebas temporal
+## 4. Playground — temporary test bench
 
-Una sola escena neutral, `scenes/playground.tscn`, **sin escenario ni arte final**.
-Es donde se prueba *todo* hasta que exista contenido.
+A single neutral scene, `scenes/playground.tscn`, **with no scenario and no final art**.
+It is where *everything* is tested until content exists.
 
-**Contenido del Playground (mecánico, no artístico):**
-- Explanada plana de 40×40 m con nieve a distintas profundidades por zonas
-  (0 / 0,1 / 0,32 / 0,6 m) para probar fricción y hundimiento.
-- **Rampa suave (20°)** y **rampa fuerte (35°)** para deslizamiento y aludes.
-- **Pared y esquina** para rebotes de bolas (autoimpacto) y empujones.
-- **Plataforma a 4 m** (tejado simulado) para probar caídas y avalanchas.
-- **Foso / agua** para la salida legítima de masa.
-- **Zona de destino de masa** (`MassZone`) y un contenedor pesado (`Container`).
-- **Galería de dianas** + **2 `TrainingDummy`** con las mismas reacciones que un jugador.
-- **Estantería con las 8 herramientas** y un **generador de bolas** con presets
-  (pequeña / mediana / grande) y velocidad ajustable.
-- **Quad con pala** y trineo.
-- **Consola de depuración** con comandos:
+**Playground contents (mechanical, not artistic):**
+- Flat 40×40 m esplanade with snow at different depths by zone
+  (0 / 0.1 / 0.32 / 0.6 m) to test friction and sinking.
+- **Gentle ramp (20°)** and **steep ramp (35°)** for sliding and avalanches.
+- **Wall and corner** for ball bounces (self-impact) and shoves.
+- **Platform at 4 m** (simulated roof) to test falls and avalanches.
+- **Pit / water** for the legitimate outflow of mass.
+- **Mass destination zone** (`MassZone`) and a heavy container (`Container`).
+- **Target gallery** + **2 `TrainingDummy`** with the same reactions as a player.
+- **Rack with the 8 tools** and a **ball spawner** with presets
+  (small / medium / large) and adjustable speed.
+- **Quad with plow** and sled.
+- **Debug console** with commands:
 
 ```
 pg.spawn ball small|medium|large [speed]
 pg.hit dummy|self face|body
-pg.state                 # estados activos, inmunidad, duraciones
-pg.surface               # tipo de superficie y fricción bajo el jugador
-pg.mass                  # libro de cuentas completo
-pg.rules players=1|2     # fuerza el escalado de sesión (¡sin segundo jugador!)
-pg.rules mode=work|chaos|duel
-pg.timescale 0.25        # cámara lenta para ver impactos
-pg.reload                # reinicia el manto y la masa
-pg.log on|off            # telemetría a archivo
+pg.state                 # active states, immunity, durations
+pg.surface               # surface type and friction under the player
+pg.mass                  # full ledger
+pg.rules players=1|2     # forces session scaling (no second player!)
+pg.rules mode=work|ruckus|duel
+pg.timescale 0.25        # slow motion to watch impacts
+pg.reload                # resets the snowpack and the mass
+pg.log on|off            # telemetry to file
 ```
 
-**`--local-duo` (modo de depuración):** dos jugadores en la misma máquina
-(teclado + mando, o dos ventanas). Sirve para probar la cooperación física y los
-estados sin red y sin esperar al hito de multijugador. **Reduce el riesgo del
-coop a la mitad.**
+**`--local-duo` (debug mode):** two players on the same machine
+(keyboard + gamepad, or two windows). It serves to test physical cooperation and
+states without network and without waiting for the multiplayer milestone. **It cuts
+the co-op risk in half.**
 
 ---
 
-## 5. Fases de implementación
+## 5. Implementation phases
 
-Cada fase termina con sus pruebas en verde y **no empieza la siguiente sin ellas**.
+Each phase ends with its tests green and **the next one does not start without them**.
 
-| Fase | Duración | Contenido | Criterio de salida |
+| Phase | Duration | Content | Exit criterion |
 |---|---|---|---|
-| **0 · Andamiaje** | 1–2 sem | Autoloads, `UIManager` mínimo, `SettingsSystem`/`SaveSystem`/`LocalizationManager` básicos, escena Playground, consola, `MassLedger` | El Playground carga, un jugador se mueve, el libro de cuentas cuadra, las 3 baterías antiguas siguen verdes |
-| **1 · Movimiento** | 1–2 sem | `PlayerMotor` con inercia y bunny hop, `PlayerState`, `PlayerAvatar`, `PlayerCamera` | `--movement-lab`: curva de bhop con tope, 4 fricciones distintas, deslizamiento |
-| **2 · Superficie** | 1 sem | `SnowSurfaceQuery`, `SnowCompaction` (op GPU 10), huellas | Compactar no cambia la masa (±0,05 %); el bhop funciona sólo en compactado |
-| **3 · Herramientas** | 2 sem | `ToolSystem`, `ToolDefinition`, verbos migrados + pico, rastrillo, manguera; mejoras 1–3 | Cada herramienta mide kg/s y masa conservada en el Playground |
-| **4 · Bolas e impactos** | 2 sem | `BallTier`, `BallBallistics`, `ImpactResolver`, `FaceSnow`, `TrainingDummy`, rebotes | `--impact-matrix` completa (3×3×3) + inmunidad + soltado + modo Trabajo |
-| **5 · Cooperación física** | 2 sem | `Grabbable`, `TwoPersonCarry`, `Container`, `Vehicle`, `BallHandoff`, rescate | `--local-duo`: levantar entre dos, pasar bolas, volcar contenedor con masa cuadrada |
-| **6 · Reglas de sesión** | 1 sem | `SessionRules`, `PlayerCountScaler`, `SessionMode`, `PrankStats`, `DuelMode` | `--coop-rules`: N=1 vs N=2 dentro del ±15 % |
-| **7 · Progreso y logros** | 2 sem | `ObjectiveSystem`, `ProgressionSystem`, `AchievementSystem` compartido, guardado | `--save-roundtrip`, `--ach-check` (todos obtenibles en solitario) |
-| **8 · Presentación** | 3 sem | HUD, pausa, resultados + crónica, menús, ajustes completos, remapeo, i18n + pseudo-loc, audio, modo foto | `--settings-apply`, `--i18n-check`, navegación de menús **sólo con mando** |
-| **9 · Red** | 3–4 sem | Spike → `NetworkManager`: ops, resync RLE, predicción, lobby, Remote Play | `--net-smoke`: deriva < 0,5 %/nivel, < 30 KB/s, sesión de 30 min |
-| **10 · Rendimiento y CI** | 1–2 sem | Presets de simulación, sim a 30 Hz, presupuesto de frame, todas las baterías como puertas | `--perf-gate` en 4 configuraciones; checklist de Deck |
+| **0 · Scaffolding** | 1–2 wk | Autoloads, minimal `UIManager`, basic `SettingsSystem`/`SaveSystem`/`LocalizationManager`, Playground scene, console, `MassLedger` | The Playground loads, a player moves, the ledger balances, the 3 old batteries stay green |
+| **1 · Movement** | 1–2 wk | `PlayerMotor` with inertia and bunny hop, `PlayerState`, `PlayerAvatar`, `PlayerCamera` | `--movement-lab`: bhop curve with a cap, 4 different frictions, sliding |
+| **2 · Surface** | 1 wk | `SnowSurfaceQuery`, `SnowCompaction` (GPU op 10), footprints | Compacting does not change mass (±0.05%); bhop works only on compacted snow |
+| **3 · Tools** | 2 wk | `ToolSystem`, `ToolDefinition`, migrated verbs + pickaxe, rake, hose; upgrades 1–3 | Each tool measures kg/s and conserved mass in the Playground |
+| **4 · Balls and impacts** | 2 wk | `BallTier`, `BallBallistics`, `ImpactResolver`, `FaceSnow`, `TrainingDummy`, bounces | full `--impact-matrix` (3×3×3) + immunity + dropping + Work mode |
+| **5 · Physical cooperation** | 2 wk | `Grabbable`, `TwoPersonCarry`, `Container`, `Vehicle`, `BallHandoff`, rescue | `--local-duo`: two-person lift, passing balls, tipping a container with balanced mass |
+| **6 · Session rules** | 1 wk | `SessionRules`, `PlayerCountScaler`, `SessionMode`, `PrankStats`, `DuelMode` | `--coop-rules`: N=1 vs N=2 within ±15% |
+| **7 · Progression and achievements** | 2 wk | `ObjectiveSystem`, `ProgressionSystem`, shared `AchievementSystem`, saving | `--save-roundtrip`, `--ach-check` (all attainable solo) |
+| **8 · Presentation** | 3 wk | HUD, pause, results + chronicle, menus, full settings, remapping, i18n + pseudo-loc, audio, photo mode | `--settings-apply`, `--i18n-check`, menu navigation **with gamepad only** |
+| **9 · Network** | 3–4 wk | Spike → `NetworkManager`: ops, RLE resync, prediction, lobby, Remote Play | `--net-smoke`: drift < 0.5%/level, < 30 KB/s, 30 min session |
+| **10 · Performance and CI** | 1–2 wk | Simulation presets, sim at 30 Hz, frame budget, all batteries as gates | `--perf-gate` in 4 configurations; Deck checklist |
 
-**Total: ~20–26 semanas (5–6 meses)** de sistemas, sin contenido. Con el motor ya
-hecho, es el camino más corto a un juego real.
+**Total: ~20–26 weeks (5–6 months)** of systems, with no content. With the engine already
+done, it is the shortest path to a real game.
 
 ---
 
-## 6. Baterías de prueba (y CI)
+## 6. Test batteries (and CI)
 
-Se suman a las tres que ya existen ✅. Todas corren **headless** y devuelven un
-veredicto `N OK / M fallos` con salida de diagnóstico.
+They add to the three that already exist ✅. All of them run **headless** and return a
+verdict of `N OK / M fallos` with diagnostic output.
 
-| Batería | Qué comprueba | Fase |
+| Battery | What it checks | Phase |
 |---|---|---|
-| `--phys-demo` ✅ | 36 comprobaciones del núcleo | —— |
-| `--carve-quality` ✅ | Calidad del terreno y FPS | —— |
-| `--ball-shape` ✅ | Esferas, densidad, surcos | —— |
-| `--playground-smoke` | Que el Playground carga, el libro de cuentas cuadra y los sistemas responden | 0 |
-| `--movement-lab` | Bhop con tope, 4 fricciones, deslizamiento, compactación | 1–2 |
-| `--mass-invariant` | Masa total constante en 20 operaciones mezcladas (incluida compactar) | 2–3 |
-| `--impact-matrix` | 3 tamaños × 3 zonas × 3 velocidades, inmunidad, soltado, modo Trabajo | 4 |
-| `--coop-rules` | N=1 vs N=2: trabajo/requisito dentro del ±15 % | 6 |
-| `--save-roundtrip` | Guardar → cargar → mismo estado, misma masa, esquema migrado | 7 |
-| `--ach-check` | Todo logro obtenible en solitario; desbloqueo compartido en coop | 7 |
-| `--i18n-check` | Ninguna clave sin traducir en ningún idioma | 8 |
-| `--settings-apply` | Todos los ajustes se aplican en vivo y persisten | 8 |
-| `--net-smoke` | Dos instancias: deriva de masa, tráfico, reconexión | 9 |
-| `--perf-gate` | Presupuesto de frame por preset y configuración | 10 |
+| `--phys-demo` ✅ | 36 checks of the core | —— |
+| `--carve-quality` ✅ | Terrain quality and FPS | —— |
+| `--ball-shape` ✅ | Spheres, density, grooves | —— |
+| `--playground-smoke` | That the Playground loads, the ledger balances and the systems respond | 0 |
+| `--movement-lab` | Bhop with a cap, 4 frictions, sliding, compaction | 1–2 |
+| `--mass-invariant` | Total mass constant across 20 mixed operations (including compacting) | 2–3 |
+| `--impact-matrix` | 3 sizes × 3 zones × 3 speeds, immunity, dropping, Work mode | 4 |
+| `--coop-rules` | N=1 vs N=2: work/requirement within ±15% | 6 |
+| `--save-roundtrip` | Save → load → same state, same mass, migrated schema | 7 |
+| `--ach-check` | Every achievement attainable solo; shared unlock in co-op | 7 |
+| `--i18n-check` | No key untranslated in any language | 8 |
+| `--settings-apply` | All settings apply live and persist | 8 |
+| `--net-smoke` | Two instances: mass drift, traffic, reconnection | 9 |
+| `--perf-gate` | Frame budget per preset and configuration | 10 |
 
-**Puerta de integración:** ningún cambio entra si alguna batería baja de verde.
+**Integration gate:** no change goes in if any battery drops from green.
 
 ---
 
-## 7. Decisiones tomadas en este plan
+## 7. Decisions made in this plan
 
-1. **Coop de 2 exactos, y ambos modos son primera clase.** El número de jugadores es
-   una *variable de sistema* (`SessionRules.player_count`), no una bifurcación del
-   diseño. El escalado lo resuelve `PlayerCountScaler` escalando **requisitos**, no
-   física.
-2. **Logros compartidos.** Un único conjunto; en coop lo reciben los dos a la vez, y
-   **ninguno exige una segunda persona** (verificado por `--ach-check`).
-3. **La ubicación está sin decidir y no se tiene en cuenta.** El Playground es
-   deliberadamente abstracto; el escenario no condiciona ninguna mecánica
-   (nada de "nieve alpina" ni "pueblo": sólo *nieve*, *superficies* y *objetos*).
-4. **Modo de sesión como sistema**: Trabajo / Jaleo / Duelo, con la matriz de
-   impactos de §3.2.
-5. **Anti-`stun-lock` por diseño**: inmunidad de 1,5 s tras cada estado.
-6. **`TrainingDummy` y `--local-duo`** como herramientas de prueba: permiten validar
-   el coop y los impactos **sin red y sin segunda persona**.
-7. **La compactación es una op de GPU de masa cero**, y es lo que da sentido
-   económico al palmeo y al bunny hop.
-8. **Netcode:** host autoritativo del marcador, cliente que simula y predice sus
-   ops, corrección por parches RLE, spike obligatorio antes de la fase 9.
+1. **Co-op of exactly 2, and both modes are first class.** The number of players is
+   a *system variable* (`SessionRules.player_count`), not a fork in the
+   design. Scaling is solved by `PlayerCountScaler` scaling **requirements**, not
+   physics.
+2. **Shared achievements.** A single set; in co-op both receive it at the same time, and
+   **none requires a second person** (verified by `--ach-check`).
+3. **The setting is undecided and is not taken into account.** The Playground is
+   deliberately abstract; the scenario does not constrain any mechanic
+   (no "alpine snow" and no "village": only *snow*, *surfaces* and *objects*).
+4. **Session mode as a system**: Work / Ruckus / Duel, with the impact matrix
+   from §3.2.
+5. **Anti-`stun-lock` by design**: 1.5 s of immunity after each state.
+6. **`TrainingDummy` and `--local-duo`** as test tools: they make it possible to validate
+   co-op and impacts **without network and without a second person**.
+7. **Compaction is a zero-mass GPU op**, and it is what gives economic meaning
+   to tamping and to the bunny hop.
+8. **Netcode:** scoreboard-authoritative host, client that simulates and predicts its
+   ops, correction via RLE patches, mandatory spike before phase 9.
 
-## 8. Riesgos de este plan
+## 8. Risks of this plan
 
-| Riesgo | Mitigación |
+| Risk | Mitigation |
 |---|---|
-| El motor de estados del jugador pelea con el `CharacterBody3D` (derribos, empujones) | Derribo **cinemático con animación** + empujes físicos; nunca convertir al jugador en cuerpo rígido |
-| Sim a 30 Hz y la siega/compactación pierden masa | `--mass-invariant` en cada fase; tolerancia < 0,05 % |
-| El bhop se convierte en exploit | Tope duro + pendiente de ganancia decreciente + pruebas de curva |
-| El `PlayerCountScaler` se vuelve un nudo de casos especiales | Sólo 4 palancas (cobertura, tiempo, opcionales, ayudas) y una prueba de ratio |
-| El coop se prueba tarde y mal | `--local-duo` desde la fase 5 y `TrainingDummy` desde la 4 |
-| Determinismo del shader para la red | Auditoría en la fase 9 + plan B (cliente sólo interpola) |
+| The player state machine fights with `CharacterBody3D` (knockdowns, shoves) | **Cinematic knockdown with animation** + physical pushes; never turn the player into a rigid body |
+| 30 Hz sim and mowing/compaction lose mass | `--mass-invariant` in every phase; tolerance < 0.05% |
+| Bhop becomes an exploit | Hard cap + diminishing-returns slope + curve tests |
+| `PlayerCountScaler` becomes a knot of special cases | Only 4 levers (coverage, time, optionals, aids) and a ratio test |
+| Co-op is tested late and badly | `--local-duo` from phase 5 and `TrainingDummy` from phase 4 |
+| Shader determinism for the network | Audit in phase 9 + plan B (client only interpolates) |
 
-## 9. Lo que NO se hace ahora
+## 9. What is NOT done now
 
-- Nada de niveles, escenarios, pueblo, historia ni arte final.
-- Nada de tienda con economía balanceada (sólo el sistema, con datos de prueba).
-- Nada de logros concretos (sólo el sistema y su regla de compartición).
-- Nada de localizaciones reales (sólo las claves y la pseudo-localización).
-- Nada de Steamworks real (sólo la interfaz y un *stub* que se pueda sustituir).
+- No levels, scenarios, village, story or final art.
+- No shop with a balanced economy (only the system, with test data).
+- No specific achievements (only the system and its sharing rule).
+- No real localizations (only the keys and pseudo-localization).
+- No real Steamworks (only the interface and a *stub* that can be replaced).

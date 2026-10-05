@@ -1,866 +1,868 @@
-# Plan de juego — Snow It Together (título provisional)
+# Game plan — Snow It Together (working title)
 
-> Documento de diseño y plan técnico. **Nada de esto está implementado aún**: sirve
-> para decidir antes de construir. Lo que ya existe en el prototipo se marca con
-> ✅ y lo que falta con ⬜.
-
----
-
-## 0. Resumen ejecutivo
-
-**Snow It Together** es un simulador de limpieza de nieve en primera persona,
-*cozy*, **jugable en solitario y en cooperativo online de 2 jugadores**, con un
-motor de nieve granular de **masa conservada** como diferencial central.
-
-- **Género:** cleaning sim cozy + sandbox de física emergente + cooperativo de broma.
-- **Precio:** **6,99 €** (alineado con la referencia) + **demo gratuita**.
-- **Duración:** 1,5–2,5 h la primera pasada en solitario · **6–9 h el 100 %**
-  (el libro del invierno exige **2–3 vueltas** con retos distintos) · sandbox y
-  duelo de bolas ilimitados.
-- **Referencia directa:** *Leaf it Alone* (Eternity, 2025) — mismo bucle de
-  "limpia al 100 %", misma estética de bajo coste, mismos idiomas solo-texto.
-- **Diferencial 1 — la nieve es materia:** allí se borra una máscara; aquí no
-  desaparece, se mueve. Cada nivel es un puzle de logística (*¿dónde la echo?*).
-- **Diferencial 2 — el cooperativo es físico y gamberro:** no se reparten tareas,
-  se comparten objetos, y **arruinarle el trabajo a tu compañero es una mecánica
-  diseñada**, no un accidente que haya que castigar.
-
-**La apuesta:** el nicho pide cooperativo a gritos y nadie se lo ha dado. Un coop
-donde dos personas se pasan bolas, levantan entre las dos y se destrozan la pila
-recién hecha es un producto distinto en un mercado que vende 292 k copias a 6 €.
-
-**Las tres capas de tiempo de juego** (esto es lo que hace que dure sin contenido
-caro): trabajar · **jugar entre tú y tu compañero** · coleccionar y descubrir
-secretos. El plan reparte el esfuerzo entre las tres, no sólo en la primera.
+> Design and technical plan document. **None of this is implemented yet**: it serves
+> to decide before building. What already exists in the prototype is marked with
+> ✅ and what is missing with ⬜.
 
 ---
 
-## 1. Referencia y hueco de mercado
+## 0. Executive summary
 
-Datos de *Leaf it Alone* ([Steam](https://store.steampowered.com/app/3981100/),
+**Snow It Together** is a first-person snow-clearing simulator,
+*cozy*, **playable solo and in 2-player online co-op**, with a granular snow
+engine of **conserved mass** as its central differentiator.
+
+- **Genre:** cozy cleaning sim + emergent physics sandbox + prank co-op.
+- **Price:** **€6.99** (in line with the reference) + **free demo**.
+- **Length:** 1.5–2.5 h for the first solo run · **6–9 h for 100%**
+  (the Winter Book demands **2–3 runs** with different challenges) · unlimited
+  sandbox and snowball duel.
+- **Direct reference:** *Leaf it Alone* (Eternity, 2025) — same "clear to 100%"
+  loop, same low-cost aesthetic, same text-only languages.
+- **Differentiator 1 — snow is matter:** there a mask is erased; here it does not
+  disappear, it moves. Every level is a logistics puzzle (*where do I put it?*).
+- **Differentiator 2 — co-op is physical and rowdy:** tasks are not divided,
+  objects are shared, and **ruining your partner's work is a designed
+  mechanic**, not an accident that has to be punished.
+
+**The bet:** the niche is crying out for co-op and nobody has given it to it. A co-op
+where two people pass balls to each other, lift together and wreck each other's
+freshly made pile is a different product in a market that sells 292 k copies at €6.
+
+**The three layers of playtime** (this is what makes it last without expensive
+content): working · **playing with each other** · collecting and discovering
+secrets. The plan spreads the effort across all three, not only the first.
+
+---
+
+## 1. Reference and market gap
+
+Data from *Leaf it Alone* ([Steam](https://store.steampowered.com/app/3981100/),
 [VORYTHIC](https://vorythic.com/games/3778/leaf-it-alone)):
 
-| Dato | Valor | Lectura para nosotros |
+| Data | Value | Reading for us |
 |---|---|---|
-| Precio | 5,99 € | Escala pequeña; no competir con presupuesto AAA |
-| Ventas | ~292 k copias | Nicho real y rentable con equipo mínimo |
-| Nota | 95 % positivas | El "cozy" bien hecho perdona la falta de contenido |
-| Duración | 1,6 h principal · 5,5 h completo | 8–12 niveles de 5–15 min bastan |
-| Idiomas | **13, solo interfaz** | i18n es obligatorio y **no hace falta doblaje** |
-| Etiquetas | Cleaning, Relaxing, **Incremental**, Physics, First-Person, Controller | Progresión numérica satisfactoria + mando |
-| Mínimos | GTX 960, 4 GB RAM, 1 GB disco | **Nuestro riesgo técnico #1**: la sim GPU |
-| Multijugador | Ficha: *un jugador*. Foro: *"¿por qué tiene etiqueta coop?"* | **El hueco está aquí** |
-| Accesibilidad | Camera comfort, Custom volume, Playable without timed input, Save anytime | Checklist mínima del género |
-| Extras | Logros, marcadores, Steam Cloud, modo foto implícito | Baratos y esperados |
+| Price | €5.99 | Small scale; do not compete with a AAA budget |
+| Sales | ~292 k copies | A real, profitable niche with a minimal team |
+| Rating | 95% positive | A well-made "cozy" game forgives the lack of content |
+| Length | 1.6 h main · 5.5 h full | 8–12 levels of 5–15 min are enough |
+| Languages | **13, interface only** | i18n is mandatory and **no voice-over is needed** |
+| Tags | Cleaning, Relaxing, **Incremental**, Physics, First-Person, Controller | Satisfying numerical progression + gamepad |
+| Minimum specs | GTX 960, 4 GB RAM, 1 GB disk | **Our technical risk #1**: the GPU sim |
+| Multiplayer | Store page: *single-player*. Forum: *"why does it have a coop tag?"* | **The gap is here** |
+| Accessibility | Camera comfort, Custom volume, Playable without timed input, Save anytime | The genre's minimum checklist |
+| Extras | Achievements, leaderboards, Steam Cloud, implicit photo mode | Cheap and expected |
 
-**Conclusión:** copiamos el *chasis* (bucle, tono, precio, 13 idiomas, mando,
-guarda-cuando-quieras) y nos diferenciamos en **física real + cooperativo**.
-
----
-
-## 2. Pilares de diseño
-
-1. **La nieve es materia, no textura.** Nada se borra: todo se mueve. La masa del
-   mundo se conserva (es ya una regla dura del prototipo ✅).
-2. **El trabajo físico compartido es la diversión.** El coop no reparte tareas,
-   las *comparte*: objetos que necesitan dos personas.
-3. **El movimiento es un juguete.** Correr, deslizarse y **bunny hop** tienen
-   inercia real y se sienten bien; el terreno que trabajas es el que te permite ir
-   rápido. Desplazarse es divertido por sí mismo.
-4. **El caos entre amigos es contenido, no un fallo.** Tirarse bolas, enterrarse,
-   volcar la carretilla del otro y reírse: el juego lo **celebra y lo mide**, y
-   todo es **reversible** (nunca se pierde progreso). Sin castigo, sin toxicidad.
-5. **Relax por defecto, caos opcional.** Sin estados de fallo, sin temporizadores,
-   sin QTE. El estrés se activa (retos, tormentas, duelo), no se impone.
-6. **Objetivos por estado del mundo, no por pasos guionizados.** "Despeja el 90 %"
-   y "deja la nieve en el camión" son medibles y permiten cualquier solución.
-7. **Coleccionar y descubrir.** Regalos escondidos y secretos que la comunidad
-   destripa: dan una segunda (y tercera) razón para volver a cada nivel.
-
-**Lo que NO somos:** ni survival, ni crafting, ni terror, ni gestión de recursos
-escasos, ni un juego de trolls. Si una mecánica añade ansiedad sin añadir
-satisfacción, o permite que alguien arruine la partida *de verdad* a otro, fuera.
-
-**Regla de oro del gamberrismo:** *toda trastada tiene que ser graciosa para quien
-la recibe*. Si el que la sufre no se ríe, está mal diseñada.
+**Conclusion:** we copy the *chassis* (loop, tone, price, 13 languages, gamepad,
+save-anytime) and we differentiate ourselves with **real physics + co-op**.
 
 ---
 
-## 3. Fantasía, tono y escenario
+## 2. Design pillars
 
-> **La ubicación está SIN DECIDIR** y no condiciona ninguna mecánica. Lo que sigue
-> describe el tono, no un escenario cerrado: sirve cualquier sitio donde haya nieve
-> que quitar y objetos que mover. Nada del diseño depende de que sea un pueblo
-> alpino, una urbanización o una estación de esquí.
+1. **Snow is matter, not a texture.** Nothing is erased: everything moves. The mass
+   of the world is conserved (this is already a hard rule of the prototype ✅).
+2. **Shared physical work is the fun.** Co-op does not divide tasks,
+   it *shares* them: objects that need two people.
+3. **Movement is a toy.** Running, sliding and **bunny hop** have
+   real inertia and feel good; the terrain you work is what lets you go
+   fast. Getting around is fun in itself.
+4. **Chaos between friends is content, not a bug.** Throwing balls at each other,
+   burying each other, tipping over the other's wheelbarrow and laughing: the game
+   **celebrates it and measures it**, and everything is **reversible** (progress is
+   never lost). No punishment, no toxicity.
+5. **Relax by default, chaos optional.** No fail states, no timers,
+   no QTEs. Stress is activated (challenges, storms, duel), not imposed.
+6. **Objectives by world state, not scripted steps.** "Clear 90%"
+   and "leave the snow in the truck" are measurable and allow any solution.
+7. **Collect and discover.** Hidden gifts and secrets that the community
+   tears apart: they give a second (and third) reason to return to every level.
 
-**Fantasía:** ha nevado muchísimo y hay que despejar. Se hace solo o con alguien, sin
-prisa y sin enemigos: montañas de nieve, un encargo que cumplir y tiempo para
-hacer el gamberro con quien te acompañe.
+**What we are NOT:** neither survival, nor crafting, nor horror, nor scarce-resource
+management, nor a troll game. If a mechanic adds anxiety without adding
+satisfaction, or lets someone *genuinely* ruin another's game, it is out.
 
-- **Tono:** cálido, luminoso, ligeramente absurdo. Humor *físico* (te caes, la
-  avalancha te sepulta, el muñeco se desmorona), nunca humillante entre jugadores.
-- **Escenario:** un valle alpino pequeño. Casa del jugador → calle → plaza → pista
-  de esquí → río helado → teleférico. Un solo *hub* (la plaza del pueblo) con
-  propiedades alrededor: abarata el arte y da sensación de mundo continuo.
-- **Hora del día y clima** como variación barata de contenido: amanecer, día gris,
-  atardecer dorado, nevada suave, ventisca (nivel avanzado).
+**Golden rule of rowdiness:** *every prank has to be funny for the person
+receiving it*. If the victim is not laughing, it is badly designed.
 
 ---
 
-## 4. Bucle de juego
+## 3. Fantasy, tone and setting
 
-| Escala | Duración | Contenido | Recompensa |
+> **The location is UNDECIDED** and it does not constrain any mechanic. What follows
+> describes the tone, not a fixed setting: any place with snow to remove and
+> objects to move will do. Nothing in the design depends on it being an alpine
+> village, a housing estate or a ski resort.
+
+**Fantasy:** it has snowed enormously and it has to be cleared. It is done alone or with
+someone, without hurry and without enemies: mountains of snow, a job to fulfil and time
+to cause mischief with whoever is with you.
+
+- **Tone:** warm, bright, slightly absurd. *Physical* humour (you fall, the
+  avalanche buries you, the snowman collapses), never humiliating between players.
+- **Setting:** a small alpine valley. Player's house → street → square → ski
+  slope → frozen river → cable car. A single *hub* (the village square) with
+  properties around it: it keeps art cheap and gives a sense of a continuous world.
+- **Time of day and weather** as cheap content variation: dawn, grey day,
+  golden sunset, light snowfall, blizzard (advanced level).
+
+---
+
+## 4. Game loop
+
+| Scale | Duration | Content | Reward |
 |---|---|---|---|
-| **Micro** | 10–60 s | Elegir herramienta → aplicarla → la nieve se mueve → suena bien, salta nieve, sube el % | *Juice*: sonido, partículas, número que sube |
-| **Meso** | 5–15 min | Un nivel: despejar al X %, objetivos opcionales, llevar la nieve a su destino | Dinero, estrellas, desbloqueo siguiente |
-| **Macro** | 1,5–3 h | La temporada: despejar el valle, mejorar herramientas, epílogo | Muñeco final, sandbox, retos |
+| **Micro** | 10–60 s | Choose tool → apply it → the snow moves → it sounds good, snow flies, the % goes up | *Juice*: sound, particles, a number going up |
+| **Meso** | 5–15 min | One level: clear to X%, optional objectives, take the snow to its destination | Money, stars, next unlock |
+| **Macro** | 1.5–3 h | The season: clear the valley, upgrade tools, epilogue | Final snowman, sandbox, challenges |
 
-**Sesión cooperativa típica (20–40 min):** lobby → 2–3 niveles → tienda → "una más".
-Debe poder entrarse y salirse **en cualquier momento** (drop-in/drop-out).
+**Typical co-op session (20–40 min):** lobby → 2–3 levels → shop → "one more".
+It must be possible to join and leave **at any moment** (drop-in/drop-out).
 
-**Gancho de retención:** el marcador de "% despejado" subiendo + el sonido de la
-pala. Es adictivo por lo mismo que *Leaf it Alone* es "Incremental": números que
-suben y una superficie que se limpia visualmente.
+**Retention hook:** the "% cleared" counter going up + the sound of the
+shovel. It is addictive for the same reason *Leaf it Alone* is "Incremental": numbers
+that go up and a surface that is visually cleaned.
 
 ---
 
-## 5. Mecánicas
+## 5. Mechanics
 
-### 5.1 Movimiento e interacción ✅
-Primera persona, caminar/correr/saltar sobre la nieve (el jugador *se hunde* según
-la altura del manto ✅), sin armas. Interacción: `E` (pulsación = coger/apelmazar;
-mantener = empujar por el suelo ✅), click izq = herramienta, click der = lanzar/
-verter ✅. Modo mano libre (sin herramienta) para llevar objetos ✅.
+### 5.1 Movement and interaction ✅
+First person, walk/run/jump on the snow (the player *sinks* according to the
+height of the snowpack ✅), no weapons. Interaction: `E` (tap = pick up/tamp;
+hold = push along the ground ✅), left click = tool, right click = throw/
+pour ✅. Free-hand mode (no tool) for carrying objects ✅.
 
-### 5.1.1 Inercia, deslizamiento y bunny hop ⬜ (decisión tomada)
+### 5.1.1 Inertia, sliding and bunny hop ⬜ (decision made)
 
-El movimiento deja de ser "caminar con freno" y pasa a ser **una habilidad con
-techo**, porque desplazarse por un pueblo nevado tiene que ser divertido en sí
-mismo. Cuatro piezas:
+Movement stops being "walking with brakes" and becomes **a skill with a
+ceiling**, because getting around a snowy village has to be fun in itself.
+Four pieces:
 
-**1. Fricción según la superficie.** El suelo no frena igual en todas partes:
+**1. Friction by surface.** The ground does not brake the same everywhere:
 
-| Superficie | Fricción | Sensación |
+| Surface | Friction | Feel |
 |---|---|---|
-| Camino despejado / nieve compactada (palmeada, pisada) | Muy baja | Corres y mantienes impulso |
-| Nieve polvo (virgen, seca) | Alta | Te hundes, se te corta la velocidad |
-| Hielo / slush (sal + nieve) | Casi nula | Resbalas, no puedes frenar |
-| Cuesta abajo | — | Ganas velocidad sola |
+| Cleared path / compacted snow (tamped, trodden) | Very low | You run and keep your momentum |
+| Powder snow (virgin, dry) | High | You sink, your speed is cut |
+| Ice / slush (salt + snow) | Almost none | You slip, you cannot brake |
+| Downhill | — | You gain speed on your own |
 
-**2. Bunny hop.** Si encadenas saltos al ritmo correcto **no pagas la fricción del
-aterrizaje**: conservas la velocidad y, combinándolo con *air strafe*, la aumentas
-hasta un **tope del 1,6× de la carrera**. El tope es deliberado: queremos una
-habilidad de desplazamiento satisfactoria, no un exploit que rompa el juego.
+**2. Bunny hop.** If you chain jumps at the right rhythm **you do not pay the
+landing friction**: you keep your speed and, combined with *air strafe*, you increase
+it up to a **cap of 1.6× the run speed**. The cap is deliberate: we want a
+satisfying movement skill, not an exploit that breaks the game.
 
-**3. La nieve le da sentido al bunny hop** (esto es lo bonito): sólo funciona bien
-sobre superficie **compactada o despejada**; en polvo profundo te hundes y pierdes
-el impulso. Y aquí está el enganche con el resto del juego: **al aterrizar dejas la
-nieve compactada**, así que brincar en línea recta **traza un camino pisado**. Los
-jugadores van a descubrir solos que brincar en fila es la forma rápida de hacer un
-sendero — y que después por ese sendero se corre mucho más. Es una mecánica
-emergente, coherente con la masa conservada (compactas, no retiras) y que refuerza
-el pilar 1.
+**3. Snow is what gives the bunny hop its meaning** (this is the beautiful part): it
+only works well on **compacted or cleared** surface; in deep powder you sink and lose
+the momentum. And here is the hook-up with the rest of the game: **on landing you leave
+the snow compacted**, so hopping in a straight line **traces a trodden path**. Players
+will discover on their own that hopping in a line is the quick way to make a
+trail — and that afterwards you run much faster along that trail. It is an emergent
+mechanic, consistent with conserved mass (you compact, you do not remove) and it
+reinforces pillar 1.
 
-**4. Juguetes de movilidad** (cada uno barato de hacer y muy vendible en un GIF):
-- **Deslizarse con la pala** (ride): pendiente abajo sobre la hoja, con control de
-  inclinación y nieve saltando.
-- **Trineo**: en el hub y en 1–2 niveles; transporta nieve *o* a un compañero.
-- **Quad con pala** (niveles avanzados): en solitario es tu multiplicador de fuerza;
-  con dos personas es un juguete de dos (uno conduce, el otro carga y aguanta).
-- **Patada**: golpe ligero que empuja bolas y props. Sirve para jugar al fútbol con
-  las bolas mientras te desplazas, y es la base de media docena de trastadas.
+**4. Mobility toys** (each cheap to make and very sellable in a GIF):
+- **Shovel riding** (ride): downhill on the blade, with tilt
+  control and snow flying.
+- **Sled**: in the hub and in 1–2 levels; it carries snow *or* a partner.
+- **Shovel quad** (advanced levels): solo it is your force multiplier;
+  with two people it is a two-person toy (one drives, the other loads and holds on).
+- **Kick**: a light hit that pushes balls and props. It is useful for playing football
+  with the balls while you move around, and it is the basis of half a dozen pranks.
 
-**Coste técnico:** bajo. Es el controlador de jugador (fricción por superficie
-consultando el manto ✅ ya hay consultas de altura/cohesión), un multiplicador de
-velocidad con tope y dos o tres objetos físicos.
+**Technical cost:** low. It is the player controller (friction by surface
+querying the snowpack ✅ height/cohesion queries already exist), a speed
+multiplier with a cap and two or three physics objects.
 
-**Accesibilidad:** el bunny hop es **opcional**; hay un ajuste de *auto-bhop*
-(mantener salto) y la velocidad máxima no depende de dominarlo. En mando, salto en
-A/cruz y carrera en gatillo o stick pulsado.
+**Accessibility:** bunny hop is **optional**; there is an *auto-bhop* setting
+(hold jump) and maximum speed does not depend on mastering it. On gamepad, jump on
+A/cross and sprint on trigger or stick click.
 
-**Añadir además ⬜:** agacharse, rodar/caerse y levantarse (comedia física), subirse
-a montones, agarrar y arrastrar, apuntar/zoom ligero para las bolas.
+**Also to add ⬜:** crouching, rolling/falling and getting up (physical comedy), climbing
+onto piles, grabbing and dragging, light aim/zoom for the balls.
 
-### 5.2 La nieve como material ✅
-Reglas que ya existen y son el corazón del juego:
+### 5.2 Snow as a material ✅
+Rules that already exist and are the heart of the game:
 
-- Masa conservada: siega (carve/harvest), depósito (dump), apelmazado (tamp),
-  vertido y reabsorción de fragmentos.
-- Canales de simulación: altura, nieve suelta, cohesión/humedad y fase (en reposo /
-  fluyendo) → **histeresis bi-fásica**: la nieve virgen aguanta paredes verticales,
-  la nieve seca se desmorona en ángulo de reposo.
-- Ángulo de reposo según humedad; la sal reduce cohesión; el palmeo compacta.
-- Superficie deformable renderizada por malla + normales filtradas ✅.
+- Conserved mass: carving (carve/harvest), dumping (dump), tamping (tamp),
+  pouring and reabsorption of fragments.
+- Simulation channels: height, loose snow, cohesion/moisture and phase (at rest /
+  flowing) → **two-phase hysteresis**: virgin snow holds vertical walls,
+  dry snow crumbles at the angle of repose.
+- Angle of repose according to moisture; salt reduces cohesion; tamping compacts.
+- Deformable surface rendered by mesh + filtered normals ✅.
 
-**Explotar más (⬜):**
-- **Pisadas y surcos persistentes** (huellas, ruedas, marcas de pala) — barato y
-  vendido como *juice*.
-- **Nieve que se ensucia** (tierra, hojas) y se puede re-limpiar → rejugabilidad.
-- **Hielo** como material distinto (duro, resbaladizo, se rompe con pico) y
-  **agua/slush** como salida legítima de masa (desagüe, río).
-- **Costras** (capas duras) en niveles avanzados.
+**To exploit further (⬜):**
+- **Persistent footprints and tracks** (footprints, wheels, shovel marks) — cheap
+  and sold as *juice*.
+- **Snow that gets dirty** (soil, leaves) and can be cleaned again → replayability.
+- **Ice** as a distinct material (hard, slippery, breaks with a pickaxe) and
+  **water/slush** as a legitimate mass outlet (drain, river).
+- **Crusts** (hard layers) in advanced levels.
 
-### 5.3 Herramientas
+### 5.3 Tools
 
-Cada herramienta es **un verbo físico**, no una skin. Se mejoran por separado.
+Every tool is **a physical verb**, not a skin. They are upgraded separately.
 
-| # | Herramienta | Verbo | Fuerte en | Débil en | Mejora | Ñapa coop |
+| # | Tool | Verb | Strong at | Weak at | Upgrade | Co-op hack |
 |---|---|---|---|---|---|---|
-| 1 | **Pala** ✅ | corta, empuja, carga, palmea, lanza | todo, lento | volumen | capacidad, filo, fuerza | cargar entre dos |
-| 2 | **Quitanieves / empujadora** ⬜ | empuja grandes volúmenes | superficies amplias | detalle, bordes | ancho, ángulo, peso | empujar entre dos |
-| 3 | **Turbina/sopladora** ✅ | lanza nieve suelta al aire | rápido, montones | nieve compacta/húmeda | caudal, alcance | dirigir el chorro |
-| 4 | **Salero** ✅ | descohesiona, derrite, crea slush | hielo, costras | volumen | radio, caudal | — |
-| 5 | **Pico/hacha** ⬜ | rompe hielo y costras | capas duras | nieve suelta | daño, velocidad | — |
-| 6 | **Rastrillo** ⬜ | nivela capas finas | acabado, precisión | volumen | ancho, fino | — |
-| 7 | **Carretilla / trineo** ⬜ | transporta masa | logística | terreno abrupto | capacidad, ruedas | **dos personas** para la llena |
-| 8 | **Manguera / vapor** ⬜ | derrite (masa → agua, drena) | final del juego | lento, moja | caudal, alcance | — |
-| 9 | **Bolas de nieve** ✅ | jugar, empujar, romper | diversión | trabajo | masa, agarre | **pasarse bolas** |
+| 1 | **Shovel** ✅ | cuts, pushes, loads, tamps, throws | everything, slow | volume | capacity, edge, force | carry between two |
+| 2 | **Snowplow / pusher** ⬜ | pushes large volumes | wide surfaces | detail, edges | width, angle, weight | push between two |
+| 3 | **Turbine/blower** ✅ | throws loose snow into the air | fast, piles | compact/wet snow | flow rate, range | direct the jet |
+| 4 | **Salt spreader** ✅ | de-coheres, melts, creates slush | ice, crusts | volume | radius, flow rate | — |
+| 5 | **Pickaxe/axe** ⬜ | breaks ice and crusts | hard layers | loose snow | damage, speed | — |
+| 6 | **Rake** ⬜ | levels thin layers | finish, precision | volume | width, fineness | — |
+| 7 | **Wheelbarrow / sled** ⬜ | carries mass | logistics | steep terrain | capacity, wheels | **two people** for the full one |
+| 8 | **Hose / steam** ⬜ | melts (mass → water, drains) | late game | slow, makes things wet | flow rate, range | — |
+| 9 | **Snowballs** ✅ | play, push, break | fun | work | mass, grip | **passing balls** |
 
-**Progresión de herramienta:** 3 niveles por herramienta (básica → pro → industrial),
-con estadísticas visibles y cambio *sentido* (no solo números: la sopladora pro
-alcanza tejados, la pala pro corta capas que antes rebotaban).
+**Tool progression:** 3 levels per tool (basic → pro → industrial),
+with visible stats and a change you can *feel* (not just numbers: the pro blower
+reaches roofs, the pro shovel cuts layers that used to bounce off).
 
-### 5.4 Bolas, apilado y construcción ✅
-Ya existe: fabricar con las manos, rodar y crecer por acreción, densidad creciente
-(300→470 kg/m³), acarreo a una/dos manos con tambaleo y agarre, lanzamiento por masa,
-unión física al apilar, rotura por impacto con fragmentos y devolución de masa al manto.
+### 5.4 Balls, stacking and building ✅
+Already exists: making with the hands, rolling and growing by accretion, increasing
+density (300→470 kg/m³), carrying with one/two hands with wobble and grip, throwing by
+mass, physical joining when stacking, breaking on impact with fragments and returning
+mass to the snowpack.
 
-**Su papel en el juego:**
-- **Herramienta de trabajo real**: rodar una bola grande compacta un camino, tapa
-  una boca de desagüe, hace de contrapeso o de escalón para subir a un tejado.
-- **El juguete social por excelencia** (ver §6.6): pasarse bolas, duelos, trastadas.
-- **Muñeco de nieve: extra opcional y divertido, NO objetivo.** Se puede construir
-  en el hub y en el sandbox con las tres bolas y los accesorios ✅ (zanahoria,
-  carbón, ramas); el juego lo reconoce con un logro y un adorno para el pueblo, y
-  sirve de escaparate de los cosméticos. Nada de la campaña depende de él: es un
-  juguete para el que quiera entretenerse.
-- **Puntería**: dianas, cubos y un mini-juego de encestar bolas (base del duelo y
-  de un par de retos de nivel).
+**Its role in the game:**
+- **A real work tool**: rolling a large ball compacts a path, plugs a
+  drain, acts as a counterweight or as a step to climb onto a roof.
+- **The social toy par excellence** (see §6.6): passing balls, duels, pranks.
+- **Snowman: an optional and fun extra, NOT an objective.** It can be built
+  in the hub and in the sandbox with the three balls and the accessories ✅ (carrot,
+  coal, branches); the game recognises it with an achievement and an ornament for the
+  village, and it works as a showcase for the cosmetics. Nothing in the campaign depends
+  on it: it is a toy for whoever wants to amuse themselves.
+- **Aiming**: targets, buckets and a ball-basket mini-game (the basis of the duel and
+  of a couple of level challenges).
 
-### 5.5 Objetivos y evaluación ⬜
-Sistema **componible** (cada objetivo es una condición evaluable por tick):
+### 5.5 Objectives and evaluation ⬜
+**Composable** system (every objective is a condition evaluated per tick):
 
-| Tipo | Ejemplo | Medición |
+| Type | Example | Measurement |
 |---|---|---|
-| Cobertura | "Despeja el 90 % del camino" | % de celdas con altura < umbral ✅ (% ya existe) |
-| Destino de masa | "Toda la nieve al camión" | Masa acumulada en zona válida |
-| Precisión | "No cortes el seto" | Integridad de props |
-| Construcción | "Haz un muñeco de 3 bolas" | Grafo de uniones ✅ (existe la unión) |
-| Recuperación | "Encuentra las 5 herramientas perdidas" | Objetos desenterrados |
-| Tiempo (opcional) | "Antes del mediodía" | Sólo en modo reto |
-| Equipo | "Los dos a la vez en la misma tarea" | Proximidad + misma acción |
+| Coverage | "Clear 90% of the path" | % of cells with height < threshold ✅ (% already exists) |
+| Mass destination | "All the snow to the truck" | Mass accumulated in a valid zone |
+| Precision | "Do not cut the hedge" | Prop integrity |
+| Construction | "Make a 3-ball snowman" | Joint graph ✅ (the joint exists) |
+| Recovery | "Find the 5 lost tools" | Objects dug up |
+| Time (optional) | "Before noon" | Only in challenge mode |
+| Team | "Both of you on the same task at once" | Proximity + same action |
 
-**Evaluación:** 1–3 estrellas según cobertura + opcionales + eficiencia (kg movidos
-por minuto). Las estrellas pagan más dinero; **nunca bloquean el avance** (siempre
-se puede seguir jugando el siguiente nivel).
+**Evaluation:** 1–3 stars according to coverage + optionals + efficiency (kg moved
+per minute). Stars pay more money; **they never block progress** (you can always
+keep playing the next level).
 
-### 5.6 Economía y progresión ⬜
-- **Dinero** por kg de nieve *bien colocada* (a destino válido) + bonus por
-  opcionales + bonus coop (trabajo simultáneo).
-- **Tienda**: herramientas nuevas + mejoras + cosméticos (palas, guantes, gorro,
-  colores de bola, pegatinas de la carretilla).
-- **Sin micropagos.** Todo se gana jugando.
-- **Panel de estadísticas**: kg movidos, m² despejados, bolas lanzadas, muñecos,
-  avalanchas provocadas, tiempo total, "snow efficiency".
-- **Desbloqueo por progreso**, no por dinero: los niveles se abren al completar el
-  anterior; el dinero compra comodidad.
+### 5.6 Economy and progression ⬜
+- **Money** per kg of snow *well placed* (at a valid destination) + bonus for
+  optionals + co-op bonus (simultaneous work).
+- **Shop**: new tools + upgrades + cosmetics (shovels, gloves, hat,
+  ball colours, wheelbarrow stickers).
+- **No microtransactions.** Everything is earned by playing.
+- **Statistics panel**: kg moved, m² cleared, balls thrown, snowmen,
+  avalanches triggered, total time, "snow efficiency".
+- **Unlocks by progress**, not by money: levels open when you complete the
+  previous one; money buys convenience.
 
-### 5.7 Peligros y caos opcional
-Por defecto **nada puede fallar**. Activables:
-- **Avalanchas**: la nieve por encima de cierto ángulo puede desprenderse y
-  sepultar a un jugador (se libera solo, sin muerte: 2 s de "¡ay!" y a seguir).
-- **Tejados**: la nieve de un tejado cae de golpe; el que esté debajo queda enterrado.
-- **Hielo fino**: caer al agua = remojón y volver al borde.
-- **Ventisca**: nieva mientras limpias (nivel avanzado; la masa que cae es real).
-- **Modo trabajo** (opcional): fatiga, peso que frena de verdad, sin ayudas.
+### 5.7 Hazards and optional chaos
+By default **nothing can fail**. Toggleable:
+- **Avalanches**: snow above a certain angle can break loose and
+  bury a player (you free yourself, no death: 2 s of "ouch!" and on you go).
+- **Roofs**: the snow on a roof falls all at once; whoever is underneath is buried.
+- **Thin ice**: falling into the water = a soaking and back to the edge.
+- **Blizzard**: it snows while you clear (advanced level; the mass that falls is real).
+- **Work mode** (optional): fatigue, weight that genuinely slows you down, no assists.
 
-### 5.8 Modos de juego
-1. **Campaña** (1 jugador **o** 2 en coop, las dos experiencias completas): 10
-   niveles + epílogo. **El 100 % del progreso es alcanzable en solitario**; el coop
-   añade su propia capa de sellos extra sin bloquear nada (§5.9).
-2. **Sandbox / Campo libre**: todas las herramientas, nieve infinita, sin objetivos.
-   Es la carta de presentación del motor y el imán para contenido de creadores.
-3. **Duelo de bolas** (§6.6): arena, 1v1 o 2v2, marcador y asaltos de 2 minutos.
-4. **Retos**: misma semilla y objetivos para todos, marcador global.
-5. **Temporada 2 (NG+)**: el valle se vuelve a nevar con **nieve distinta** (§5.9).
-6. **Foto** (dentro de cualquier modo): cámara libre, poses, filtros.
+### 5.8 Game modes
+1. **Campaign** (1 player **or** 2 in co-op, both experiences complete): 10
+   levels + epilogue. **100% of progress is achievable solo**; co-op
+   adds its own layer of extra stamps without blocking anything (§5.9).
+2. **Sandbox / Free field**: all tools, infinite snow, no objectives.
+   It is the engine's calling card and the magnet for creator content.
+3. **Snowball duel** (§6.6): arena, 1v1 or 2v2, scoreboard and 2-minute rounds.
+4. **Challenges**: same seed and objectives for everyone, global leaderboard.
+5. **Season 2 (NG+)**: the valley snows over again with **different snow** (§5.9).
+6. **Photo** (inside any mode): free camera, poses, filters.
 
-### 5.9 Rejugabilidad: el Libro del Invierno (2–3 vueltas para el 100 %) ⬜
+### 5.9 Replayability: the Winter Book (2–3 runs for 100%) ⬜
 
-El juego no se completa en una pasada, y **no por grind, sino porque los retos se
-contradicen entre sí**. Cada nivel guarda en el *Libro del Invierno*:
+The game is not completed in one run, and **not because of grind, but because the
+challenges contradict each other**. Every level records in the *Winter Book*:
 
-- **3 sellos por nivel, mutuamente excluyentes en una misma partida:**
+- **3 stamps per level, mutually exclusive in the same run:**
 
-| Sello | Reto | Ejemplo |
+| Stamp | Challenge | Example |
 |---|---|---|
-| **Limpio y rápido** | Eficiencia | Terminar bajo el tiempo objetivo o con X kg/min |
-| **Impecable** | Sin destrozos | No romper props, no dejar montones fuera de zona, no pisar lo protegido |
-| **Con estilo** | Método restringido | Sólo con la pala, sin sopladora, sólo con bolas, sin usar el camión |
+| **Clean and fast** | Efficiency | Finish under the target time or with X kg/min |
+| **Immaculate** | No wreckage | Do not break props, do not leave piles outside the zone, do not step on protected areas |
+| **With style** | Restricted method | Shovel only, no blower, balls only, without using the truck |
 
-  Como no caben en una sola vuelta, **conseguir los tres obliga a repetir el
-  nivel** (y a jugarlo de otra manera, que es lo importante).
-- **Retos de campaña** (partida nueva de verdad): toda la campaña sin comprar
-  mejoras · sin sopladora · en **modo Trabajo** · sólo de noche · todos los regalos
-  en una sola pasada.
-- **Regla de paridad solo/coop:** *todo lo que cuenta para el 100 % se puede
-  conseguir en solitario*. Los retos que necesitan dos personas (no lanzarse ni una
-  bola, o lanzarse 200) existen como **sellos de compañía**: dan cosméticos y
-  orgullo, se lucen en el Libro, pero **no bloquean el 100 %** de nadie.
-- **Logros compartidos:** un único conjunto de logros. En coop se desbloquean
-  **para los dos jugadores a la vez** y los contadores suman lo de ambos; y
-  **ningún logro exige una segunda persona** (los de impactos se consiguen contra
-  dianas y muñecos de entrenamiento). Así los dos modos son igual de completos.
-- **Temporada 2 (NG+)**: los mismos niveles con **el manto cambiado** — polvo seco
-  (no aguanta paredes), costra dura (hay que picar), nieve húmeda y pesada (se pega
-  y pesa el doble) y más masa total. Es **contenido casi gratis con sensación de
-  juego nuevo**, porque toda la dificultad vive en el material, no en el escenario.
+  Since they do not fit in a single run, **getting all three forces you to repeat the
+  level** (and to play it another way, which is the important part).
+- **Campaign challenges** (a genuinely new run): the whole campaign without buying
+  upgrades · without the blower · in **Work mode** · night only · all the gifts
+  in a single run.
+- **Solo/co-op parity rule:** *everything that counts towards 100% can be
+  achieved solo*. The challenges that need two people (not throwing a single
+  ball, or throwing 200) exist as **companionship stamps**: they give cosmetics and
+  pride, they are shown off in the Book, but they **do not block anyone's 100%**.
+- **Shared achievements:** a single achievement set. In co-op they unlock
+  **for both players at once** and the counters add up both players' work; and
+  **no achievement requires a second person** (the impact ones are earned against
+  targets and training snowmen). That way both modes are equally complete.
+- **Season 2 (NG+)**: the same levels with **the snowpack changed** — dry powder
+  (does not hold walls), hard crust (has to be picked), wet heavy snow (it sticks
+  and weighs double) and more total mass. It is **almost free content with the feel of a
+  new game**, because all the difficulty lives in the material, not in the setting.
 
-**Resultado:** 1,5–2,5 h la primera vuelta, **6–9 h el Libro completo**, y cada
-vuelta cambia *cómo* se juega, no sólo cuánto.
+**Result:** 1.5–2.5 h for the first run, **6–9 h for the complete Book**, and every
+run changes *how* it is played, not only how much.
 
-### 5.10 Coleccionables y secretos ⬜
+### 5.10 Collectibles and secrets ⬜
 
-**24 regalos navideños** (desbloquean cosméticos: gorros, guantes, pieles de pala,
-bolas especiales, adornos para el pueblo y el muñeco; **nunca poder de juego**):
+**24 Christmas gifts** (they unlock cosmetics: hats, gloves, shovel skins,
+special balls, ornaments for the village and the snowman; **never gameplay power**):
 
-- **12 en los niveles**: siempre en un sitio que exige usar bien una herramienta —
-  dentro de un montón que hay que palear, en un tejado al que se sube con una bola,
-  congelado en el hielo (hay que romperlo), en el fondo de un pozo, bajo un coche,
-  en una chimenea, enterrado donde el perro mira.
-- **12 en el pueblo (hub)**: accesibles sólo con habilidad (cadena de bunny hops,
-  salto con trineo, soplar la nieve de una cornisa, deslizarse por un cable).
-- Pistas **visuales y sutiles** (un lazo asomando, un brillo helado, un perro que
-  insiste) — nunca un icono de mapa con flecha. Buscar es parte del juego.
+- **12 in the levels**: always somewhere that demands good use of a tool —
+  inside a pile you have to shovel, on a roof you reach with a ball,
+  frozen in the ice (you have to break it), at the bottom of a well, under a car,
+  in a chimney, buried where the dog is looking.
+- **12 in the village (hub)**: accessible only with skill (a chain of bunny hops,
+  a sled jump, blowing the snow off a cornice, sliding down a cable).
+- **Visual and subtle** hints (a ribbon peeking out, an icy glint, a dog that
+  insists) — never a map icon with an arrow. Searching is part of the game.
 
-**6 huevos de pascua muy escondidos**, diseñados para que **la comunidad los
-destripe** (eso es marketing gratis: hilos, vídeos, "¿alguien ha visto…?"):
+**6 very well hidden easter eggs**, designed for **the community to tear them
+apart** (that is free marketing: threads, videos, "has anyone seen…?"):
 
-1. Un **yeti** que aparece si dejas un nivel intacto y de noche durante 3 minutos.
-2. Una **puerta enterrada** en un punto concreto del hub → pequeña sala de desarrollo.
-3. La **bola de nieve dorada**: encestar 10 seguidas sin fallar en el cubo del hub.
-4. El **pozo**: si tiras un objeto concreto, cambia el clima del pueblo para siempre.
-5. **Curling / minigolf** en un charco helado escondido tras una valla.
-6. Un **homenaje al género**: una sopladora de hojas enterrada, cubierta de hojas.
+1. A **yeti** that appears if you leave a level untouched and at night for 3 minutes.
+2. A **buried door** at a specific point in the hub → a small developer room.
+3. The **golden snowball**: sink 10 in a row without missing in the hub bucket.
+4. The **well**: if you throw in a specific object, it changes the village weather forever.
+5. **Curling / minigolf** in a frozen puddle hidden behind a fence.
+6. A **tribute to the genre**: a buried leaf blower, covered in leaves.
 
-**Criterio de diseño:** sin pistas escritas, pero siempre **deducibles** por una
-rareza visual o sonora. Un secreto que nadie puede encontrar no es un secreto, es
-contenido perdido; uno que se encuentra por casualidad el primer día no es un
-secreto. Los regalos y secretos alimentan logros, y los logros son la tercera
-vuelta del Libro del Invierno.
+**Design criterion:** no written hints, but always **deducible** from a
+visual or audio oddity. A secret nobody can find is not a secret, it is
+lost content; one found by chance on the first day is not a
+secret. Gifts and secrets feed achievements, and achievements are the third
+run of the Winter Book.
 
 ---
 
-## 6. Diseño cooperativo (el diferencial)
+## 6. Co-op design (the differentiator)
 
-### 6.1 Por qué coop (de 2) y no "single + coop pegado"
-El coop cambia el diseño desde la base, no se añade después. **2 jugadores exactos**
-(no 4): es la cifra que hace que la logística física sea íntima y legible, que el
-netcode sea asumible y que los niveles se puedan dimensionar bien. Y como el juego
-también debe jugarse en solitario, el coop se apoya en tres cosas:
+### 6.1 Why co-op (of 2) and not "single + co-op bolted on"
+Co-op changes the design from the ground up, it is not added afterwards. **Exactly 2
+players** (not 4): it is the number that makes physical logistics intimate and readable,
+that the netcode is affordable and that levels can be sized well. And since the
+game must also be playable solo, co-op leans on three things:
 
-- **La nieve compartida es el juguete común.** Todo lo que uno mueve, el otro lo ve
-  y lo puede deshacer. Es la receta del caos cómico sin necesidad de guion.
-- **Los objetos pesados son la excusa social.** Ya existe el umbral de 35 kg a dos
-  manos ✅; añadimos que **un compañero reduzca el tambaleo y el gasto de agarre**
-  (los dos sostienen = se puede llevar más lejos). Eso convierte "llevar algo" en
-  una conversación.
-- **Los combos emergentes son el contenido infinito**: uno sopla la nieve al aire y
-  el otro la empaqueta; uno corta la base y el otro empuja la cornisa; uno se sube
-  encima del montón y el otro se lo lleva rodando.
-- **El tiempo compartido es parte del producto** (§6.6): entre dos, el juego también
-  va de tirarse bolas y de destrozarse la pila. Eso es tiempo de juego que no cuesta
-  contenido.
+- **Shared snow is the common toy.** Everything one moves, the other sees
+  and can undo. It is the recipe for comic chaos without needing a script.
+- **Heavy objects are the social excuse.** The 35 kg two-handed
+  threshold already exists ✅; we add that **a partner reduces the wobble and the grip
+  cost** (both holding = you can carry it further). That turns "carrying something" into
+  a conversation.
+- **Emergent combos are infinite content**: one blows the snow into the air and
+  the other packs it; one cuts the base and the other pushes the cornice; one climbs
+  on top of the pile and the other carries them off rolling.
+- **Shared time is part of the product** (§6.6): between two, the game is also
+  about throwing balls and wrecking each other's pile. That is playtime that costs no
+  content.
 
-### 6.2 Verbos cooperativos (lista cerrada y verificable)
+### 6.2 Co-op verbs (closed and verifiable list)
 
-| Verbo | Mecánica | Estado |
+| Verb | Mechanic | Status |
 |---|---|---|
-| **Pasarse bolas** | lanzar con impulso físico, recibir pulsando `E` cerca | ⬜ recibir (lanzar ✅) |
-| **Levantar entre dos** | si ambos sostienen, ÷ tambaleo y ÷ gasto de agarre | ⬜ |
-| **Empujar entre dos** | carretilla/objeto: fuerza suma, se mueve mucho más | ⬜ |
-| **Impulsar a un compañero** | subirse a una bola/montón y que el otro empuje | ⬜ (física ya lo permite) |
-| **Cadena de trabajo** | uno siega y lanza, otro recibe y apila | ⬜ |
-| **Rescate** | desenterrar a un compañero sepultado por una avalancha | ⬜ |
-| **Sincronía** | objetivos que premian estar los dos en la misma tarea | ⬜ |
-| **Ping/gestos** | marcar un punto del mundo, señalar, saludar, tirar bola | ⬜ |
+| **Passing balls** | throw with physical momentum, receive by pressing `E` nearby | ⬜ receive (throw ✅) |
+| **Lifting between two** | if both hold it, ÷ wobble and ÷ grip cost | ⬜ |
+| **Pushing between two** | wheelbarrow/object: the forces add up, it moves much more | ⬜ |
+| **Boosting a partner** | climb on a ball/pile and the other pushes | ⬜ (physics already allows it) |
+| **Work chain** | one carves and throws, the other receives and stacks | ⬜ |
+| **Rescue** | dig out a partner buried by an avalanche | ⬜ |
+| **Synchronicity** | objectives that reward both being on the same task | ⬜ |
+| **Ping/gestures** | mark a point in the world, point, wave, throw a ball | ⬜ |
 
-### 6.3 Estructura de sesión y lobby ⬜
-- **Online de 2 jugadores** por Steam (lobby + invitación por overlay). El "coop
-  local" se cubre con **Remote Play Together**, que es gratis y ya funciona en Deck:
-  cero trabajo extra y cubre el sofá.
-- **Elección de modo de sesión** (esto gobierna toda la capa social):
-  **Trabajo** (nada de lo que haga el otro te afecta) · **Jaleo** (por defecto, con
-  amigos: las bolas y las trastadas hacen efecto) · **Duelo** (arena de bolas).
-- **Drop-in/drop-out** en cualquier momento; el que entra se sincroniza con el
-  estado actual de la nieve.
-- **Lobby**: dos slots, listo, elección de nivel, modo de sesión, cosmético, y
-  **pings rápidos** en el mundo (marcar un punto, señalar, pedir ayuda).
-- **Pausa compartida**: sólo el host, con aviso.
-- **Host**: autoridad total (y autoridad del marcador, ver §6.5). Si se cae, se
-  ofrece "reanudar desde el guardado" (sin migración en vivo).
-- **Privacidad**: por defecto **sólo amigos** — el modo Jaleo con desconocidos es
-  divertido o es un dolor de cabeza, según el día.
+### 6.3 Session structure and lobby ⬜
+- **2-player online** through Steam (lobby + invite via overlay). "Local
+  co-op" is covered by **Remote Play Together**, which is free and already works on
+  Deck: zero extra work and it covers the couch.
+- **Session mode choice** (this governs the whole social layer):
+  **Work** (nothing the other does affects you) · **Ruckus** (default, with
+  friends: balls and pranks take effect) · **Duel** (ball arena).
+- **Drop-in/drop-out** at any moment; whoever joins syncs with the
+  current state of the snow.
+- **Lobby**: two slots, ready, level choice, session mode, cosmetic, and
+  **quick pings** in the world (mark a point, point, ask for help).
+- **Shared pause**: host only, with a warning.
+- **Host**: total authority (and scoreboard authority, see §6.5). If it drops,
+  "resume from save" is offered (no live migration).
+- **Privacy**: by default **friends only** — Ruckus mode with strangers is
+  fun or a headache, depending on the day.
 
-### 6.4 Anti-frustración y escalado
-- **Nada de progreso perdido, nunca.** Ni dinero, ni estrellas, ni desbloqueos. Lo
-  que se puede perder es tiempo y orgullo, y eso se recupera limpiando otra vez.
-- **El daño entre jugadores depende del modo de sesión** (§6.3): en *Trabajo*, las
-  bolas atraviesan (no afectan); en *Jaleo*, afectan con reacciones exageradas y
-  siempre reversibles; en *Duelo*, es el objetivo.
-- Objetivos **compartidos**, estadísticas **individuales** y una **crónica** al
-  final que premia también las trastadas (§6.6): competir sin que nadie pierda.
-- Ningún jugador puede **bloquear** a otro: nada de puertas cerradas, nada de
-  objetos únicos irrecuperables (si algo cae al río, vuelve; si algo se rompe, se
-  puede volver a fabricar con nieve).
-- "Sin fallo": quedarse sepultado, caer al agua o destrozar la pila del otro no
-  cuesta progreso. Sólo se paga en tiempo y en risas.
-- **El reparto del trabajo entre 1 y 2 jugadores se diseña explícitamente** con el
-  sistema `PlayerCountScaler` (ver `plan_implementacion.md` §3.4): se escalan
-  **requisitos, nunca la física**, y en solitario nunca se pide algo que necesite
-  dos manos. Ambos modos deben sentirse igual de bien, no "uno bien y otro de
-  consolación".
+### 6.4 Anti-frustration and scaling
+- **No lost progress, ever.** Not money, not stars, not unlocks. What can be lost
+  is time and pride, and that is recovered by cleaning again.
+- **Damage between players depends on the session mode** (§6.3): in *Work*, the
+  balls pass through (they do not affect); in *Ruckus*, they take effect with exaggerated
+  and always reversible reactions; in *Duel*, it is the objective.
+- **Shared** objectives, **individual** statistics and a **chronicle** at the
+  end that also rewards pranks (§6.6): competing without anyone losing.
+- No player can **block** another: no locked doors, no
+  unique unrecoverable objects (if something falls into the river, it comes back; if
+  something breaks, it can be made again with snow).
+- "No failure": staying buried, falling into the water or wrecking the other's pile does
+  not cost progress. It is only paid for in time and laughs.
+- **The division of work between 1 and 2 players is designed explicitly** with the
+  `PlayerCountScaler` system (see `plan_implementacion.md` §3.4): **requirements are
+  scaled, never the physics**, and solo you are never asked for something that needs
+  two hands. Both modes must feel equally good, not "one good and the other a
+  consolation prize".
 
-### 6.5 Netcode (lo técnico, sin adornos)
+### 6.5 Netcode (the technical part, without embellishment)
 
-**El problema:** el manto es una textura RGBA32F de 512² en GPU. No se puede
-replicar por frame. **La solución: replicar operaciones, no píxeles.**
+**The problem:** the snowpack is a 512² RGBA32F texture on the GPU. It cannot be
+replicated per frame. **The solution: replicate operations, not pixels.**
 
-- **Autoridad del host.** El host corre la simulación canónica y aplica toda
-  operación. Los clientes envían *peticiones* de operación (siega, depósito,
-  palmeo, siega de bola, vertido) con parámetros ya validados en cliente para
-  respuesta inmediata local.
-- **Replicación:**
-  1. `op_apply` (RPC fiable) con el mismo paquete de uniformes que usa la GPU
-     (posición, radio, profundidad, modo, índice de op).
-  2. **Predicción local optimista** en el cliente para su propia pala (el jugador
-     ve su surco al instante) + reconciliación: si el host rechaza o corrige, el
-     cliente vuelve a aplicar las ops confirmadas sobre una copia limpia.
-  3. **Resync periódico**: cada 10 s y al entrar un jugador, el host manda un
-     **parche RLE** (sólo celdas cambiadas) o un **mapa reducido** (p. ej. 128²
-     cuantizado a 16 bits en 4 canales ≈ 128 KB) comprimido. Presupuesto:
-     **≤ 30 KB/s por cliente en régimen normal**, picos de 150 KB en resync.
-  4. **Determinismo suficiente**: hay que auditar el shader para evitar
-     `sin/cos/pow/exp/normalize` en el camino de la relajación (no son
-     bit-exactos entre GPUs) y quedarse en `+ - * / min max clamp step mix`.
-     Tolerancia aceptada: ±1 téxel de deriva, que el resync periódico limpia.
-     Si la auditoría falla, **plan B**: el host manda parches RLE cada 2 s y el
-     cliente no simula, sólo interpola (más tráfico, cero riesgo).
-- **Cuerpos (jugadores, bolas, props):** `MultiplayerSynchronizer` con el host
-  autoritativo e interpolación en cliente. Casos especiales:
-  - Bola **en las manos** de un cliente → predicción local del acarreo, el host
-    valida la posición y el lanzamiento (el impulso se calcula en el host a partir
-    de la masa y la mirada).
-  - **Uniones de apilado** (weld): sólo el host las crea/rompe; se replican como
-    evento.
-  - **Rotura por impacto**: evento del host (posición, masa, semilla) para que los
-    fragmentos salgan iguales en todas las pantallas.
-- **Presupuesto de latencia objetivo:** jugable hasta 120 ms. Para un juego cozy
-  sin puntería fina es aceptable; la nieve no necesita interpolación perfecta.
-- **Carga inicial de nivel:** el estado inicial del manto se genera con **semilla
-  compartida** (determinista en todas las máquinas, sin transferir la textura).
-- **Servicio:** Steam Datagram Relay (sin puertos, sin NAT que configurar) +
-  Steam Lobby. Es lo que espera el jugador de un juego de 7 €.
+- **Host authority.** The host runs the canonical simulation and applies every
+  operation. Clients send operation *requests* (carving, dumping,
+  tamping, ball carving, pouring) with parameters already validated on the client for
+  an immediate local response.
+- **Replication:**
+  1. `op_apply` (reliable RPC) with the same uniform package the GPU uses
+     (position, radius, depth, mode, op index).
+  2. **Optimistic local prediction** on the client for its own shovel (the player
+     sees their groove instantly) + reconciliation: if the host rejects or corrects, the
+     client re-applies the confirmed ops on a clean copy.
+  3. **Periodic resync**: every 10 s and when a player joins, the host sends an
+     **RLE patch** (only changed cells) or a **reduced map** (e.g. 128²
+     quantised to 16 bits in 4 channels ≈ 128 KB) compressed. Budget:
+     **≤ 30 KB/s per client in normal operation**, peaks of 150 KB on resync.
+  4. **Sufficient determinism**: the shader has to be audited to avoid
+     `sin/cos/pow/exp/normalize` on the relaxation path (they are not
+     bit-exact across GPUs) and to stick to `+ - * / min max clamp step mix`.
+     Accepted tolerance: ±1 texel of drift, which the periodic resync cleans up.
+     If the audit fails, **plan B**: the host sends RLE patches every 2 s and the
+     client does not simulate, it only interpolates (more traffic, zero risk).
+- **Bodies (players, balls, props):** `MultiplayerSynchronizer` with the authoritative
+  host and client interpolation. Special cases:
+  - A ball **in a client's hands** → local prediction of the carry, the host
+    validates the position and the throw (the impulse is calculated on the host from
+    the mass and the look direction).
+  - **Stacking joints** (weld): only the host creates/breaks them; they are replicated
+    as an event.
+  - **Breaking on impact**: a host event (position, mass, seed) so that the
+    fragments come out the same on every screen.
+- **Target latency budget:** playable up to 120 ms. For a cozy game
+  without fine aiming it is acceptable; snow does not need perfect interpolation.
+- **Initial level load:** the initial state of the snowpack is generated with a **shared
+  seed** (deterministic on every machine, without transferring the texture).
+- **Service:** Steam Datagram Relay (no ports, no NAT to configure) +
+  Steam Lobby. It is what the player expects from a €7 game.
 
-**DECISIÓN TOMADA (opción 4 del plan anterior).** Con 2 jugadores y este alcance, se
-implementa **el plan A tal cual está descrito arriba: el cliente simula, predice sus
-propias ops y el host corrige con parches RLE periódicos**. Motivos:
+**DECISION MADE (option 4 of the previous plan).** With 2 players and this scope,
+**plan A is implemented exactly as described above: the client simulates, predicts its
+own ops and the host corrects with periodic RLE patches**. Reasons:
 
-1. El cliente simula porque es lo que se *siente* bien (tu pala responde en el
-   frame en que la mueves) y porque ya tenemos el motor hecho: no simulando habría
-   que inventar una capa de presentación falsa.
-2. El host sigue siendo la autoridad del **marcador** (masa y %), así que una
-   deriva de la textura del cliente es cosmética y nunca afecta al progreso ni a
-   los logros: no puede haber trampas ni puntuaciones raras.
-3. **Spike obligatorio de 2 semanas** antes de comprometer el hito coop: dos
-   instancias headless replicando ops + resync, midiendo (a) deriva de masa por
-   minuto, (b) KB/s por cliente, (c) ms de CPU de red. Umbrales de aceptación:
-   **deriva < 0,5 % por nivel y < 30 KB/s de media**.
-4. Si el spike falla esos umbrales, el plan B ya está definido y **no cambia el
-   diseño del juego**: el cliente deja de simular y sólo interpola los parches del
-   host (más tráfico y menos inmediatez, misma diversión). Y si el determinismo del
-   shader da problemas, se recorta el resync a cada 2 s y listo: en un juego cozy
-   nadie va a notar un surco que aparece 2 segundos tarde.
+1. The client simulates because that is what *feels* right (your shovel responds on the
+   frame in which you move it) and because we already have the engine built: not
+   simulating would mean inventing a fake presentation layer.
+2. The host remains the authority for the **scoreboard** (mass and %), so a
+   drift in the client's texture is cosmetic and never affects progress or
+   achievements: there can be no cheating or odd scores.
+3. **Mandatory 2-week spike** before committing to the co-op milestone: two
+   headless instances replicating ops + resync, measuring (a) mass drift per
+   minute, (b) KB/s per client, (c) ms of network CPU. Acceptance thresholds:
+   **drift < 0.5% per level and < 30 KB/s on average**.
+4. If the spike fails those thresholds, plan B is already defined and **it does not change
+   the game design**: the client stops simulating and only interpolates the host's
+   patches (more traffic and less immediacy, same fun). And if the shader's determinism
+   causes problems, the resync is cut to every 2 s and that is it: in a cozy game
+   nobody is going to notice a groove that appears 2 seconds late.
 
 ---
 
-### 6.6 Bolas, trastadas y estados: la capa social ⬜
+### 6.6 Balls, pranks and states: the social layer ⬜
 
-Los números exactos viven en `plan_implementacion.md` §3.2; aquí está el diseño.
+The exact numbers live in `plan_implementacion.md` §3.2; here is the design.
 
-**Impacto de bolas sobre jugadores** (sólo en modo **Jaleo** y **Duelo**; en
-**Trabajo** las bolas no afectan). La bola tiene que venir **lanzada**, no rodando:
+**Impact of balls on players** (only in **Ruckus** and **Duel** mode; in
+**Work** the balls do not affect). The ball has to come **thrown**, not rolling:
 
-| Bola | Al **cuerpo** | A la **cara** |
+| Ball | To the **body** | To the **face** |
 |---|---|---|
-| **Pequeña** (r < 0,18 m · 1–8 kg) | nada (sólo sonido y salpicadura) | **cara llena de nieve** |
-| **Mediana** (0,18–0,34 m · 8–60 kg) | **desestabilizado 1 s** | desestabilizado 1 s **+ nieve en la cara** |
-| **Grande** (r ≥ 0,34 m · > 60 kg) | **derribado 2 s** (suelta lo que llevaba) | derribado 2 s **+ nieve en la cara** |
+| **Small** (r < 0.18 m · 1–8 kg) | nothing (only sound and a splash) | **face full of snow** |
+| **Medium** (0.18–0.34 m · 8–60 kg) | **destabilised 1 s** | destabilised 1 s **+ snow in the face** |
+| **Large** (r ≥ 0.34 m · > 60 kg) | **knocked down 2 s** (drops what they were carrying) | knocked down 2 s **+ snow in the face** |
 
-- **Nieve en la cara**: se quita sola en **3,5 s** o el jugador se la limpia
-  **manualmente en 0,6 s**. No inmoviliza: se anda y se oye, se ve mal. Ajuste
-  *Normal* (se quita sola) / *Realista* (sólo manual).
-- **Anti-`stun-lock`**: inmunidad de 1,5 s al salir de cualquier estado. Nunca se
-  puede encadenar un derribo sobre la misma persona.
+- **Snow in the face**: it clears itself in **3.5 s** or the player wipes it off
+  **manually in 0.6 s**. It does not immobilise: you can walk and hear, you see badly.
+  *Normal* setting (it clears itself) / *Realistic* (manual only).
+- **Anti-`stun-lock`**: 1.5 s of immunity on leaving any state. A knockdown can never
+  be chained on the same person.
 
-**El catálogo de trastadas** (cada una con su animación y su sonido, que es lo que
-la hace graciosa): bola a la cara · nieve por el cuello · enterrar al compañero
-(se libera machacando) · tapar la salida de la turbina · volcar la carretilla ·
-empujarle una bola gigante cuesta abajo · pisotear su pila recién hecha · tirarle el
-gorro de un bolazo · dejar huellas en la superficie que acaba de alisar · taparle la
-puerta con una pared de nieve.
+**The catalogue of pranks** (each with its own animation and sound, which is what
+makes it funny): ball to the face · snow down the collar · burying your partner
+(you free yourself by mashing) · blocking the turbine outlet · tipping the wheelbarrow ·
+pushing a giant ball downhill at them · trampling their freshly made pile · knocking
+their hat off with a ball · leaving footprints on the surface they have just smoothed ·
+blocking their door with a snow wall.
 
-**Las reglas que evitan que esto sea tóxico:**
-1. **Todo es reversible.** Ni dinero, ni estrellas, ni progreso. Sólo tiempo y orgullo.
-2. **Se celebra y se mide.** Al acabar el nivel, una **crónica** con premios absurdos:
-   *Mejor compañero*, *Peor compañero*, *Más bolas lanzadas*, *Enterrado 4 veces*,
-   *Trabajo arruinado: 38 kg*, *La pila más alta destruida*. Es lo que convierte
-   "me lo has destrozado" en "lo repetimos".
-3. **La víctima se ríe** (regla de oro del pilar 4). Si no se ríe, la trastada está
-   mal diseñada.
-4. **Modo de sesión** (§6.3): el que quiere trabajar puede; el caos es una elección.
+**The rules that keep this from being toxic:**
+1. **Everything is reversible.** Not money, not stars, not progress. Only time and pride.
+2. **It is celebrated and measured.** At the end of the level, a **chronicle** with absurd awards:
+   *Best partner*, *Worst partner*, *Most balls thrown*, *Buried 4 times*,
+   *Work ruined: 38 kg*, *Tallest pile destroyed*. It is what turns
+   "you wrecked it" into "let's do it again".
+3. **The victim laughs** (golden rule of pillar 4). If they do not laugh, the prank is
+   badly designed.
+4. **Session mode** (§6.3): whoever wants to work can; chaos is a choice.
 
-**Duelo de bolas** (modo aparte, barato porque la mecánica ya existe): arena,
-asaltos de 2 minutos, marcador, mutadores (bolas gigantes, hielo resbaladizo, nieve
-infinita).
+**Snowball duel** (a separate mode, cheap because the mechanic already exists): arena,
+2-minute rounds, scoreboard, mutators (giant balls, slippery ice, infinite
+snow).
 
-**En solitario esta capa no desaparece**: los rebotes pueden dejarte a ti con la cara
-llena de nieve, y hay **muñecos de entrenamiento** con las mismas reacciones para
-practicar y para los logros.
+**Solo, this layer does not disappear**: ricochets can leave you with a face
+full of snow, and there are **training snowmen** with the same reactions to
+practise on and for achievements.
 
 ---
 
-## 7. Contenido: niveles
+## 7. Content: levels
 
-10 niveles + sandbox. Cada uno introduce **una herramienta o una idea nueva** y
-reutiliza el kit modular del valle.
+10 levels + sandbox. Each one introduces **one new tool or idea** and
+reuses the valley's modular kit.
 
-| # | Nivel | Idea nueva | Objetivo principal | Opcionales |
+| # | Level | New idea | Main objective | Optionals |
 |---|---|---|---|---|
-| 1 | **Entrada** ✅ | pala, apelmazar, lanzar | despejar el camino al 90 % | no pisar el parterre |
-| 2 | **El coche enterrado** | destino de masa (no se puede dejar encima) | liberar el coche | no rayar la chapa |
-| 3 | **Tejado y canalones** | altura y avalancha sobre el compañero | bajar la nieve del tejado | dejar los canalones libres |
-| 4 | **Jardín y setos** | precisión (rastrillo, bordes) | despejar sin dañar el seto | recoger 3 juguetes perdidos |
-| 5 | **Plaza del mercado** | carretilla y pilas | despejar la plaza y llenar el camión | hacer una pila de 2 m |
-| 6 | **Pista y remonte** | pendiente, ángulo de reposo, aludes | asegurar la pista | provocar un alud controlado |
-| 7 | **Río helado** | hielo, slush, desagüe | abrir el paso | pescar algo del hielo |
-| 8 | **Calle del pueblo** | logística coop pura | cargar el camión entre dos | terminar con los dos en la tarea |
-| 9 | **Teleférico** | verticalidad, riesgo | despejar la estación | subir a la plataforma |
-| 10 | **Tormenta / epílogo** | todo junto + muñeco final | despejar el valle | el muñeco más grande posible |
+| 1 | **Entrance** ✅ | shovel, tamping, throwing | clear the path to 90% | do not step on the flowerbed |
+| 2 | **The buried car** | mass destination (it cannot be left on top) | free the car | do not scratch the bodywork |
+| 3 | **Roof and gutters** | height and avalanche onto your partner | bring the snow down from the roof | leave the gutters clear |
+| 4 | **Garden and hedges** | precision (rake, edges) | clear without damaging the hedge | collect 3 lost toys |
+| 5 | **Market square** | wheelbarrow and piles | clear the square and fill the truck | make a 2 m pile |
+| 6 | **Slope and ski lift** | incline, angle of repose, slides | secure the slope | trigger a controlled slide |
+| 7 | **Frozen river** | ice, slush, drain | open the way | fish something out of the ice |
+| 8 | **Village street** | pure co-op logistics | load the truck between two | finish with both of you on the task |
+| 9 | **Cable car** | verticality, risk | clear the station | climb onto the platform |
+| 10 | **Storm / epilogue** | everything together + final snowman | clear the valley | the biggest possible snowman |
 
-**Kit de arte modular:** 1 terreno base + 1 set de edificios alpinos + 1 set de
-props (vallas, coches, bancos, buzones, carteles, esquis) + 1 set de árboles +
-1 set de rocas/hielo. Con eso y variaciones de luz/clima, 10 niveles son realistas
-para un equipo pequeño.
+**Modular art kit:** 1 base terrain + 1 set of alpine buildings + 1 set of
+props (fences, cars, benches, mailboxes, signs, skis) + 1 set of trees +
+1 set of rocks/ice. With that and light/weather variations, 10 levels are realistic
+for a small team.
 
-**Autoría de niveles (⬜):** formato de datos (`.tres`/JSON) con: terreno (mapa de
-alturas inicial), lista de props, zonas de destino de masa, objetivos, clima,
-herramientas permitidas e iluminación. Un script de editor que exporta el nivel.
-Así el sandbox y los retos reutilizan el mismo sistema.
-
----
-
-## 8. Dirección de arte y audio
-
-**Arte**
-- Estilo actual ✅ (bajo poligonaje, paleta pastel, formas limpias) es el correcto:
-  barato, legible y aguanta bien en pantallas pequeñas.
-- Necesario ⬜: viewmodels de las 8 herramientas con animación (idle, uso, inclinar,
-  golpe, guardar), **cuerpo visible del otro jugador** (cápsula + brazos
-  procedurales basta), set de props, iconos de UI, set de partículas (nieve
-  levantada, nube de rotura ✅ existe, pisadas, salpicón de slush).
-- Rendimiento de nieve: malla deformable + detalle de superficie (destellos, huellas)
-  como *decals* baratos.
-
-**Audio** (clave en este género: **es el 50 % de la satisfacción**)
-- Capas de *crunch* de nieve según material, profundidad y herramienta.
-- Sonidos de "scoop", "vuelco", "impacto blando", "costra rota", "agua".
-- Ambiente: viento por altura, cuervos, pueblo lejano, radio de la casa.
-- **Música adaptativa por progreso:** más instrumentos a medida que sube el % de
-  limpieza. Es un truco de dopamina baratísimo.
-- Voces: ninguna doblada (por coste). Sólo exclamaciones cortas y subtituladas
-  ("¡ay!", "¡cuidado arriba!"). El coop usa voz del sistema/Steam.
+**Level authoring (⬜):** a data format (`.tres`/JSON) with: terrain (initial height
+map), prop list, mass destination zones, objectives, weather,
+allowed tools and lighting. An editor script that exports the level.
+That way the sandbox and the challenges reuse the same system.
 
 ---
 
-## 9. UX / UI: mapa de pantallas
+## 8. Art and audio direction
+
+**Art**
+- The current style ✅ (low poly, pastel palette, clean shapes) is the right one:
+  cheap, readable and it holds up well on small screens.
+- Needed ⬜: viewmodels of the 8 tools with animation (idle, use, tilt,
+  hit, stow), **visible body of the other player** (capsule + procedural
+  arms are enough), prop set, UI icons, particle set (kicked-up
+  snow, break cloud ✅ exists, footprints, slush splash).
+- Snow performance: deformable mesh + surface detail (sparkles, footprints)
+  as cheap *decals*.
+
+**Audio** (key in this genre: **it is 50% of the satisfaction**)
+- Layers of snow *crunch* according to material, depth and tool.
+- Sounds of "scoop", "tip over", "soft impact", "broken crust", "water".
+- Ambience: wind by altitude, crows, distant village, radio in the house.
+- **Adaptive music by progress:** more instruments as the % of
+  clearing goes up. It is an extremely cheap dopamine trick.
+- Voices: none dubbed (for cost). Only short subtitled exclamations
+  ("ouch!", "watch out above!"). Co-op uses system/Steam voice.
+
+---
+
+## 9. UX / UI: screen map
 
 ```
-[Boot: logo → compilación de shaders/carga de ajustes]
+[Boot: logo → shader compilation/settings load]
    ↓
-[MENÚ PRINCIPAL] — escena 3D viva de fondo (cámara lenta sobre el pueblo nevado)
- ├── Continuar
- ├── Nueva partida ─────────► [Selector de perfil/ranura]
- ├── Cooperativo ──────────► [LOBBY] ──► [Nivel] ──► [Resultados]
- ├── Niveles ──────────────► [Mapa del valle / rejilla de tarjetas]
- ├── Taller (tienda) ──────► [Herramientas + mejoras + cosméticos]
- ├── Extras ───────────────► [Logros · Estadísticas · Galería (modo foto) · Créditos]
- ├── Opciones ─────────────► [Vídeo · Audio · Controles · Juego · Accesibilidad · Red · Datos]
- └── Salir
+[MAIN MENU] — live 3D scene in the background (slow camera over the snowy village)
+ ├── Continue
+ ├── New game ─────────────► [Profile/slot selector]
+ ├── Co-op ────────────────► [LOBBY] ──► [Level] ──► [Results]
+ ├── Levels ───────────────► [Valley map / card grid]
+ ├── Workshop (shop) ──────► [Tools + upgrades + cosmetics]
+ ├── Extras ───────────────► [Achievements · Statistics · Gallery (photo mode) · Credits]
+ ├── Options ──────────────► [Video · Audio · Controls · Game · Accessibility · Network · Data]
+ └── Quit
 ```
 
-**En partida**
-- **HUD** (diegético, mínimo): % despejado y masa restante, dinero, herramienta
-  actual + carga ✅, objetivos activos con palomita, marcador de zona de destino,
-  brújula sutil, indicadores de compañeros (nombre, color, ping de volea), pistas
-  contextuales ✅ (una línea, sin tutoriales invasivos).
-- **Pausa** (host en coop): reanudar · objetivos · opciones · invitar (host) ·
-  abandonar · "hacer foto".
-- **Resultados**: % final, kg movidos, eficiencia, tiempo, estrellas, dinero
-  ganado, barras de contribución por jugador, captura automática de pantalla.
+**In-game**
+- **HUD** (diegetic, minimal): % cleared and remaining mass, money, current
+  tool + load ✅, active objectives with a tick, destination zone marker,
+  subtle compass, partner indicators (name, colour, volley ping), contextual
+  hints ✅ (one line, no invasive tutorials).
+- **Pause** (host in co-op): resume · objectives · options · invite (host) ·
+  leave · "take a photo".
+- **Results**: final %, kg moved, efficiency, time, stars, money
+  earned, per-player contribution bars, automatic screenshot.
 
-**Flujos críticos a cuidar**
-1. De "abrir el juego" a "estoy paleando": **≤ 3 clics / ≤ 20 s**.
-2. De "me llaman para jugar" a "estoy dentro" (invitación por overlay): ≤ 60 s.
-3. Cambiar de herramienta sin abrir menús (rueda o 1-8).
-4. Saber siempre qué falta sin leer nada (barra + marcador en el mundo).
-5. Salir y volver a entrar sin perder progreso (guarda al salir de nivel).
+**Critical flows to look after**
+1. From "opening the game" to "I am shovelling": **≤ 3 clicks / ≤ 20 s**.
+2. From "I am being called to play" to "I am in" (overlay invite): ≤ 60 s.
+3. Changing tool without opening menus (wheel or 1-8).
+4. Always knowing what is missing without reading anything (bar + marker in the world).
+5. Leaving and coming back in without losing progress (save on leaving the level).
 
 ---
 
-## 10. Ajustes (catálogo completo)
+## 10. Settings (complete catalogue)
 
-| Categoría | Opciones |
+| Category | Options |
 |---|---|
-| **Vídeo** | Preset (Bajo/Medio/Alto/Ultra/**Auto**) · resolución · ventana/borderless/exclusiva · **escalado de resolución** (0,5–1,0) · VSync · límite FPS · FOV · desenfoque de movimiento · profundidad de campo · bloom · sombras (calidad/distancia) · SSAO · niebla volumétrica · **calidad de nieve** (resolución de sim 256/384/512/768 + subdivisión de malla) · densidad de partículas · distancia de dibujo · HDR · gamma/brillo · nitidez |
-| **Audio** | Maestro · música · efectos · ambiente · voces · dispositivo de salida · **modo mono** · compresión dinámica · ducking · "reducir sonidos repetitivos" |
-| **Controles** | Remapeo completo (teclado+ratón y mando) · presets · sensibilidad (y por zoom) · invertir X/Y · zona muerta · curva de respuesta · vibración · **mantener vs alternar** (correr, agachar, `E`, vertido) · inversión de botones · prompts según dispositivo (Xbox/PS/Switch) · Steam Input |
-| **Juego** | Idioma · **unidades (métrico/imperial)** · dificultad/asistencia (Relax ↔ Trabajo) · autoguardado · pistas del tutorial · marcadores de objetivo · avisos de masa · telemetría (opt-in) |
-| **Accesibilidad** | Subtítulos (activar/tamaño/fondo) · **tamaño de la UI** (80–150 %) · daltonismo (3 paletas + contraste alto) · reducción de movimiento/cámara · **desactivar cabeceo** · sensibilidad al *screen shake* · sin entradas temporizadas (regla del género) · mantener pulsado alternable · remapeo de todo · texto a voz del HUD (opcional) |
-| **Red** | Región · límite de ping · voz (activar/push-to-talk/volumen por jugador/silenciar) · privacidad (invitación sólo amigos / abierto) · mostrar pings de jugador |
-| **Datos** | Ranuras de guardado · exportar/importar progreso · borrar progreso · estado de Steam Cloud · versión del guardado |
+| **Video** | Preset (Low/Medium/High/Ultra/**Auto**) · resolution · windowed/borderless/exclusive · **resolution scaling** (0.5–1.0) · VSync · FPS limit · FOV · motion blur · depth of field · bloom · shadows (quality/distance) · SSAO · volumetric fog · **snow quality** (sim resolution 256/384/512/768 + mesh subdivision) · particle density · draw distance · HDR · gamma/brightness · sharpness |
+| **Audio** | Master · music · effects · ambience · voices · output device · **mono mode** · dynamic range compression · ducking · "reduce repetitive sounds" |
+| **Controls** | Full remapping (keyboard+mouse and gamepad) · presets · sensitivity (and per zoom) · invert X/Y · dead zone · response curve · vibration · **hold vs toggle** (sprint, crouch, `E`, pouring) · button inversion · pRuckusts by device (Xbox/PS/Switch) · Steam Input |
+| **Game** | Language · **units (metric/imperial)** · difficulty/assistance (Relax ↔ Work) · autosave · tutorial hints · objective markers · mass warnings · telemetry (opt-in) |
+| **Accessibility** | Subtitles (enable/size/background) · **UI size** (80–150%) · colour blindness (3 palettes + high contrast) · motion/camera reduction · **disable head bob** · *screen shake* sensitivity · no timed input (genre rule) · hold-to-press toggleable · everything remappable · HUD text-to-speech (optional) |
+| **Network** | Region · ping limit · voice (enable/push-to-talk/per-player volume/mute) · privacy (friends-only invites / open) · show player pings |
+| **Data** | Save slots · export/import progress · delete progress · Steam Cloud status · save version |
 
-**Reglas de diseño de ajustes:** todo cambio se aplica **en vivo**; todo se guarda
-en un archivo de configuración de usuario separado del guardado de partida;
-"Restaurar por defecto" por categoría; y ningún ajuste puede dejar el juego injugable
-(si un preset es demasiado bajo, se avisa).
+**Settings design rules:** every change applies **live**; everything is saved
+in a user configuration file separate from the game save;
+"Restore defaults" per category; and no setting can make the game unplayable
+(if a preset is too low, a warning is shown).
 
 ---
 
-## 11. i18n y accesibilidad
+## 11. i18n and accessibility
 
-### Idiomas objetivo (fase 1) — los 13 de la referencia
-Inglés, Español (España + Latinoamérica como variantes), Francés, Alemán, Italiano,
-Portugués (Brasil), Polaco, Ruso, Checo, Chino simplificado, Chino tradicional,
-Japonés, Coreano. **Sólo texto** (interfaz + subtítulos), sin doblaje.
+### Target languages (phase 1) — the reference's 13
+English, Spanish (Spain + Latin America as variants), French, German, Italian,
+Portuguese (Brazil), Polish, Russian, Czech, Simplified Chinese, Traditional Chinese,
+Japanese, Korean. **Text only** (interface + subtitles), no voice-over.
 
-### Arquitectura i18n
-- **Claves semánticas**, nunca literales concatenados:
+### i18n architecture
+- **Semantic keys**, never concatenated literals:
   `HUD_CLEARED_PCT` = `Despejado: {pct}%`.
-- **Plurales desde el día 1** con reglas por idioma (`tr_n`): checo/polaco/ruso
-  tienen 3–4 formas. Es el error clásico que obliga a rehacer textos.
-- **Sin género gramatical asumido**: redactar de forma neutra o con variantes por
-  idioma (en español "la bola / el montón" cambia; evitar adjetivos sobre objetos
-  del jugador).
-- **Formato locale** de números, unidades y fechas (`1.234,5 kg` vs `1,234.5 kg`),
-  más el conmutador métrico/imperial.
-- **Nada de texto en imágenes**; todo texto pasa por el sistema de traducción.
+- **Plurals from day 1** with per-language rules (`tr_n`): Czech/Polish/Russian
+  have 3–4 forms. It is the classic mistake that forces texts to be redone.
+- **No assumed grammatical gender**: write neutrally or with per-language
+  variants (in Spanish the words for "ball / pile" change gender; avoid adjectives
+  about the player's objects).
+- **Locale format** for numbers, units and dates (`1.234,5 kg` vs `1,234.5 kg`),
+  plus the metric/imperial switch.
+- **No text in images**; all text goes through the translation system.
 
-### Fuentes y layout
-- Una familia con cobertura completa (p. ej. Noto Sans) + **cadena de respaldo**
-  explícita para CJK y cirílico (Godot no hace *fallback* automático completo).
-- **Espacio para +40 % de longitud** (el alemán y el ruso crecen) y prueba de
-  desbordamiento con **pseudo-localización** (texto acentuado y alargado).
-- Saltos de línea CJK (sin espacios) verificados en las cajas de texto.
+### Fonts and layout
+- One family with full coverage (e.g. Noto Sans) + an explicit **fallback
+  chain** for CJK and Cyrillic (Godot does not do complete automatic *fallback*).
+- **Room for +40% length** (German and Russian grow) and an overflow
+  test with **pseudo-localisation** (accented and lengthened text).
+- CJK line breaks (without spaces) verified in the text boxes.
 
 ### Pipeline
-1. Extraer claves del código a un CSV/PO fuente en el repo.
-2. Subir a un TMS (Crowdin/Lokalise/Weblate) para traductores.
-3. Importar traducciones compiladas + **CI que falla si falta una clave en algún
-   idioma**.
-4. Modo QA en el juego: resalta claves sin traducir en tiempo de ejecución.
-5. Créditos de traducción y licencias de fuentes.
+1. Extract keys from the code into a source CSV/PO in the repo.
+2. Upload to a TMS (Crowdin/Lokalise/Weblate) for translators.
+3. Import compiled translations + **CI that fails if a key is missing in any
+   language**.
+4. QA mode in the game: it highlights untranslated keys at runtime.
+5. Translation credits and font licences.
 
-### Accesibilidad (lo mínimo exigible al género)
-Subtítulos · tamaño de UI · daltonismo · reducción de movimiento · **sin entradas
-temporizadas** · guarda cuando quieras · mando completo · todo remapeable ·
-un solo mando posible · avisos visuales además de sonoros (una avalancha se **ve**
-antes de oírse, y se subtitula el aviso).
+### Accessibility (the minimum the genre demands)
+Subtitles · UI size · colour blindness · motion reduction · **no timed
+input** · save anytime · full gamepad support · everything remappable ·
+a single gamepad is possible · visual warnings as well as sound ones (an avalanche is
+**seen** before it is heard, and the warning is subtitled).
 
 ---
 
-## 12. Arquitectura técnica
+## 12. Technical architecture
 
-**Ya existe ✅ (núcleo del motor)**
-`SnowField` (sim GPU ping-pong 512², espejo CPU 64² para consultas, cola de ops,
-volumen por operación), `snow_sim.glsl` (10 modos), `SnowBall`, `PinProp`,
-`PropsSystem`, `SnowChunk`, controlador de jugador con herramientas, HUD, materiales
-y **3 baterías de diagnóstico automáticas** (`--phys-demo`, `--carve-quality`,
-`--ball-shape`). Eso es un activo enorme: es la base del motor y de la QA.
+**Already exists ✅ (engine core)**
+`SnowField` (512² GPU ping-pong sim, 64² CPU mirror for queries, op queue,
+volume per operation), `snow_sim.glsl` (10 modes), `SnowBall`, `PinProp`,
+`PropsSystem`, `SnowChunk`, player controller with tools, HUD, materials
+and **3 automatic diagnostic batteries** (`--phys-demo`, `--carve-quality`,
+`--ball-shape`). That is a huge asset: it is the foundation of the engine and of the QA.
 
-**Falta ⬜ (el juego alrededor del motor)**
+**Missing ⬜ (the game around the engine)**
 
-| Sistema | Responsabilidad |
+| System | Responsibility |
 |---|---|
-| `GameManager` | Máquina de estados: boot → menú → lobby → nivel → resultados. Carga de escenas y transiciones. |
-| `SettingsSystem` | Config de usuario, aplicación en vivo, presets, persistencia. |
-| `SaveSystem` | Ranuras, esquema versionado, migración, autoguardado, Steam Cloud. |
-| `LocalizationManager` | Idioma, plurales, formato locale, modo QA. |
-| `InputManager` | Remapeo, prompts por dispositivo, mantener/alternar. |
-| `AudioManager` | Buses, música adaptativa por progreso, ducking. |
-| `ProgressionSystem` | Dinero, desbloqueos, mejoras, estadísticas. |
-| `ObjectiveSystem` | Condiciones componibles evaluadas por tick + evaluación final. |
-| `LevelDefinition` | Formato de datos de nivel + cargador + herramienta de editor. |
-| `NetworkManager` | Host/join, replicación de ops, resync, lobby, sesión. |
-| `PhotoMode` | Cámara libre, filtros, poses, guardado. |
+| `GameManager` | State machine: boot → menu → lobby → level → results. Scene loading and transitions. |
+| `SettingsSystem` | User config, live application, presets, persistence. |
+| `SaveSystem` | Slots, versioned schema, migration, autosave, Steam Cloud. |
+| `LocalizationManager` | Language, plurals, locale format, QA mode. |
+| `InputManager` | Remapping, per-device pRuckusts, hold/toggle. |
+| `AudioManager` | Buses, adaptive music by progress, ducking. |
+| `ProgressionSystem` | Money, unlocks, upgrades, statistics. |
+| `ObjectiveSystem` | Composable conditions evaluated per tick + final evaluation. |
+| `LevelDefinition` | Level data format + loader + editor tool. |
+| `NetworkManager` | Host/join, op replication, resync, lobby, session. |
+| `PhotoMode` | Free camera, filters, poses, saving. |
 | `Achievements` / `Leaderboards` | Steamworks. |
-| `Telemetry` (opt-in) | Rendimiento y embudos de juego, anónimo. |
+| `Telemetry` (opt-in) | Performance and game funnels, anonymous. |
 
-**Principios**
-- **Simulación y presentación separadas**: la sim nunca depende del render (permite
-  el tick de simulación desacoplado y el netcode por ops).
-- **Todo dato de juego en recursos**, no en código: herramientas, niveles,
-  objetivos y textos son datos → modding y balance sin tocar scripts.
-- **Una sola fuente de verdad para la masa**: cualquier añadido futuro (agua, hielo,
-  suciedad) entra por el mismo libro de cuentas.
-
----
-
-## 13. Guardado, datos y telemetría
-
-- **Guarda cuando quieras** (requisito del género): al completar nivel, al salir y
-  cada N minutos en partida.
-- **Qué se guarda:** progreso (niveles, estrellas, dinero, mejoras, cosméticos),
-  estadísticas, ajustes, y —si el jugador lo quiere— **el estado del nivel a medias**
-  (mapa de alturas reducido 128² comprimido ≈ 30–60 KB por nivel, no la textura completa).
-- **Esquema versionado** con migración y copia de seguridad antes de sobrescribir;
-  si el guardado se corrompe, se recupera el anterior y se avisa.
-- **Perfiles múltiples** (habitación compartida: cada uno su progreso).
-- **Telemetría opcional** y anónima: fps, ms de simulación, tiempo por nivel, punto
-  de abandono, uso de herramientas. Sirve para balancear, no para monetizar.
+**Principles**
+- **Simulation and presentation separated**: the sim never depends on the render (it
+  allows the decoupled simulation tick and the operation-based netcode).
+- **All game data in resources**, not in code: tools, levels,
+  objectives and texts are data → modding and balancing without touching scripts.
+- **A single source of truth for mass**: any future addition (water, ice,
+  dirt) goes through the same ledger.
 
 ---
 
-## 14. Rendimiento y compatibilidad
+## 13. Saving, data and telemetry
 
-**Objetivo:** 60 fps a 1080p en un equipo del montón (el género exige GTX 960 /
-4 GB de RAM) y funcionar en Steam Deck con preset Medio.
-
-- **La simulación GPU es el riesgo.** Plan por capas:
-  - Presets de resolución de simulación (256/384/512/768) y de subdivisión de malla.
-  - **Simulación a 30 Hz desacoplada del render** (la nieve no necesita 60 Hz).
-  - Medición permanente de ms de simulación en el HUD de desarrollo.
-  - **Plan B para GPUs débiles**: modo "nieve simplificada" (sim a 256² y
-    relajación cada 2 frames) o, en el extremo, campos pequeños por nivel.
-- **Presupuesto por frame** (16,6 ms a 60 fps): simulación ≤ 3 ms · render de nieve
-  ≤ 4 ms · resto ≤ 9 ms.
-- **Compatibilidad:** validar en Intel integrada reciente, GTX 1050/960, Deck y una
-  GPU AMD; Vulkan (Forward+) es el objetivo, con preset "bajo" probado explícitamente.
-- **Tiempos de carga:** < 10 s por nivel (generación por semilla + carga asíncrona).
+- **Save anytime** (genre requirement): on completing a level, on exit and
+  every N minutes during play.
+- **What is saved:** progress (levels, stars, money, upgrades, cosmetics),
+  statistics, settings, and — if the player wants it — **the state of a half-finished
+  level** (reduced height map 128² compressed ≈ 30–60 KB per level, not the full texture).
+- **Versioned schema** with migration and a backup before overwriting;
+  if the save is corrupted, the previous one is recovered and the player is warned.
+- **Multiple profiles** (shared room: each person their own progress).
+- **Optional** and anonymous **telemetry**: fps, simulation ms, time per level, drop-off
+  point, tool usage. It is for balancing, not for monetising.
 
 ---
 
-## 15. QA, CI y baterías automáticas
+## 14. Performance and compatibility
 
-El proyecto ya tiene una cultura de diagnóstico que hay que convertir en **puertas
-de integración continua**:
+**Target:** 60 fps at 1080p on an average machine (the genre demands GTX 960 /
+4 GB RAM) and running on Steam Deck with the Medium preset.
 
-| Batería | Comprueba | Estado |
+- **The GPU simulation is the risk.** A layered plan:
+  - Simulation resolution presets (256/384/512/768) and mesh subdivision presets.
+  - **30 Hz simulation decoupled from the render** (snow does not need 60 Hz).
+  - Permanent measurement of simulation ms in the development HUD.
+  - **Plan B for weak GPUs**: a "simplified snow" mode (256² sim and
+    relaxation every 2 frames) or, at the extreme, small fields per level.
+- **Per-frame budget** (16.6 ms at 60 fps): simulation ≤ 3 ms · snow render
+  ≤ 4 ms · the rest ≤ 9 ms.
+- **Compatibility:** validate on recent Intel integrated graphics, GTX 1050/960, Deck
+  and an AMD GPU; Vulkan (Forward+) is the target, with the "low" preset explicitly tested.
+- **Load times:** < 10 s per level (seed generation + asynchronous loading).
+
+---
+
+## 15. QA, CI and automatic batteries
+
+The project already has a diagnostic culture that has to be turned into **continuous
+integration gates**:
+
+| Battery | Checks | Status |
 |---|---|---|
-| `--phys-demo` | 36 comprobaciones: masa, herramientas, acarreo, empuje, lanzamiento, rotura | ✅ |
-| `--carve-quality` | Calidad del terreno y FPS con malla densa | ✅ |
-| `--ball-shape` | Esferas limpias, densidad, sin surcos falsos | ✅ |
-| `--save-roundtrip` | Guardar → cargar → mismo estado y misma masa | ⬜ |
-| `--i18n-check` | Ninguna clave sin traducir en ningún idioma | ⬜ |
-| `--settings-apply` | Todos los ajustes se aplican en vivo y persisten | ⬜ |
-| `--net-smoke` | Dos instancias headless: ops, resync, deriva de masa < 1 % | ⬜ |
-| `--perf-gate` | Fps mínimos por preset en escena de estrés | ⬜ |
+| `--phys-demo` | 36 checks: mass, tools, carrying, pushing, throwing, breaking | ✅ |
+| `--carve-quality` | Terrain quality and FPS with a dense mesh | ✅ |
+| `--ball-shape` | Clean spheres, density, no false grooves | ✅ |
+| `--save-roundtrip` | Save → load → same state and same mass | ⬜ |
+| `--i18n-check` | No key untranslated in any language | ⬜ |
+| `--settings-apply` | All settings apply live and persist | ⬜ |
+| `--net-smoke` | Two headless instances: ops, resync, mass drift < 1% | ⬜ |
+| `--perf-gate` | Minimum fps per preset in a stress scene | ⬜ |
 
-Además: **pruebas de juego humanas** cada hito (3–5 personas, observando sin guiar),
-y una lista de "sensaciones" a validar: el primer minuto debe dar satisfacción; el
-sonido debe dar ganas de seguir; el coop debe provocar risas, no discusiones.
+In addition: **human playtests** at every milestone (3–5 people, observing without
+guiding), and a list of "feelings" to validate: the first minute must be satisfying;
+the sound must make you want to keep going; co-op must provoke laughter, not arguments.
 
 ---
 
-## 16. Monetización y publicación
+## 16. Monetisation and publishing
 
-- **Premium**, 6–12 € según contenido final. **Sin micropagos, sin pase de batalla.**
-- **Demo pública** (1 nivel + sandbox) — imprescindible para el género y para
+- **Premium**, €6–12 depending on the final content. **No microtransactions, no battle pass.**
+- **Public demo** (1 level + sandbox) — essential for the genre and for
   Steam Next Fest.
-- DLC/actualizaciones: packs de niveles (otra estación, otro pueblo), cosméticos
-  gratis como agradecimiento.
-- Steam: logros, marcadores, Cloud, Rich Presence ("Limpiando la plaza · 2/4"),
-  Remote Play Together (permite "coop local" gratis por streaming).
-- Steam Deck: verificación (objetivo).
-- Página de tienda con GIFs del *antes/después* y del caos coop: es el marketing.
+- DLC/updates: level packs (another season, another village), free cosmetics
+  as a thank-you.
+- Steam: achievements, leaderboards, Cloud, Rich Presence ("Cleaning the square · 2/4"),
+  Remote Play Together (it allows free "local co-op" through streaming).
+- Steam Deck: verification (target).
+- Store page with GIFs of the *before/after* and of co-op chaos: that is the marketing.
 
 ---
 
-## 17. Roadmap por hitos (con criterios de salida)
+## 17. Roadmap by milestones (with exit criteria)
 
-> **Antes del contenido va todo el sistema.** El detalle fino (fichas, mecánicas
-> numéricas, Playground y 11 fases de sistemas) está en `plan_implementacion.md`
-> §2–§5: **~5–6 meses de sistemas** con 1–2 personas, sin tocar contenido. La tabla
-> de abajo sitúa esos sistemas en el plan de producto.
+> **The whole system comes before the content.** The fine detail (specs, numerical
+> mechanics, Playground and 11 system phases) is in `plan_implementacion.md`
+> §2–§5: **~5–6 months of systems** with 1–2 people, without touching content. The table
+> below places those systems in the product plan.
 
-| Hito | Duración | Contenido | Criterio de salida |
+| Milestone | Duration | Content | Exit criterion |
 |---|---|---|---|
-| **M0 — Motor** ✅ | hecho | Nieve, herramientas, bolas, ensamblaje, baterías | 36 OK / 0 fallos |
-| **M1 — Vertical slice** | 6–8 sem | 1 nivel completo con menús, objetivos, dinero, guardado, ajustes (vídeo/audio/controles), i18n (2 idiomas), mando, modo foto | 60 fps en preset bajo; 20 min divertidos en solitario; 3 testers quieren jugar más |
-| **M2 — Coop** | 6–10 sem | Spike de red → coop 2 jugadores online: ops + resync, predicción de acarreo, verbos coop, lobby, nameplates | 30 min con 2 jugadores por internet sin desincronizar el % y **más divertido que en solitario** |
-| **M3 — Contenido** | 10–16 sem | 8–12 niveles, taller/mejoras, progresión, logros, sandbox, retos, 13 idiomas, accesibilidad | Campaña terminable en 1,5–3 h; 0 claves sin traducir; accesibilidad completa |
-| **M4 — Pulido y lanzamiento** | 6–8 sem | Rendimiento, bugs, playtest, página de tienda, tráiler, demo, locs, Deck | Presupuesto de frame cumplido en 4 configuraciones; demo con retención D1 > 25 % |
+| **M0 — Engine** ✅ | done | Snow, tools, balls, assembly, batteries | 36 OK / 0 failures |
+| **M1 — Vertical slice** | 6–8 wk | 1 complete level with menus, objectives, money, saving, settings (video/audio/controls), i18n (2 languages), gamepad, photo mode | 60 fps on the low preset; 20 fun minutes solo; 3 testers want to play more |
+| **M2 — Co-op** | 6–10 wk | Network spike → 2-player online co-op: ops + resync, carry prediction, co-op verbs, lobby, nameplates | 30 min with 2 players over the internet without desyncing the % and **more fun than solo** |
+| **M3 — Content** | 10–16 wk | 8–12 levels, workshop/upgrades, progression, achievements, sandbox, challenges, 13 languages, accessibility | Campaign completable in 1.5–3 h; 0 untranslated keys; full accessibility |
+| **M4 — Polish and launch** | 6–8 wk | Performance, bugs, playtest, store page, trailer, demo, locs, Deck | Frame budget met on 4 configurations; demo with D1 retention > 25% |
 
-**Total: 9–12 meses** con 1–2 personas + arte contratado. El motor (lo más caro) ya
-está hecho, que es lo que hace realista este calendario.
+**Total: 9–12 months** with 1–2 people + contracted art. The engine (the most
+expensive part) is already done, which is what makes this schedule realistic.
 
 ---
 
-## 18. Riesgos y mitigaciones
+## 18. Risks and mitigations
 
-| Riesgo | Impacto | Mitigación |
+| Risk | Impact | Mitigation |
 |---|---|---|
-| Netcode sobre campo deformable | **Alto** | Spike de 2 semanas antes de prometer coop; plan B (cliente sólo interpolado); replicación por operaciones + RLE |
-| Rendimiento de la sim en GPUs modestas | **Alto** | Presets, sim a 30 Hz, medición permanente, plan B de nieve simplificada |
-| El sandbox se come el juego (scope creep) | Medio | Objetivos y niveles primero; el sandbox es un modo, no el producto |
-| Coop = "dos haciendo tareas separadas" (aburrido) | **Alto** | Cada nivel tiene **al menos un objeto que necesita dos personas** |
-| Contenido (10 niveles + kit de arte) | Medio | Kit modular + variaciones de clima/luz; 1 nivel / 2–3 semanas |
-| Determinismo entre GPUs | Medio | Auditoría del shader; tolerancia ±1 téxel; resync |
-| i18n tardía (retrabajo de textos) | Medio | Plurales y formato locale desde el día 1; pseudo-localización en M1 |
-| Fatiga del jugador por grind de dinero | Bajo | Los niveles se desbloquean por progreso; el dinero compra comodidad, no llaves |
+| Netcode over a deformable field | **High** | A 2-week spike before promising co-op; plan B (client only interpolating); replication by operations + RLE |
+| Simulation performance on modest GPUs | **High** | Presets, 30 Hz sim, permanent measurement, simplified-snow plan B |
+| The sandbox eats the game (scope creep) | Medium | Objectives and levels first; the sandbox is a mode, not the product |
+| Co-op = "two people doing separate tasks" (boring) | **High** | Every level has **at least one object that needs two people** |
+| Content (10 levels + art kit) | Medium | Modular kit + weather/light variations; 1 level / 2–3 weeks |
+| Determinism across GPUs | Medium | Shader audit; ±1 texel tolerance; resync |
+| Late i18n (reworking texts) | Medium | Plurals and locale format from day 1; pseudo-localisation in M1 |
+| Player fatigue from money grind | Low | Levels unlock by progress; money buys convenience, not keys |
 
 ---
 
-## 19. Métricas de éxito
+## 19. Success metrics
 
-**De juego (playtest):** tiempo hasta la primera satisfacción < 60 s · % de nivel
-completado al abandonar (alto = engancha) · "¿jugarías otro nivel?" · duración de
-sesión coop · risas por minuto (literal: es un juego de comedia física).
+**Game (playtest):** time to first satisfaction < 60 s · % of the level
+completed on quitting (high = it hooks) · "would you play another level?" · co-op
+session length · laughs per minute (literally: it is a physical comedy game).
 
-**De producto:** conversión de demo a lista de deseos · retención D1 de la demo ·
-reseñas positivas (> 90 % es el estándar del nicho) · horas medianas 2–6 h ·
-estabilidad (0 cuelgues por 100 sesiones).
+**Product:** demo-to-wishlist conversion · demo D1 retention ·
+positive reviews (> 90% is the niche standard) · median hours 2–6 h ·
+stability (0 crashes per 100 sessions).
 
-**Técnicas:** ms de simulación por preset · tasa de desincronización por sesión coop ·
-tráfico medio por cliente · fps p1 (el 1 % peor de los frames).
+**Technical:** simulation ms per preset · desync rate per co-op session ·
+average traffic per client · p1 fps (the worst 1% of frames).
 
 ---
 
-## 20. Estado de las decisiones
+## 20. Decision status
 
-### Cerradas
+### Closed
 
-| Tema | Decisión |
+| Topic | Decision |
 |---|---|
-| **Cooperativo** | **2 jugadores exactos**, online por Steam, con *Remote Play Together* para el sofá. |
-| **Solo y coop** | **Ambos son primera clase.** El 100 % del progreso es alcanzable en solitario; el coop añade sellos extra que no bloquean nada. Se resuelve con un sistema (`PlayerCountScaler`), no recortando niveles. |
-| **Precio y alcance** | **6,99 €**, alcance y duración similares a la referencia, compensando con **rejugabilidad** (2–3 vueltas para el Libro del Invierno) y con la capa social. Demo gratuita. |
-| **Plataformas** | **Steam + Steam Deck verificado** y **soporte completo de mando de consola** (Xbox/PlayStation/Nintendo). |
-| **Logros** | **Compartidos**: un único conjunto, se desbloquean para los dos a la vez en coop, y **ninguno exige una segunda persona**. |
-| **Muñeco de nieve** | **Extra opcional y divertido**, nunca objetivo. |
-| **Netcode** | Host autoritativo del marcador + cliente que simula y predice + corrección por parches RLE, con *spike* obligatorio antes de la fase de red (`plan_implementacion.md` §6.5 y §7.8). |
-| **Modo de sesión** | Trabajo / **Jaleo** (por defecto con amigos) / Duelo. |
-| **Lobbies públicos** | **No** en la v1: por defecto **sólo amigos**. El Jaleo con desconocidos hace más daño que bien; el Duelo también es entre amigos. |
-| **Título** | **Snow It Together**, provisional. |
-| **Ubicación** | **Sin decidir** y sin impacto en el diseño: ninguna mecánica depende del escenario. |
+| **Co-op** | **Exactly 2 players**, online through Steam, with *Remote Play Together* for the couch. |
+| **Solo and co-op** | **Both are first class.** 100% of progress is achievable solo; co-op adds extra stamps that block nothing. It is solved with a system (`PlayerCountScaler`), not by cutting levels. |
+| **Price and scope** | **€6.99**, scope and length similar to the reference, compensating with **replayability** (2–3 runs for the Winter Book) and with the social layer. Free demo. |
+| **Platforms** | **Steam + Steam Deck verified** and **full console gamepad support** (Xbox/PlayStation/Nintendo). |
+| **Achievements** | **Shared**: a single set, they unlock for both at once in co-op, and **none requires a second person**. |
+| **Snowman** | **An optional and fun extra**, never an objective. |
+| **Netcode** | Authoritative host for the scoreboard + a client that simulates and predicts + correction via RLE patches, with a mandatory *spike* before the network phase (`plan_implementacion.md` §6.5 and §7.8). |
+| **Session mode** | Work / **Ruckus** (default with friends) / Duel. |
+| **Public lobbies** | **No** in v1: by default **friends only**. Ruckus with strangers does more harm than good; the Duel is also between friends. |
+| **Title** | **Snow It Together**, working title. |
+| **Location** | **Undecided** and with no impact on the design: no mechanic depends on the setting. |
 
-### Abiertas (se deciden con datos, no antes)
+### Open (decided with data, not before)
 
-1. **Ayuda al solista** si el 100 % en solitario resulta pesado: quad con pala,
-   vecino que colabora, o nada. Lo decide el playtest de la fase 5–6.
-2. **Qué más hace el "modo Realista"** además de quitar la limpieza automática de la
-   cara (¿fatiga? ¿peso real? ¿sin ayudas de apuntado?).
-3. **Escenario definitivo** (cuando se elija): sólo cambia el arte y los niveles, no
-   los sistemas.
-4. **Contenido del Duelo**: número de arenas y mutadores, según cuánto tire la gente
-   en el playtest.
+1. **Help for the solo player** if 100% solo turns out to be heavy going: a shovel quad,
+   a neighbour who helps out, or nothing. The phase 5–6 playtest decides it.
+2. **What else "Realistic mode" does** besides removing the automatic cleaning of the
+   face (fatigue? real weight? no aim assistance?).
+3. **Final setting** (once chosen): it only changes the art and the levels, not
+   the systems.
+4. **Duel content**: number of arenas and mutators, depending on how much people play it
+   in the playtest.
