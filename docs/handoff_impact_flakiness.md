@@ -206,3 +206,26 @@ Four theories about this bug were acted on before being measured; two were wrong
 instrumentation found more in one run than those four guesses combined.
 
 **Measure first. Change one thing. Then measure three times.**
+
+---
+
+# STATUS: RESOLVED — read this before anything above
+
+**This bug is fixed.** Committed as `1591075 fix(physics): resolve impact flakiness and
+ground interaction regressions`, and verified on 2026-10-05 by running it:
+
+- `--impact-matrix`: **28 OK / 0 FAIL, three consecutive runs** (it used to wander between
+  21 and 26 of 28).
+- The full gate: **ALL GREEN, 132 checks across 8 batteries**, with `--impact-matrix` now
+  registered in `tools/run_batteries.ps1`.
+
+What the fix did, in the same order this document proposed: re-enabled the physical sweep
+**with a duplicate-hit guard**, added an in-flight lead margin to the player's impact
+spheres, used flight maximum speed together with the arrival history so a fast ball cannot
+fail its own speed gate, cleaned up the test arena so snowball mounds stop accumulating
+during the matrix, and added a ground-level interactable fallback so the ball-pushing check
+can find its target.
+
+**Everything above this banner is history.** It is kept because the disproved theories and
+the environment traps are still worth not rediscovering, and because the habit recorded in
+section 9 is what actually solved this.
