@@ -102,6 +102,8 @@ func _process(delta: float) -> void:
 func _enter_cell() -> void:
 	for b in _balls:
 		if is_instance_valid(b):
+			b.linear_velocity = Vector3.ZERO
+			b.global_position = Vector3(0.0, -500.0, 0.0)
 			b.queue_free()
 	_balls.clear()
 	player.reset_hit_reactions()
@@ -109,8 +111,10 @@ func _enter_cell() -> void:
 	var cell: Dictionary = _cells[_cell_index]
 	_work_mode = bool(cell.get("work", false))
 	SessionModeScript.mode = SessionModeScript.Mode.WORK if _work_mode else SessionModeScript.Mode.RUCKUS
-	# The throw waits one frame: queue_free() only takes effect at the end of this one,
-	# and a new ball spawned inside the old one's body bounces off it instead of flying.
+	# The throw waits a frame, and the previous case's ball is parked out of the world in
+	# the meantime. queue_free() only takes effect at the end of this frame, so without
+	# this a leftover ball from a face-height case could still land a hit during a
+	# body-only case: that is what made failures wander between runs instead of repeating.
 	_throw_pending = true
 
 func _throw(cell: Dictionary) -> void:
@@ -166,6 +170,12 @@ func _check_cell() -> void:
 		["small", "medium", "large"][int(cell["tier"])], String(cell["zone"]),
 		float(cell["speed"]), " in Work mode" if _work_mode else ""]
 	var ok: bool = state == int(want["state"]) and face == bool(want["face"]) and hits == bool(want["hits"])
+	if not ok:
+		# Where the ball actually ended up is what tells the failure modes apart:
+		# parked means it never flew, sitting on the player means the contact never
+		# reported, past the player means it went through, and absent means it broke
+		# against something else on the way in.
+		print("[MTX]      ball: %s" % _ball_state())
 	print("[MTX] %s %-38s got state=%d face=%s hit=%s, wanted state=%d face=%s hit=%s" % [
 		"[OK] " if ok else "[FAIL]", label, state, str(face), str(hits),
 		int(want["state"]), str(want["face"]), str(want["hits"])])
@@ -173,6 +183,17 @@ func _check_cell() -> void:
 		_ok += 1
 	else:
 		_fail += 1
+
+## What became of the ball under test, in the terms that separate the failure modes.
+func _ball_state() -> String:
+	if _balls.is_empty() or not is_instance_valid(_balls[0]):
+		return "gone: it broke against something on the way in"
+	var b: RigidBody3D = _balls[0]
+	var offset := b.global_position - player.global_position
+	var facing := -player.transform.basis.z
+	var along := facing.dot(b.linear_velocity.normalized()) if b.linear_velocity.length() > 0.01 else 0.0
+	return "%.2f m from the player (z %.2f, y %.2f), speed %.1f, heading into them %.2f" % [
+		offset.length(), offset.z, b.global_position.y, b.linear_velocity.length(), along]
 
 func _report() -> void:
 	var medium := 0
@@ -194,3 +215,16 @@ func _report() -> void:
 # emitting the signal), and a large ball on the body also catches the face because its
 # radius reaches the head on the rebound. Not registered in tools/run_batteries.ps1
 # until those are settled.
+
+# REVISED STATUS, later measurements, supersedes the note above.
+# The leftover-ball theory above was tested and is WRONG: parking the previous case's
+# ball out of the world changed nothing. So is the idea that the sweep needed to cover
+# physical bodies, and so is the contact path dropping the reaction.
+#
+# What is actually known: three runs of identical code give 21, 25 and 23 passing cases
+# out of 28, with the failing cells moving between runs, so this battery is currently
+# FLAKY rather than wrong. The instrumentation added below (it prints where the ball
+# ended up for every failing case) shows the ball sometimes "gone: it broke against
+# something on the way in", which is a real lead: a ball that bursts without applying a
+# reaction. That is the thread to pull, with the instrumented output, before any further
+# theory is acted on.

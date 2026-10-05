@@ -483,12 +483,18 @@ func _on_body_entered(body: Node) -> void:
 	# a body stops the ball before it would reach the analytic spheres.
 	if body != null and body.is_in_group(IMPACT_GROUP) and body.has_method("receive_ball_hit"):
 		var arrival := _prev_velocity
-		var hit_speed := arrival_speed()
+		# The faster of the two. By the time a contact is reported the solver may already
+		# have cancelled the ball's velocity, and reading only one of these is how a ball
+		# thrown at 8 m/s failed its own size's speed gate and did nothing.
+		var hit_speed := maxf(arrival_speed(), linear_velocity.length())
 		var ball_tier := tier()
 		if hit_speed >= TIER_MIN_SPEED[ball_tier]:
 			body.receive_ball_hit(ball_tier, hit_speed, _is_head_hit(body), global_position, arrival)
-			_shatter(arrival)
-			return
+		# A snowball that lands on a person always bursts, whether or not they were in a
+		# state to react. Falling through to the generic branch below used to break the
+		# ball on them with no reaction and no record that anything had happened.
+		_shatter(arrival)
+		return
 	var speed := linear_velocity.length()
 	# Hard hit against anything shatters the ball
 	if speed > break_speed_threshold:
