@@ -19,6 +19,7 @@ signal hit_taken(tier: int, head_hit: bool)
 @export var face_snow_time: float = 3.5
 @export var hit_immunity_time: float = 1.5
 
+const SessionModeScript = preload("res://scripts/session_mode.gd")
 var state: int = DummyState.NORMAL
 var state_timer: float = 0.0
 var hit_immunity: float = 0.0
@@ -97,7 +98,7 @@ func impact_spheres() -> Array:
 	]
 
 func receive_ball_hit(tier: int, _speed: float, head_hit: bool, _point: Vector3, _dir: Vector3) -> bool:
-	if not reactions_enabled:
+	if not reactions_enabled or not SessionModeScript.reactions_enabled():
 		return false
 	if hit_immunity > 0.0 or state != DummyState.NORMAL:
 		return false

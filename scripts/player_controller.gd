@@ -1,5 +1,6 @@
 extends CharacterBody3D
 
+const SessionModeScript = preload("res://scripts/session_mode.gd")
 const SnowChunkScript = preload("res://scripts/snow_chunk.gd")
 const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 const SnowBallScript = preload("res://scripts/snowball.gd")
@@ -329,7 +330,9 @@ func impact_spheres() -> Array:
 ## Called by a ball that connects. Returns true when the ball should break on the
 ## player, which is whenever the hit lands on someone who can take it.
 func receive_ball_hit(tier: int, _speed: float, head_hit: bool, _point: Vector3, _dir: Vector3) -> bool:
-	if not hit_reactions_enabled:
+	# The session decides whether thrown snow is a prank or just snow: in Work mode a
+	# ball to the face is nothing at all.
+	if not hit_reactions_enabled or not SessionModeScript.reactions_enabled():
 		return false
 	# Blocked while a reaction is running and for a grace period after it ends, so
 	# a stream of balls can never lock a player down.
