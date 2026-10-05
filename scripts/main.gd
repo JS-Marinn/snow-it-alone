@@ -25,6 +25,7 @@ func _ready() -> void:
 
 	_setup_props_system()
 	_build_cozy_environment()
+	_spawn_training_dummy()
 	_print_tree_recursive(self)
 	_restore_session()
 
@@ -32,7 +33,7 @@ func _ready() -> void:
 	var is_demo := args.has("--plow-demo")
 	var is_phys_demo := args.has("--phys-demo")
 	var is_scripted := is_demo or is_phys_demo or args.has("--carve-quality") \
-		or args.has("--ball-shape") or args.has("--movement-lab")
+		or args.has("--ball-shape") or args.has("--movement-lab") or args.has("--impact-lab")
 	# Screenshots belong to diagnostics only; a normal session must not write files.
 	if is_scripted:
 		get_tree().create_timer(9.5 if is_demo else 1.8).timeout.connect(capture_screenshot)
@@ -46,6 +47,8 @@ func _ready() -> void:
 		_start_demo_script("res://scripts/ball_shape_demo.gd")
 	if args.has("--movement-lab"):
 		_start_demo_script("res://scripts/movement_lab_demo.gd")
+	if args.has("--impact-lab"):
+		_start_demo_script("res://scripts/impact_lab_demo.gd")
 
 ## Picks up the session started from the main menu: restores the money counter and
 ## starts tracking playtime for the save slot.
@@ -98,6 +101,15 @@ func _setup_props_system() -> void:
 		props.setup(snow_field)
 	if player and "props_system" in player:
 		player.props_system = props
+
+## One dummy beside the path, so the hit reactions are playable without a second
+## person. The level proper will place them deliberately.
+func _spawn_training_dummy() -> void:
+	var dummy := Node3D.new()
+	dummy.name = "TrainingDummy"
+	dummy.set_script(load("res://scripts/training_dummy.gd"))
+	dummy.position = Vector3(3.0, 0.0, 4.5)
+	add_child(dummy)
 
 func _start_physics_demo() -> void:
 	_start_demo_script("res://scripts/physics_demo.gd")

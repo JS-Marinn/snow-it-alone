@@ -21,6 +21,11 @@ static var terrain_mass_fraction: float = 0.55
 static var scatter_speed: float = 3.2
 
 const SnowChunkScript = preload("res://scripts/snow_chunk.gd")
+
+## Fragments produced by the most recent burst. Counting live chunks instead is
+## unreliable: they are reabsorbed within seconds, so the number depends on how
+## long ago the previous impact was.
+static var last_fragment_count: int = 0
 const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 
 static var _puff_material: StandardMaterial3D
@@ -40,12 +45,14 @@ static func spawn(parent: Node, pos: Vector3, radius: float, mass_kg: float,
 
 	# 2) Fragment burst carrying the remaining mass; each one reabsorbs on landing
 	var per_fragment: float = mass_fragments / float(n) if n > 0 else 0.0
+	last_fragment_count = 0
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(pos.x * 1000.0) ^ int(pos.z * 7919.0) ^ n
 	for i in range(n):
 		var frag := _make_fragment(parent, pos, radius, per_fragment)
 		if frag == null:
 			continue
+		last_fragment_count += 1
 		var dir := Vector3(rng.randf_range(-1.0, 1.0), rng.randf_range(0.35, 1.1), rng.randf_range(-1.0, 1.0)).normalized()
 		var speed: float = scatter_speed * (0.6 + rng.randf()) * clampf(radius / 0.2, 0.5, 2.5)
 		frag.linear_velocity = velocity * 0.35 + dir * speed

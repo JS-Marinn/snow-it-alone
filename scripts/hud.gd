@@ -22,6 +22,8 @@ var coins: int = 0
 var has_won: bool = false
 var player_ref: CharacterBody3D
 var _hint_timer: float = 0.0
+## Snow across the face. Sits under the HUD text but over the world.
+var _face_overlay: TextureRect
 
 const CLEAR_TARGET_PCT: float = 90.0
 
@@ -37,10 +39,12 @@ const CONTROLS_TEXT := """CONTROLS  (H to hide this panel)
 - E (hold): Push a ball along the ground, never lift it
 - While carrying: right click throws it, E drops it
 - Large ball: both hands overhead, you stagger with it
+- Hit in the face: hold E to wipe the snow off
 - 1, 2, 3: Shovel / Blower / Salt
 - ESC: release mouse - R: restart level - H: hide help"""
 
 func _ready() -> void:
+	_build_face_overlay()
 	if victory_panel:
 		victory_panel.visible = false
 	# The help panel starts hidden so it never covers the scene.
@@ -48,6 +52,40 @@ func _ready() -> void:
 		panel_controls.visible = false
 	if label_controls:
 		label_controls.text = CONTROLS_TEXT
+
+## A hand-drawn snow splat, generated once: no art needed and it scales to any
+## resolution. Added first so the HUD text stays readable through it.
+func _build_face_overlay() -> void:
+	var size := 128
+	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+	img.fill(Color(1.0, 1.0, 1.0, 0.0))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20260105
+	# A thick smear across the middle, thinning towards the edges.
+	for i in range(90):
+		var cx := rng.randf_range(0.05, 0.95) * float(size)
+		var cy := (0.5 + (rng.randf_range(-0.5, 0.5) * absf(rng.randf_range(-1.0, 1.0)))) * float(size)
+		var r := rng.randf_range(6.0, 26.0)
+		var alpha := rng.randf_range(0.25, 0.7)
+		for y in range(maxi(int(cy - r), 0), mini(int(cy + r), size)):
+			for x in range(maxi(int(cx - r), 0), mini(int(cx + r), size)):
+				var d := Vector2(float(x) - cx, float(y) - cy).length()
+				if d > r:
+					continue
+				var falloff := 1.0 - (d / r)
+				var a: float = img.get_pixel(x, y).a
+				img.set_pixel(x, y, Color(1.0, 1.0, 1.0, minf(a + alpha * falloff, 0.95)))
+	var texture := ImageTexture.create_from_image(img)
+	_face_overlay = TextureRect.new()
+	_face_overlay.texture = texture
+	_face_overlay.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_face_overlay.stretch_mode = TextureRect.STRETCH_SCALE
+	_face_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_face_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_face_overlay.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	_face_overlay.visible = false
+	add_child(_face_overlay)
+	move_child(_face_overlay, 0)
 
 func init_hud(player: CharacterBody3D, snow_field: Node3D) -> void:
 	player_ref = player
@@ -81,7 +119,16 @@ func _process(delta: float) -> void:
 				label_tool_name.text = "Tool: [3] Thermal Salt Spreader"
 				shovel_bar.visible = false
 
+	_update_face_overlay()
 	_update_hint()
+
+## Snow across the face, driven by the player's reaction state.
+func _update_face_overlay() -> void:
+	if _face_overlay == null:
+		return
+	var amount: float = clampf(float(player_ref.get("face_snow_amount")), 0.0, 1.0)
+	_face_overlay.visible = amount > 0.01
+	_face_overlay.modulate.a = amount * 0.95
 
 ## Contextual physics readouts: jammed blade, what is in your hands, how much
 ## snow the blade is holding.
@@ -89,7 +136,9 @@ func _update_hint() -> void:
 	if label_toss_hint == null:
 		return
 	var text := ""
-	if player_ref.get("is_stuck") == true:
+	if float(player_ref.get("face_snow_timer")) > 0.0:
+		text = "Snow on your face - hold [E] to wipe it off"
+	elif player_ref.get("is_stuck") == true:
 		text = "SHOVEL JAMMED! Look ahead to shave thin, or press [Q] to tamp"
 	elif player_ref.get("is_ground_pushing") == true:
 		text = "Pushing the ball along the ground - release [E] to leave it"

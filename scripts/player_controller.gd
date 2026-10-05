@@ -43,10 +43,30 @@ const PinPropScript = preload("res://scripts/pin_prop.gd")
 ## Holding jump hops again on landing. Off by default: timing is the skill, and
 ## this is the accessibility assist for players who do not want to learn it.
 @export var auto_bhop: bool = false
+## Auto-hop only engages above this speed, so holding jump from a standstill
+## cannot trap the player in a crawl (in the air the model only grants ~1 m/s).
+@export var auto_bhop_min_speed: float = 2.0
 @export var jump_velocity: float = 5.2
 @export var gravity: float = 18.0
 ## A jump after landing inside this window counts as a chain, for stats only.
 @export var chain_window: float = 0.25
+
+# Being hit by snowballs. Reactions are on by default; the "work" session mode
+# is meant to turn them off for players who just want to clear snow.
+enum HitState { NORMAL = 0, STAGGERED = 1, KNOCKED_DOWN = 2 }
+@export var hit_reactions_enabled: bool = true
+## Face snow clears itself. Off is the "realistic" setting: you must wipe it off.
+@export var snow_face_auto_clear: bool = true
+@export var face_snow_time: float = 3.5
+## Holding interact wipes the face this fast. Always available: wiping is quicker
+## than waiting, in both settings.
+@export var face_wipe_time: float = 0.6
+@export var stagger_time: float = 1.0
+@export var knockdown_time: float = 2.0
+## Grace period after a reaction ends, so hits can never be chained into a lock.
+@export var hit_immunity_time: float = 1.5
+## Radius of the head sphere: a hit inside it counts as a hit to the face.
+@export var head_hit_radius: float = 0.20
 
 # Shovel: bidirectional physical tool.
 ## Maximum mass the shovel cavity can hold (kg).
@@ -157,6 +177,18 @@ var horizontal_speed: float = 0.0
 var _time: float = 0.0
 var _landing_time: float = -99.0
 var _jump_buffer: float = 0.0
+# Hit reactions: state, face snow and the counters the diagnostic battery reads.
+var hit_state: int = HitState.NORMAL
+var hit_state_timer: float = 0.0
+var hit_immunity: float = 0.0
+## 0..1 snow across the face. Drives the HUD overlay.
+var face_snow_amount: float = 0.0
+var face_snow_timer: float = 0.0
+var hits_taken: int = 0
+var last_hit_tier: int = -1
+var last_hit_was_head: bool = false
+var _wipe_progress: float = 0.0
+var _hit_shake: float = 0.0
 const BASE_CAMERA_Y: float = 1.65
 const DEADBAND_THRESHOLD: float = 0.08
 const VERTICAL_TRANSITION_SPEED: float = 2.6
@@ -203,6 +235,7 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	floor_snap_length = 0.0
 	_player_owner = int(get_instance_id())
+	add_to_group(SnowBall.IMPACT_GROUP)
 
 	_setup_audio()
 	_build_tools_visuals()
@@ -284,12 +317,110 @@ func _update_carry_visuals() -> void:
 	if salt_node:
 		salt_node.visible = (current_tool == ToolType.SALT) and not busy
 
+## Spheres a thrown ball sweeps against: a head and a torso. Two spheres are
+## enough for a person and they keep the test analytic and cheap.
+func impact_spheres() -> Array:
+	var eye: Vector3 = camera.global_position if camera else global_position + Vector3(0.0, BASE_CAMERA_Y, 0.0)
+	return [
+		{"center": eye, "radius": head_hit_radius, "head": true},
+		{"center": global_position + Vector3(0.0, 0.95, 0.0), "radius": 0.34, "head": false},
+	]
+
+## Called by a ball that connects. Returns true when the ball should break on the
+## player, which is whenever the hit lands on someone who can take it.
+func receive_ball_hit(tier: int, _speed: float, head_hit: bool, _point: Vector3, _dir: Vector3) -> bool:
+	if not hit_reactions_enabled:
+		return false
+	# Blocked while a reaction is running and for a grace period after it ends, so
+	# a stream of balls can never lock a player down.
+	if hit_immunity > 0.0 or hit_state != HitState.NORMAL:
+		return false
+	hits_taken += 1
+	last_hit_tier = tier
+	last_hit_was_head = head_hit
+	match tier:
+		SnowBall.BallTier.SMALL:
+			# A small ball only matters if it catches you in the face.
+			if head_hit:
+				_apply_face_snow()
+		SnowBall.BallTier.MEDIUM:
+			_enter_hit_state(HitState.STAGGERED, stagger_time)
+			if head_hit:
+				_apply_face_snow()
+		SnowBall.BallTier.LARGE:
+			_enter_hit_state(HitState.KNOCKED_DOWN, knockdown_time)
+			if head_hit:
+				_apply_face_snow()
+	return true
+
+func _apply_face_snow() -> void:
+	face_snow_timer = face_snow_time
+	_wipe_progress = 0.0
+	face_snow_amount = 1.0
+
+func _enter_hit_state(state: int, duration: float) -> void:
+	hit_state = state
+	hit_state_timer = duration
+	_hit_shake = 1.0
+	is_pushing = false
+	if state == HitState.KNOCKED_DOWN and is_carrying():
+		# Losing your footing means losing what you were carrying.
+		_release_carried(Vector3.ZERO)
+
+## Timers for the hit reactions, the face snow and the immunity that stops any
+## player being locked down by repeated hits.
+func _update_hit_state(delta: float) -> void:
+	hit_immunity = maxf(hit_immunity - delta, 0.0)
+	_hit_shake = maxf(_hit_shake - delta * 1.5, 0.0)
+
+	if hit_state != HitState.NORMAL:
+		hit_state_timer = maxf(hit_state_timer - delta, 0.0)
+		if hit_state_timer <= 0.0:
+			hit_state = HitState.NORMAL
+			hit_immunity = hit_immunity_time
+
+	if face_snow_timer > 0.0:
+		if _wipe_progress >= 1.0:
+			face_snow_timer = 0.0
+			_wipe_progress = 0.0
+		elif snow_face_auto_clear:
+			face_snow_timer = maxf(face_snow_timer - delta, 0.0)
+	face_snow_amount = clampf(face_snow_timer / 0.4, 0.0, 1.0) if face_snow_timer > 0.0 else 0.0
+
+## Wiping is progress over time while the interact action is held.
+func _update_wipe(delta: float) -> void:
+	if face_snow_timer <= 0.0:
+		return
+	if Input.is_action_pressed("interact"):
+		_wipe_progress = minf(_wipe_progress + delta / maxf(face_wipe_time, 0.05), 1.0)
+	else:
+		_wipe_progress = 0.0
+
+## Clears every reaction. Used on respawn and by the diagnostic battery.
+func reset_hit_reactions() -> void:
+	hit_state = HitState.NORMAL
+	hit_state_timer = 0.0
+	hit_immunity = 0.0
+	face_snow_timer = 0.0
+	face_snow_amount = 0.0
+	_wipe_progress = 0.0
+	_hit_shake = 0.0
+	hits_taken = 0
+	last_hit_tier = -1
+	last_hit_was_head = false
+
 func _physics_process(delta: float) -> void:
+	_update_hit_state(delta)
+	_update_wipe(delta)
+
 	var input_dir = Vector2.ZERO
 	if Input.is_action_pressed("move_forward"): input_dir.y -= 1.0
 	if Input.is_action_pressed("move_backward"): input_dir.y += 1.0
 	if Input.is_action_pressed("move_left"): input_dir.x -= 1.0
 	if Input.is_action_pressed("move_right"): input_dir.x += 1.0
+	# Knocked down: the body keeps its momentum but takes no orders.
+	if hit_state == HitState.KNOCKED_DOWN:
+		input_dir = Vector2.ZERO
 	input_dir = input_dir.normalized()
 
 	_update_carry_state(delta)
@@ -321,6 +452,12 @@ func _physics_process(delta: float) -> void:
 		if wish_dir.length() > 0.01:
 			wish_dir = wish_dir.normalized()
 
+	# Staggered by a hit: the same kind of drift, shorter and sharper.
+	if hit_state == HitState.STAGGERED:
+		wish_dir += transform.basis.x * sin(_time * 9.0) * 0.6
+		if wish_dir.length() > 0.01:
+			wish_dir = wish_dir.normalized()
+
 	_time += delta
 	_refresh_surface()
 
@@ -328,7 +465,11 @@ func _physics_process(delta: float) -> void:
 	# (PM_CheckJump runs before PM_Friction). Jumping on the landing frame skips
 	# that frame's friction, and that is the entire reward for chaining hops: the
 	# hop hands out no speed of its own.
-	if Input.is_action_just_pressed("jump") or (auto_bhop and Input.is_action_pressed("jump")):
+	#
+	# Auto-hop waits until the player is actually moving: in the air this model
+	# grants only about 1 m/s, so hopping from a standstill would trap them.
+	if Input.is_action_just_pressed("jump") \
+			or (auto_bhop and Input.is_action_pressed("jump") and horizontal_speed > auto_bhop_min_speed):
 		_jump_buffer = 0.12
 	else:
 		_jump_buffer = maxf(_jump_buffer - delta, 0.0)
@@ -343,9 +484,10 @@ func _physics_process(delta: float) -> void:
 		move_speed = target_speed
 	_move_horizontal(wish_dir, move_speed, delta, wants_move)
 
-	# Camera sway while staggering
+	# Camera sway while staggering, plus the knock of a hit.
 	if camera:
 		var wobble := sin(_stagger_phase * 2.6) * 0.11 * stagger
+		wobble += sin(_time * 31.0) * 0.06 * _hit_shake
 		camera.rotation.z = lerpf(camera.rotation.z, wobble, delta * 6.0)
 
 	# Physical support height at the player position
@@ -393,7 +535,12 @@ func _physics_process(delta: float) -> void:
 		global_position.y = current_ground_y
 		is_grounded = true
 
-	camera.position.y = BASE_CAMERA_Y
+	# Knocked down: the view drops towards the snow and climbs back up.
+	var cam_y := BASE_CAMERA_Y
+	if hit_state == HitState.KNOCKED_DOWN:
+		var fall := clampf(hit_state_timer / maxf(knockdown_time, 0.01), 0.0, 1.0)
+		cam_y = lerpf(BASE_CAMERA_Y, 0.60, sin(fall * PI))
+	camera.position.y = cam_y
 
 	var horiz_speed = Vector2(velocity.x, velocity.z).length()
 	if (is_on_floor() or is_grounded) and horiz_speed > 0.5:
@@ -405,13 +552,15 @@ func _physics_process(delta: float) -> void:
 	# Physical push on balls and props when colliding with them
 	_push_touched_bodies(horiz_speed)
 
-	match current_tool:
-		ToolType.SHOVEL:
-			_process_shovel(delta, horiz_speed)
-		ToolType.BLOWER:
-			_process_blower(delta)
-		ToolType.SALT:
-			_process_salt(delta)
+	# Staggered and knocked down players cannot work their tools.
+	if hit_state == HitState.NORMAL:
+		match current_tool:
+			ToolType.SHOVEL:
+				_process_shovel(delta, horiz_speed)
+			ToolType.BLOWER:
+				_process_blower(delta)
+			ToolType.SALT:
+				_process_salt(delta)
 
 	_process_interaction(delta)
 	_update_carried(delta)
@@ -504,6 +653,8 @@ func _accelerate(wish_dir: Vector3, wishspeed: float, accel: float, delta: float
 ## acceleration can build speed. That difference is what makes hopping work.
 func _move_horizontal(wish_dir: Vector3, target_speed: float, delta: float, wants_move: bool) -> void:
 	var control := 1.0 - 0.45 * stagger
+	if hit_state == HitState.STAGGERED:
+		control *= 0.5
 	var cap := sprint_speed * bhop_cap_factor
 
 	if is_jumping:
@@ -835,6 +986,14 @@ func _process_interaction(delta: float) -> void:
 	if snow_field and snow_field.has_signal("op_volume_ready") and not snow_field.op_volume_ready.is_connected(_on_op_volume_ready):
 		snow_field.op_volume_ready.connect(_on_op_volume_ready)
 
+	# With a face full of snow, [E] wipes it off instead of doing anything else.
+	if face_snow_timer > 0.0:
+		_push_target = null
+		is_ground_pushing = false
+		_interact_hold = 0.0
+		_interact_was_pressed = false
+		return
+
 	# [E] has three behaviors depending on how it is used:
 	#   short tap on something -> pick it up / extract it
 	#   tap on snow            -> pack a ball by hand
@@ -847,7 +1006,7 @@ func _process_interaction(delta: float) -> void:
 			_pushed_during_hold = false
 			if is_carrying():
 				_release_carried(Vector3.ZERO)
-			elif not _has_interactable_ahead():
+			elif not _has_interactable_ahead() and _push_target == null:
 				_try_pickup_or_pack()
 		_interact_hold += delta
 		if _interact_hold >= interact_hold_time and not is_carrying():
@@ -867,10 +1026,26 @@ func _process_interaction(delta: float) -> void:
 ## Is there a pickable ball or prop right in front?
 func _has_interactable_ahead() -> bool:
 	var hit := _raycast_interactable()
-	if hit.is_empty():
-		return false
-	var col = hit.get("collider")
-	return col != null and (col is SnowBall or col is PinProp) and col.has_method("begin_carry")
+	if not hit.is_empty():
+		var col = hit.get("collider")
+		if col != null and (col is SnowBall or col is PinProp) and col.has_method("begin_carry"):
+			return true
+	# Fallback for anything close in front of the player. Without it, standing
+	# next to a ball and pressing [E] packs a fresh snowball instead of handling
+	# the ball at your feet, because the ball happened to sit beside the aim line.
+	var sphere := SphereShape3D.new()
+	sphere.radius = 0.45
+	var params := PhysicsShapeQueryParameters3D.new()
+	params.shape = sphere
+	params.collide_with_areas = false
+	params.exclude = [get_rid()]
+	var forward: Vector3 = -camera.global_transform.basis.z
+	params.transform = Transform3D(Basis(), camera.global_position + forward * (interact_distance * 0.55))
+	for result in get_world_3d().direct_space_state.intersect_shape(params, 8):
+		var body = result.get("collider")
+		if body != null and (body is SnowBall or body is PinProp) and body.has_method("begin_carry"):
+			return true
+	return false
 
 ## Continuous push with held [E]: the ball rolls on the ground in front of the
 ## player and is never lifted (it stays a dynamic body resting on the
@@ -907,13 +1082,32 @@ func _try_pickup_or_pack() -> void:
 func _raycast_interactable() -> Dictionary:
 	if camera == null:
 		return {}
-	var from := camera.global_position
-	var to := from - camera.global_transform.basis.z * interact_distance
 	var space := get_world_3d().direct_space_state
-	var q := PhysicsRayQueryParameters3D.create(from, to)
-	q.collide_with_areas = false
-	q.exclude = [get_rid()]
-	return space.intersect_ray(q)
+	# Sample a small cross rather than a single line. A bare ray misses a ball the
+	# player is clearly looking at whenever it sits a few centimetres off centre,
+	# which reads as the interaction being broken.
+	var offsets := [
+		Vector2.ZERO,
+		Vector2(0.16, 0.0), Vector2(-0.16, 0.0),
+		Vector2(0.0, 0.16), Vector2(0.0, -0.16),
+	]
+	var best: Dictionary = {}
+	var best_distance := INF
+	for offset in offsets:
+		var from: Vector3 = camera.global_position
+		var dir: Vector3 = -camera.global_transform.basis.z
+		from += camera.global_transform.basis.x * offset.x + camera.global_transform.basis.y * offset.y
+		var q := PhysicsRayQueryParameters3D.create(from, from + dir * interact_distance)
+		q.collide_with_areas = false
+		q.exclude = [get_rid()]
+		var hit := space.intersect_ray(q)
+		if hit.is_empty():
+			continue
+		var distance: float = from.distance_to(hit["position"])
+		if distance < best_distance:
+			best_distance = distance
+			best = hit
+	return best
 
 func _begin_carry(body: RigidBody3D) -> void:
 	if carried != null and is_instance_valid(carried) and carried != body:

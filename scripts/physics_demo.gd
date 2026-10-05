@@ -94,7 +94,9 @@ func _build_steps() -> void:
 		[26.6, _s_energy_light],
 		[27.1, _s_energy_light_throw],
 		[27.5, _s_ground_push_start],
-		[27.8, _s_ground_push_press],
+		# Pressed a couple of frames later: enough for the ball to exist in the
+		# physics space, too soon for it to sink away from the aim line.
+		[27.55, _s_ground_push_press],
 		[28.9, _s_ground_push_check],
 		[29.0, _s_energy_heavy],
 		[29.4, _s_energy_heavy_throw],
@@ -119,7 +121,8 @@ var _push_start := Vector3.ZERO
 var _shatter_ball: SnowBall = null
 var _shatter_at := Vector3.ZERO
 var _shatter_height_before: float = 0.0
-var _shatter_frags_before: int = 0
+const SnowBurstScript = preload("res://scripts/snow_burst.gd")
+var _shatter_frags_at_impact: int = 0
 
 func _s_heavy_spawn() -> void:
 	var ground := _height(Vector3(-0.9, 0.0, 3.2))
@@ -166,6 +169,10 @@ func _s_heavy_walk_stop() -> void:
 	if player == null:
 		return
 	Input.action_release("move_forward")
+	# Empty hands for the phases that follow. Leaving the ball carried meant the
+	# next [E] press dropped 124 kg on the player's head, which knocks them down.
+	if player.is_carrying():
+		player._release_carried(Vector3(0.0, 0.0, -2.5))
 	var mean := 0.0
 	for s in _heavy_walk_samples:
 		mean += s
@@ -199,7 +206,9 @@ func _s_ground_push_start() -> void:
 	var from: Vector3 = cam.global_position
 	var dir: Vector3 = -cam.global_transform.basis.z
 	# Place the ball exactly where the aim ray meets the snow: that is where a
-	# player looking at the ground would be pushing it.
+	# player looking at the ground would be pushing it. `_height` is the same
+	# model the ball itself rests on, so the placement and the resting height
+	# agree; mixing the two queries is what breaks this test.
 	var ground := _height(from + dir * 2.4)
 	var travel: float = (ground + 0.26 - from.y) / minf(dir.y, -0.1)
 	travel = clampf(travel, 1.2, 2.8)
@@ -209,17 +218,17 @@ func _s_ground_push_start() -> void:
 		return
 	_push_ball.linear_velocity = Vector3.ZERO
 	_push_start = _push_ball.global_position
-	print("[PHYS] ball placed in front of the player: %.0f kg at %s" % [
-		_push_ball.packed_mass(), str(_push_start)])
+	print("[PHYS] ball placed on the aim line %.2f m out: %.0f kg at %s" % [
+		travel, _push_ball.packed_mass(), str(_push_start)])
 
-## [E] is pressed a step after the ball exists: a body added this frame is not in
-## the physics space yet, so the interact ray would miss it.
+## [E] is pressed a step later, once the ball exists in the physics space.
 func _s_ground_push_press() -> void:
 	Input.action_press("interact")
-	print("[PHYS] the player holds [E] in front of the ball")
+	print("[PHYS] the player holds [E] on the ball")
 
 func _s_ground_push_check() -> void:
 	Input.action_release("interact")
+	_pin_player_facing = true
 	if _push_ball == null or not is_instance_valid(_push_ball):
 		_check("holding [E] pushes the ball along the ground", false)
 		return
@@ -250,8 +259,15 @@ func _s_energy_light_throw() -> void:
 		float(player._throw_speed_for(_light_ball.packed_mass(), false))])
 
 func _s_energy_heavy() -> void:
-	if player == null or _heavy_ball == null or not is_instance_valid(_heavy_ball):
+	if player == null or props == null:
 		return
+	# A heavy ball dropped on the player knocks them down and bursts, so the
+	# earlier phase may have lost this one. What is under test here is the throw.
+	if _heavy_ball == null or not is_instance_valid(_heavy_ball):
+		_heavy_ball = props.spawn_snowball(
+			player.global_position + Vector3(0.0, 1.4, -1.0), 0.42)
+		if _heavy_ball == null:
+			return
 	player._begin_carry(_heavy_ball)
 	print("[PHYS] the large ball (%.0f kg) is readied with both hands" % _heavy_ball.packed_mass())
 
@@ -270,7 +286,6 @@ func _s_energy_heavy_throw() -> void:
 func _s_shatter_test() -> void:
 	if props == null:
 		return
-	_shatter_frags_before = get_tree().get_nodes_in_group("snow_chunks").size()
 	_shatter_at = Vector3(-2.2, 0.0, 1.2)
 	_shatter_height_before = _height(_shatter_at)
 	var ground := _height(_shatter_at)
@@ -289,18 +304,21 @@ func _s_shatter_test() -> void:
 ## Burst capture: fragments and snow cloud in mid-air.
 func _s_shatter_shot() -> void:
 	var gone: bool = _shatter_ball == null or not is_instance_valid(_shatter_ball)
+	_shatter_frags_at_impact = SnowBurstScript.last_fragment_count
 	print("[PHYS] impact frame: ball broken=%s  fragments in the air=%d" % [
-		str(gone), get_tree().get_nodes_in_group("snow_chunks").size() - _shatter_frags_before])
+		str(gone), _shatter_frags_at_impact])
 	_shot("12_shatter")
 
 func _s_shatter_check() -> void:
 	var gone: bool = _shatter_ball == null or not is_instance_valid(_shatter_ball)
-	var frags := get_tree().get_nodes_in_group("snow_chunks").size() - _shatter_frags_before
+	var frags := get_tree().get_nodes_in_group("snow_chunks").size()
 	var height_now := _height(_shatter_at)
-	print("[PHYS] shatter: ball broken=%s  fragments=%d  field at the hit %.3f -> %.3f m" % [
-		str(gone), frags, _shatter_height_before, height_now])
+	print("[PHYS] shatter: ball broken=%s  fragments now=%d (at the impact: %d)  field at the hit %.3f -> %.3f m" % [
+		str(gone), frags, _shatter_frags_at_impact, _shatter_height_before, height_now])
 	_check("a ball that hits hard breaks apart", gone)
-	_check("the impact scatters fragments", frags >= 4)
+	# Counted at the moment of the impact: the fragments are reabsorbed within a
+	# second, so reading the count later measures the cleanup instead.
+	_check("the impact scatters fragments", _shatter_frags_at_impact >= 4)
 	_check("its snow piles up where it hit", height_now > _shatter_height_before + 0.02)
 
 ## The key legend must start hidden and toggle with H.

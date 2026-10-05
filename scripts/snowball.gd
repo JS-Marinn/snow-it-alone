@@ -40,6 +40,30 @@ const MAX_HARVEST_STEP: float = 0.45
 ## Stable contact time needed to consolidate a joint (s).
 const SETTLE_TIME: float = 0.30
 
+# Ball size tiers, which decide what a hit does to a player.
+enum BallTier { SMALL = 0, MEDIUM = 1, LARGE = 2 }
+## Radius bounds of the tiers (m). Small is a ball packed by hand, large is one
+## that needs both hands.
+const TIER_SMALL_MAX: float = 0.18
+const TIER_MEDIUM_MAX: float = 0.34
+## Minimum impact speed (m/s) for each tier to have any effect at all. A ball
+## that is rolling into you is not a hit.
+const TIER_MIN_SPEED: Array[float] = [5.0, 3.5, 2.5]
+## Node group that receives ball hits: players and training dummies.
+const IMPACT_GROUP: String = "impact_targets"
+## Frames of speed history used to work out the speed a contact arrived at.
+const ARRIVAL_HISTORY: int = 4
+
+static func tier_for_radius(r: float) -> int:
+	if r < TIER_SMALL_MAX:
+		return BallTier.SMALL
+	if r < TIER_MEDIUM_MAX:
+		return BallTier.MEDIUM
+	return BallTier.LARGE
+
+func tier() -> int:
+	return tier_for_radius(radius)
+
 static var _ball_material: StandardMaterial3D
 
 signal settled_on(ball: SnowBall)
@@ -56,6 +80,15 @@ var is_carried: bool = false
 var debug_harvest: bool = false
 var _harvest_requests: int = 0
 var _shattered: bool = false
+## Previous position used to sweep for hits on players: a ball crossing a face
+## between two frames must still connect.
+var _prev_impact_pos: Vector3 = Vector3.INF
+## Velocity at the start of the frame, kept for the shatter direction.
+var _prev_velocity: Vector3 = Vector3.ZERO
+## Fastest speed of the last few frames. A contact is reported after the solver
+## has already cancelled the ball's velocity, so the frame it arrives on is not
+## the speed it actually arrived at.
+var _speed_history: Array[float] = []
 
 var _mesh_instance: MeshInstance3D
 var _sphere_mesh: SphereMesh
@@ -368,6 +401,53 @@ func _break_weld() -> void:
 func is_welded() -> bool:
 	return _weld_joint != null
 
+# Ball hits on players and dummies
+
+## Sweeps the ball's own path against every impact target and resolves the first
+## hit. Deliberately not a physics contact: a thrown ball must not shove anyone
+## around, and what happens depends on the ball's size, not on the solver.
+func _check_impact_hits() -> void:
+	var to := global_position
+	var from := _prev_impact_pos
+	_prev_impact_pos = to
+	if from == Vector3.INF:
+		return
+	var speed := linear_velocity.length()
+	# The heaviest tier has the lowest bar, so this is the cheapest global gate.
+	if speed < TIER_MIN_SPEED[BallTier.LARGE]:
+		return
+	var ball_tier := tier()
+	if speed < TIER_MIN_SPEED[ball_tier]:
+		return
+	for target in get_tree().get_nodes_in_group(IMPACT_GROUP):
+		if not target.has_method("impact_spheres"):
+			continue
+		# Anything with a body of its own is resolved by its contact instead: the
+		# body stops the ball before the sphere test could connect, and doing both
+		# would count the hit twice. The sweep exists for targets without one.
+		if target is PhysicsBody3D:
+			continue
+		for sphere in target.impact_spheres():
+			var point := _segment_sphere_hit(from, to, sphere["center"], float(sphere["radius"]) + radius)
+			if point == Vector3.INF:
+				continue
+			var accepted: bool = target.receive_ball_hit(ball_tier, speed, bool(sphere["head"]), point, linear_velocity)
+			if accepted:
+				_shatter(linear_velocity)
+			return
+
+## Closest approach of a segment to a sphere: the impact point, or INF on a miss.
+func _segment_sphere_hit(from: Vector3, to: Vector3, center: Vector3, sphere_radius: float) -> Vector3:
+	var segment := to - from
+	var len_sq := segment.length_squared()
+	var t := 0.0
+	if len_sq > 1e-6:
+		t = clampf((center - from).dot(segment) / len_sq, 0.0, 1.0)
+	var closest := from + segment * t
+	if closest.distance_to(center) <= sphere_radius:
+		return closest
+	return Vector3.INF
+
 # Loop
 func _physics_process(delta: float) -> void:
 	if _shattered:
@@ -376,15 +456,39 @@ func _physics_process(delta: float) -> void:
 	if is_carried:
 		return
 
+	# Kept before the physics step, so a contact reported later in the frame can
+	# still tell how fast the ball was actually travelling.
+	_prev_velocity = linear_velocity
+	_speed_history.append(linear_velocity.length())
+	while _speed_history.size() > ARRIVAL_HISTORY:
+		_speed_history.remove_at(0)
 	_try_harvest(delta)
+	_check_impact_hits()
 
 	# A hard impact breaks the packed snow joint
 	if _weld_joint != null and linear_velocity.length() > 1.8:
 		_break_weld()
 
-func _on_body_entered(_body: Node) -> void:
+## Fastest speed seen in the last few frames: see `_speed_history`.
+func arrival_speed() -> float:
+	var fastest := 0.0
+	for s in _speed_history:
+		fastest = maxf(fastest, s)
+	return fastest
+
+func _on_body_entered(body: Node) -> void:
 	if _shattered:
 		return
+	# Hitting a person. Resolved from this actual contact and not from the sweep:
+	# a body stops the ball before it would reach the analytic spheres.
+	if body != null and body.is_in_group(IMPACT_GROUP) and body.has_method("receive_ball_hit"):
+		var arrival := _prev_velocity
+		var hit_speed := arrival_speed()
+		var ball_tier := tier()
+		if hit_speed >= TIER_MIN_SPEED[ball_tier]:
+			body.receive_ball_hit(ball_tier, hit_speed, _is_head_hit(body), global_position, arrival)
+			_shatter(arrival)
+			return
 	var speed := linear_velocity.length()
 	# Hard hit against anything shatters the ball
 	if speed > break_speed_threshold:
@@ -406,6 +510,15 @@ func _on_body_entered(_body: Node) -> void:
 	sfx.finished.connect(sfx.queue_free)
 	if _weld_joint != null and speed > 1.8:
 		_break_weld()
+
+## A hit counts as one to the face when the ball is level with the head.
+func _is_head_hit(body: Node) -> bool:
+	if not body.has_method("impact_spheres"):
+		return false
+	for sphere in body.impact_spheres():
+		if bool(sphere["head"]):
+			return global_position.y >= float(sphere["center"].y) - float(sphere["radius"]) - radius * 0.5
+	return false
 
 ## Shatters the ball on impact: its mass is split between the field and a burst
 ## of fragments (see `scripts/snow_burst.gd`). The ball stops existing as a body.
@@ -436,6 +549,8 @@ func push(from_position: Vector3, strength: float) -> void:
 
 func begin_carry() -> void:
 	_break_weld()
+	_prev_impact_pos = Vector3.INF
+	_speed_history.clear()
 	is_carried = true
 	freeze = true
 	freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
@@ -449,3 +564,5 @@ func end_carry(impulse_velocity: Vector3 = Vector3.ZERO) -> void:
 	freeze = false
 	linear_velocity = impulse_velocity
 	_last_harvest_pos = global_position
+	_prev_impact_pos = Vector3.INF
+	_speed_history.clear()

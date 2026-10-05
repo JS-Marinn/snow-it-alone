@@ -53,15 +53,17 @@ Run these before every commit that touches physics, snow, balls or saves.
 
 | Command | Checks |
 |---|---|
-| `--movement-lab` | Surface friction, air control, the bunny hop chain and its ceiling |
-| `--phys-demo` | 36 checks across mass conservation, tools, carrying, throwing and shatter |
+| `--movement-lab` | 11: surface speeds, crisp stops, straight hops gain nothing, strafing does, the hop ceiling |
+| `--impact-lab` | 18: the three ball tiers against body and face, state durations, immunity, the manual wipe, the dummy |
+| `--phys-demo` | 36: mass conservation, tools, carrying, throwing, ground push and shatter |
 | `--carve-quality` | Terrain quality after carving and mesh performance |
 | `--ball-shape` | Balls stay spherical, density scaling, no phantom furrows |
 | `--save-roundtrip` | Save slot API against the real filesystem, corrupt-file handling |
 
-`--movement-lab`, `--phys-demo` and `--carve-quality` need a real GPU. They report
-false failures under `--headless` because the snow simulation cannot run there, so
-run them windowed. `--ball-shape` and `--save-roundtrip` are safe headless.
+`--movement-lab`, `--impact-lab`, `--phys-demo` and `--carve-quality` need a real
+GPU. They report false failures under `--headless` because the snow simulation
+cannot run there, so run them windowed. `--ball-shape` and `--save-roundtrip` are
+safe headless.
 
 `--menu-shot` renders the main menu, saves `main_menu.png` at the project root
 and exits; it is the UI smoke test.

@@ -251,9 +251,10 @@ a la velocidad, o sea el caso ideal), el tope y el recuento de cadena.
 cadenas largas salen del campo simulado. El Playground necesitará una pista larga
 para medir la curva completa y las pendientes.
 
-### 3.2 Impacto de bolas sobre jugadores ⬜ — **especificación cerrada**
+### 3.2 Impacto de bolas sobre jugadores ✅ **Implementado**
 
-**Clasificación por tamaño** (radio medido, con su masa actual por densidad variable):
+**Clasificación por tamaño** (radio medido, con la masa que sale de la densidad
+variable). En código: `SnowBall.tier_for_radius()`.
 
 | Categoría | Radio | Masa aprox. | Cómo se lanza |
 |---|---|---|---|
@@ -263,44 +264,55 @@ para medir la curva completa y las pendientes.
 
 **Efectos** (requieren que la bola venga lanzada, no rodando):
 
-| Categoría | Impacto en el **cuerpo** | Impacto en la **cara** | Velocidad mínima |
-|---|---|---|---|
-| **Pequeña** | Nada (sólo sonido y salpicadura) | **`NADIEVE`**: cara llena de nieve | 5,0 m/s |
-| **Mediana** | **`DESESTABILIZADO` 1,0 s** | `DESESTABILIZADO` 1,0 s **+ `NADIEVE`** | 3,5 m/s |
-| **Grande** | **`DERRIBADO` 2,0 s** | `DERRIBADO` 2,0 s **+ `NADIEVE`** | 2,5 m/s |
+| Categoría | Impacto en el **cuerpo** | Impacto en la **cara** | Velocidad mínima | Medido |
+|---|---|---|---|---|
+| **Pequeña** | Nada (sólo sonido y salpicadura) | **`NADIEVE`**: cara llena de nieve | 5,0 m/s | ✅ 3,3 s de nieve, sin desestabilizar |
+| **Mediana** | **`DESESTABILIZADO` 1,0 s** | `DESESTABILIZADO` + **`NADIEVE`** | 3,5 m/s | ✅ estado 1, nieve 3,3 s |
+| **Grande** | **`DERRIBADO` 2,0 s** | `DERRIBADO` + **`NADIEVE`** | 2,5 m/s | ✅ estado 2 y suelta la carga |
 
-**`NADIEVE` (nieve en la cara)** — el estado que pediste:
+**`NADIEVE` (nieve en la cara)**:
 - Duración **automática 3,5 s** y se quita sola.
-- **Limpieza manual**: el jugador afectado puede quitársela en **0,6 s** pulsando la
-  acción de interacción (con animación de pasarse la mano por la cara).
-- Efecto visual: overlay de nieve en pantalla + desenfoque + audio amortiguado.
-  **No inmoviliza**: puedes andar y oír; sólo ves mal.
+- **Limpieza manual**: mantener la acción de interacción **[E]** la quita en
+  **0,6 s**. Medido: 3,28 s de nieve → 0 en 0,9 s de limpieza.
+- Efecto visual: overlay de nieve en pantalla, generado por código (una mancha
+  blanca procedural, sin assets). **No inmoviliza**: puedes andar y usar
+  herramientas; sólo ves mal.
 - Ajuste `snow_face_auto_clear`: **Normal = sí** (se quita sola) · **Realista = no**
   (sólo manual). Es el "(esto en modo normal)" que pediste, convertido en ajuste.
 
 **`DESESTABILIZADO` (1,0 s)**: se pierde el control fino — no se puede usar
 herramienta, el movimiento conserva la inercia con vaivén lateral y la cámara se
-balancea. Se ve desde fuera (el avatar se tambalea) y **se oye** (gruñido).
+balancea y tiembla.
 
-**`DERRIBADO` (2,0 s)**: caída + levantarse. No se puede actuar; **se suelta lo que
-se llevaba** (la bola rueda, el contenedor se vuelca). Es la trastada más grande y
-tiene que ser la más graciosa: cámara al suelo, sonido de "fump" y el compañero
-viéndolo desde arriba.
+**`DERRIBADO` (2,0 s)**: no se puede actuar; **se suelta lo que se llevaba** ✅
+medido. La cámara cae hacia la nieve y se levanta con una curva, no de golpe.
 
-**Reglas de convivencia (anti-frustración):**
-- **Inmunidad de 1,5 s** al salir de cualquier estado → imposible encadenar
-  derribos sobre la misma persona.
-- **Modo Trabajo**: no se aplica ninguno (las bolas atraviesan a los jugadores).
-- **Modo Jaleo** (por defecto con amigos): se aplica todo lo de arriba.
-- **Modo Duelo**: se aplica y además puntúa.
-- Detección de **cara** analítica y barata: `dist(bola, ojos) < 0,28 + r_bola·0,5`.
-  No hace falta un *hitbox* extra.
-- En **solitario** el mismo sistema se aplica a rebotes (una bola que vuelve de una
-  pared te puede llenar la cara: es justo y es divertido) y a los `TrainingDummy`.
+**Reglas de convivencia (anti-frustración) 🔒 blindadas:**
+- Ningún golpe entra **mientras dura un estado** ni durante los **1,5 s** de
+  inmunidad al salir. Medido: tres bolas seguidas → `hits_taken` se queda en 1.
+- `hit_reactions_enabled = false` es el "Modo Trabajo" (las bolas atraviesan).
+  Por defecto **activado**, que es el Jaleo.
+- Detección de **cara** analítica: dos esferas por persona (`impact_spheres()`,
+  cabeza y torso) y la bola decide por altura. Sin *hitbox* extra.
+- En **solitario**: hay un `TrainingDummy` en el nivel al lado del camino ✅ y
+  recibe exactamente los mismos golpes que un jugador (probado).
 
-**Prueba:** `--impact-matrix` recorre 3 tamaños × 3 zonas (cuerpo, cara, roce) × 3
-velocidades y comprueba estado, duración, inmunidad, soltado de carga y que en modo
-Trabajo no pasa nada.
+**Dos caminos de detección, por una razón medida:** un jugador tiene cuerpo de
+colisión y **para la bola antes** de que entre en las esferas analíticas, así que
+su golpe se resuelve por el contacto real; el muñeco no tiene cuerpo, así que su
+golpe lo resuelve un barrido del segmento. Mezclar los dos caminos contaría el
+golpe dos veces, así que cada objetivo usa el suyo. Como el contacto se notifica
+**después** de que el solver ya haya frenado la bola (medido: una bola de 7 m/s
+llegaba con 4,81 m/s), la velocidad de llegada es la **máxima de los últimos 4
+frames**.
+
+**Prueba:** `--impact-lab` (18 comprobaciones): clasificación de los 3 tamaños,
+cara/cuerpo por tamaño, duración y fin de cada estado, inmunidad, bola lenta que
+no hace nada, limpieza manual y el muñeco de entrenamiento.
+
+**Pendiente de este apartado:** el `--impact-matrix` completo (3 tamaños × 3 zonas ×
+3 velocidades) cuando exista el `PlayerState` compartido con el modo de sesión, y el
+desenfoque/audio amortiguado de `NADIEVE` (hoy sólo es el overlay).
 
 ### 3.3 Cooperación física ⬜
 

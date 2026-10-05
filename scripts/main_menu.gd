@@ -23,7 +23,7 @@ func _ready() -> void:
 	# Diagnostics never go through the menu, they boot straight into the level.
 	var demo_flags := [
 		"--phys-demo", "--carve-quality", "--ball-shape", "--movement-lab",
-		"--plow-demo", "--save-roundtrip",
+		"--impact-lab", "--plow-demo", "--save-roundtrip",
 	]
 	for flag in demo_flags:
 		if OS.get_cmdline_user_args().has(flag):
