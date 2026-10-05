@@ -488,6 +488,12 @@ func _on_body_entered(body: Node) -> void:
 		# thrown at 8 m/s failed its own size's speed gate and did nothing.
 		var hit_speed := maxf(arrival_speed(), linear_velocity.length())
 		var ball_tier := tier()
+		# The two ways this can end with no reaction recorded: the gate below refused the
+		# speed, or the target refused the hit because it was mid-reaction or immune. Both
+		# are printed so the next run says which, instead of being guessed at.
+		print("[HITDBG] r=%.2f tier=%d speed=%.2f min=%.2f target=%s state=%s immunity=%s" % [
+			radius, ball_tier, hit_speed, TIER_MIN_SPEED[ball_tier], body.name,
+			str(body.get("hit_state")), str(body.get("hit_immunity"))])
 		if hit_speed >= TIER_MIN_SPEED[ball_tier]:
 			body.receive_ball_hit(ball_tier, hit_speed, _is_head_hit(body), global_position, arrival)
 		# A snowball that lands on a person always bursts, whether or not they were in a

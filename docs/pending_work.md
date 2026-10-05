@@ -34,10 +34,28 @@ That leaves exactly two ways a cell can then record no hit, and they are disting
 2. the **reaction guard** refused: the player was still mid-reaction or inside the 1.5 s
    immunity window, so `receive_ball_hit` returned before it counted anything.
 
-**The next measurement, precisely.** Inside that person branch, print `hit_speed`, the
-tier's minimum, and the player's `hit_state` and `hit_immunity` at the moment of contact.
-One run separates the two, and each has a different fix: the first is a speed-measurement
-problem, the second is the harness resetting state too late before the next throw.
+**The two candidates, now decided.** Both were measured, and **neither is the cause**:
+
+| Candidate | Measurement | Verdict |
+|---|---|---|
+| The reaction guard refused the hit | Every contact logs `state=0 immunity=0.0` | **Innocent.** The player is never mid-reaction and never immune at the moment of contact. |
+| The size's speed gate refused the hit | Contacts log their speed and the minimum: 9.00 vs 5.00, 5.00 vs 3.50, 4.00 vs 2.50 | **Passing.** Every contact that is reported is fast enough to count. |
+
+**So the failing cells are ones where no contact is reported at all.** 28 cases produce only
+14 contacts, and the missing ones are mostly cases that *should* hit. The ball reaches the
+player in the cases that work, and in the failing ones nothing is ever reported to the ball.
+
+That points squarely at the first theory, which was tested too early and too crudely:
+contacts that Godot's continuous collision detection resolves without emitting the signal.
+An 8 to 9 m/s ball covers most of the gap to a capsule in one step, so this is exactly the
+speed range where that would bite, and it matches the failures clustering at the top speeds.
+
+**Why that first test was worthless and must be repeated properly.** It was changed at the
+same time as two other things, and judged on a single run. It also had no protection against
+a ball applying its reaction twice, once from the sweep and once from the contact — which is
+what a correct version of it needs. **The next attempt must: add the sweep back for physical
+bodies, guard against a double application on the same ball, and be judged on three runs,
+not one.**
 
 **Theories already tested and DISPROVED — do not spend time on these again.**
 
