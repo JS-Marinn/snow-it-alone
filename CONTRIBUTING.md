@@ -68,6 +68,29 @@ safe headless.
 `--menu-shot` renders the main menu, saves `main_menu.png` at the project root
 and exits; it is the UI smoke test.
 
+### Running all of them with one command
+
+`tools/run_batteries.ps1` runs every battery, reads each verdict and exits non-zero
+unless all of them passed. A battery that crashes without printing a verdict counts as
+a **failure**, not a skip: a crash must never look like a pass. Logs land next to the
+project as `battery_<flag>.log` (git-ignored).
+
+```powershell
+pwsh -File tools/run_batteries.ps1                              # all six, windowed
+pwsh -File tools/run_batteries.ps1 -Headless                    # only the two that need no GPU
+pwsh -File tools/run_batteries.ps1 -Only movement-lab,impact-lab
+```
+
+The Godot executable is found automatically at its usual location on the development
+machine; anywhere else pass `-Godot <path>` or set `GODOT_BIN`.
+
+### What CI covers, and what it cannot
+
+`.github/workflows/batteries.yml` runs the two batteries that need no graphics card on
+every push and pull request. The four that need a GPU cannot run on a hosted runner, so
+they are covered locally only. The workflow's final step prints that limitation into the
+log on purpose, so a green run is never mistaken for full coverage.
+
 ## Repository layout
 
 ```

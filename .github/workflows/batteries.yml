@@ -1,0 +1,88 @@
+name: batteries
+
+# The snow simulation runs on the GPU, so four of the six diagnostic batteries cannot
+# run on a hosted runner. This workflow covers the two that need no graphics card:
+# the save-slot battery and the ball-shape battery. The other four are covered locally
+# by tools/run_batteries.ps1, which is the command that gates a change before it is
+# committed. The last step of this job prints exactly what is not covered here, so a
+# green run is never mistaken for full coverage.
+#
+# Written but not yet exercised: the first push that touches this file is its test.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.7.2"
+
+jobs:
+  headless-batteries:
+    name: Batteries that need no GPU
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install Godot ${{ env.GODOT_VERSION }}
+        run: |
+          set -euo pipefail
+          URL="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          echo "Downloading ${URL}"
+          curl -sSL --fail -o godot.zip "${URL}"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot
+          chmod +x godot
+          ./godot --version
+
+      - name: Import the project
+        # The imported binaries live in .godot/, which is not committed, so a fresh
+        # checkout has to import before anything can be loaded.
+        run: ./godot --headless --path . --import
+
+      - name: Save slots
+        run: ./godot --headless --path . -- --save-roundtrip 2>&1 | tee save.log
+
+      - name: Ball shape
+        run: ./godot --headless --path . -- --ball-shape 2>&1 | tee ball.log
+
+      - name: Read the verdicts
+        run: |
+          set -euo pipefail
+
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" save.log ball.log; then
+            echo "::error::A script failed to load. See the log lines above."
+            exit 1
+          fi
+
+          for log in save.log ball.log; do
+            # A battery that crashes prints no verdict at all, which must fail rather
+            # than pass silently.
+            if ! grep -E "RESULT: [0-9]+ (checks )?OK / 0 (FAIL|failures)" "${log}"; then
+              echo "::error::${log} did not report a clean verdict."
+              exit 1
+            fi
+            grep -E "RESULT:" "${log}"
+          done
+
+      - name: Keep the logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: battery-logs
+          path: |
+            save.log
+            ball.log
+
+      - name: State what a hosted runner cannot cover
+        run: |
+          echo "Not covered by this job, because the snow simulation needs a GPU:"
+          echo "  --movement-lab   Movement"
+          echo "  --impact-lab     Ball impacts"
+          echo "  --phys-demo      Physics"
+          echo "  --carve-quality  Snow carving"
+          echo "Run tools/run_batteries.ps1 locally for all six."
