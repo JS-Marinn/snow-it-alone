@@ -56,6 +56,8 @@ Run these before every commit that touches physics, snow, balls or saves.
 | `--movement-lab` | 11: surface speeds, crisp stops, straight hops gain nothing, strafing does, the hop ceiling |
 | `--impact-lab` | 18: the three ball tiers against body and face, state durations, immunity, the manual wipe, the dummy |
 | `--phys-demo` | 36: mass conservation, tools, carrying, throwing, ground push and shatter |
+| `--playground-check` | 11: the measuring bench - runway length, the four lane surfaces, mass balance after a scripted disturbance, spawner, dummies, free camera |
+| `--playground` | Not a battery: boots the Playground scene itself, with [B] spawn ball, [N] ball size, [V] free camera, [L] measure field mass, [C] run its battery, [R] restart |
 | `--carve-quality` | Terrain quality after carving and mesh performance |
 | `--ball-shape` | Balls stay spherical, density scaling, no phantom furrows |
 | `--save-roundtrip` | Save slot API against the real filesystem, corrupt-file handling |
