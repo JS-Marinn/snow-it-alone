@@ -9,6 +9,10 @@ Last updated: 2026-10-05.
 
 ## 1. The impact matrix is flaky, and the cause is still open
 
+> **Consolidated handoff: docs/handoff_impact_flakiness.md.** Read that first: it
+> gathers the measurements, the six disproved theories, the lead worth following and the
+> environment traps in one place. This section is the running record.
+
 **What it is.** `--impact-matrix` walks every combination the design specifies: three ball
 sizes × three zones (face, body, graze) × three speeds, plus Work mode. 28 cases.
 
