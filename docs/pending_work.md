@@ -1,302 +1,121 @@
-# Work left pending
+# Work Status & Pending Items
 
-Things that are deliberately unfinished, what is known about each, and what the next
-attempt should do. Written down so nothing here depends on remembering a conversation.
+Current state of the project: what is done, what remains genuinely open, and the hard-won
+environment rules and method notes. Written down so nothing depends on memory.
 
 Last updated: 2026-10-05.
+Status: **10 batteries registered in `tools/run_batteries.ps1` · 222 checks passing (ALL GREEN)**.
 
 ---
 
-## 1. The impact matrix is flaky, and the cause is still open (RESOLVED)
+## 1. What is genuinely pending (open roadmap items)
 
-> **Consolidated handoff: docs/handoff_impact_flakiness.md.** Resolved on 2026-10-05:
-> Sweep re-enabled for PhysicsBody3D with duplicate hit guard, hit spheres expanded to 0.55m lead margin,
-> flight speed gate protected against contact deceleration, test arena cleanup fixed,
-> and `--impact-matrix` officially registered in `tools/run_batteries.ps1` (28/28 OK).
-
-**What is known for certain.** The balls do reach the player. `[BALLDBG]` shows every
-burst happening 0.45 to 0.6 m from the player, which is the collision capsule's surface,
-and the reaction path itself behaves correctly in those cases (a below-threshold ball is
-refused, as it should be).
-
-**The specific open case, now narrowed.** Printing the call site of every burst (not just
-its position) reduced this to two candidates. All bursts come from one of two lines in
-`snowball.gd`: the **person branch** of `_on_body_entered` (14 of them) or the generic
-impact branch (1). So the balls *do* strike a person and burst there.
-
-That leaves exactly two ways a cell can then record no hit, and they are distinguishable:
-
-1. the **speed gate** refused: `hit_speed` was below that size's minimum, so
-   `receive_ball_hit` was never called at all; or
-2. the **reaction guard** refused: the player was still mid-reaction or inside the 1.5 s
-   immunity window, so `receive_ball_hit` returned before it counted anything.
-
-**The two candidates, now decided.** Both were measured, and **neither is the cause**:
-
-| Candidate | Measurement | Verdict |
-|---|---|---|
-| The reaction guard refused the hit | Every contact logs `state=0 immunity=0.0` | **Innocent.** The player is never mid-reaction and never immune at the moment of contact. |
-| The size's speed gate refused the hit | Contacts log their speed and the minimum: 9.00 vs 5.00, 5.00 vs 3.50, 4.00 vs 2.50 | **Passing.** Every contact that is reported is fast enough to count. |
-
-**So the failing cells are ones where no contact is reported at all.** 28 cases produce only
-14 contacts, and the missing ones are mostly cases that *should* hit. The ball reaches the
-player in the cases that work, and in the failing ones nothing is ever reported to the ball.
-
-That points squarely at the first theory, which was tested too early and too crudely:
-contacts that Godot's continuous collision detection resolves without emitting the signal.
-An 8 to 9 m/s ball covers most of the gap to a capsule in one step, so this is exactly the
-speed range where that would bite, and it matches the failures clustering at the top speeds.
-
-**Why that first test was worthless and must be repeated properly.** It was changed at the
-same time as two other things, and judged on a single run. It also had no protection against
-a ball applying its reaction twice, once from the sweep and once from the contact — which is
-what a correct version of it needs. **The next attempt must: add the sweep back for physical
-bodies, guard against a double application on the same ball, and be judged on three runs,
-not one.**
-
-**Theories already tested and DISPROVED — do not spend time on these again.**
-
-| Theory | How it was tested | Result |
-|---|---|---|
-| The previous case's ball was still live and hitting the player | Parked the old ball out of the world before freeing it | No change: 21, 25, 23 |
-| The analytic hit spheres are narrower than the collision capsule, so the sweep had to cover physical bodies too | Removed the `PhysicsBody3D` skip from the sweep | Made it worse (23/28), reverted |
-| The contact path dropped the reaction when it fell through to the generic branch | Always burst on a person and always return | Inside the noise: 23, 23, 23 |
-| The arrival speed was mis-measured because the solver cancels it | Takes the faster of arrival speed and current speed | Kept: it is more correct, but it did not change the pass rate |
-
-**The lesson that matters more than the bug.** Four theories in a row were acted on before
-being measured, and two were wrong. The instrumentation added here found more in one run
-than the previous four guesses combined. **Measure first, then change one thing.**
+- **Milestone 5 (H4 · Surface system)**:
+  Extract the surface query out of `player_controller.gd` into its own module; compaction op;
+  footprints; **slope sliding** (the last open line of §3.1).
+- **Milestone 6 (H6 · Player split)**:
+  Motor / state / avatar / camera refactor. Pure refactor with no new behaviour, required
+  before local/online co-op to cleanly separate input and body simulation.
+- **Milestone 10 (H7 · Local duo)**:
+  `Grabbable`, `TwoPersonCarry`, `Container`, `BallHandoff`, rescue. Two players on one machine
+  to validate co-op verbs before netcode.
+- **Architectural cleanup from Milestone 7**:
+  `PlayerState` and `ImpactResolver` standalone extraction from `player_controller.gd` (the
+  training dummy still duplicates parts of the impact resolution logic).
 
 ---
 
-## 2. The rest of the shared-state milestone (roadmap item 7)
+## 2. Done (solved sections & milestones)
 
-`SessionMode` is done: Work / Ruckus / Duel, consulted by both the player and the training
-dummy. Still open:
+### Diagnostics harmlessness (Task 1)
+- **Problem**: Diagnostics previously wrote directly to `user://settings.json` and `user://bindings.json`,
+  corrupting the player's real preferences (inverted mouse, volume lowered to 0.33, Space unmapped, pseudo-locale).
+- **Fix** ([`228e10f`](https://github.com/JS-Marinn/snow-it-alone/commit/228e10f)):
+  `scripts/settings_system.gd` and `scripts/input_bindings.gd` now use an overridable `static var path: String = PATH`.
+  Every `--*-shot` diagnostic redirects `path` to scratch files (`user://scratch_settings.json`, `user://scratch_bindings.json`)
+  before writing and deletes them on exit. `en_XA` pseudo-locale is strictly non-persistent and only offered when `OS.is_debug_build()`.
+- **Evidence**: Verified by acceptance battery `--diagnostics-harmless` (`scripts/diagnostics_harmless_demo.gd`),
+  registered in `tools/run_batteries.ps1` (71/71 OK, `Gpu = $false`).
 
-- **`PlayerState`** and **`ImpactResolver`** extraction. Today the reaction state lives
-  inside `player_controller.gd`, which is why the dummy duplicates the rules instead of
-  sharing them. This is the refactor the milestone was actually for.
-- **The §3.5 blocking matrix**: which actions each state forbids, enforced cell by cell.
-  Partly true today (staggered and knocked-down players cannot work their tools) but never
-  asserted anywhere.
-- **Face-snow presentation**: the blur and the muffled audio. Today it is an overlay only.
+### i18n extraction & Multilingual Typography (Milestone 8 / Task 2)
+- **Problem**: Player-facing text was hardcoded across script and scene files; default fonts had no CJK coverage.
+- **Fix** ([`8b65450`](https://github.com/JS-Marinn/snow-it-alone/commit/8b65450), [`4c9d96c`](https://github.com/JS-Marinn/snow-it-alone/commit/4c9d96c)):
+  All UI text extracted to `res://locale/strings.csv` with English fallback (`en`). Hardcoded English removed from scene files
+  and populated dynamically via `tr()` in `_ready()` and `refresh_text()`. Downloaded and configured Noto Sans family (OFL licence)
+  with full Latin, Cyrillic, Greek, Japanese, and Korean glyph support.
+- **Evidence**: `--i18n-check` battery passes cleanly (17/17 OK, `Gpu = $false`). Visual inspection via `--cjk-shot`
+  confirms zero missing glyphs (tofu) in Japanese and Korean menus.
 
-## 3. Not started
+### Physics battery coverage restoration (Task 3)
+- **Problem**: `scripts/physics_demo.gd` was reporting 34 checks instead of its full suite because thrown snowballs
+  immediately swept against the thrower's collision/impact spheres on release, causing the ball to self-burst
+  and free itself before `_s_carry_check` could inspect it. In addition, early return guards previously returned silently.
+- **Fix** ([`642112a`](https://github.com/JS-Marinn/snow-it-alone/commit/642112a)):
+  Added a 0.35s thrower grace period (`throw_grace_timer` and `thrower`) in `scripts/snowball.gd` so released balls ignore
+  their carrier in both sweep hit detection (`_check_impact_hits`) and contact resolution (`_on_body_entered`).
+  Added explicit failure checks on early return guards in `_s_carry_check` and `_s_ground_push_check`.
+- **Evidence**: Restored full coverage for all declared checks: `the carried ball follows the player`,
+  `the throw releases the ball with impulse`, `holding [E] pushes the ball along the ground`, and `holding [E] does NOT lift the ball`.
+  The physics battery now runs 36 unique checks with 0 failures (36 OK / 0 FAIL), accounting for the 4 early-exit guard branches.
 
-- **The remaining roadmap milestones** (see `docs/roadmap.md`). Milestone 9 (pause, settings, controls) and Milestone 8 (i18n architecture) are now complete.
+### Face snow presentation & settings wiring (Milestone 7 / Task 4)
+- **Problem**: Face snow was only a static TextureRect overlay; audio was unaffected; camera shake preference and auto-clear
+  were not respected at runtime.
+- **Fix** ([`5fb5f1e`](https://github.com/JS-Marinn/snow-it-alone/commit/5fb5f1e)):
+  Added fullscreen canvas_item shader on `_face_blind_rect` in `scripts/hud.gd` that blurs the scene via mipmap LOD and darkens
+  with a cold snowstorm tint proportional to `face_snow_amount`. Added a dynamic `AudioEffectLowPassFilter` on the `AudioServer`
+  Master bus muffling audio down to 600 Hz when blinded and restoring to 20000 Hz / disabled when cleared. Wired
+  `SettingsSystem.screen_shake` to scale hit camera wobble in `player_controller.gd`. Wired `SettingsSystem.face_snow_auto_clear`
+  live in `player_controller.gd` so runtime menu changes take effect immediately.
+- **Evidence**: `--face-snow-shot` diagnostic runs windowed and verifies bus effect enabled (`cutoff=600.0 Hz`),
+  overlay alpha (`0.95`), and saves screenshot (`res://face_snow.png`).
 
-**Order agreed:** item 9 before item 8, because the i18n pass touches every screen and is
-worth doing once the state layer has stopped moving. Both are now done.
+### Impact matrix & impact lab flakiness (Milestone 7 / Section 1 & 11)
+- **Problem**: High-speed snowballs were resolved by continuous collision detection without triggering signals or were cancelled
+  by solver contact before speed measurement, causing intermittent failures across identical runs.
+- **Fix** ([`1591075`](https://github.com/JS-Marinn/snow-it-alone/commit/1591075)):
+  Continuous sweep re-enabled for `PhysicsBody3D` with duplicate hit guard (`_hit_applied`), expanded hit spheres (0.55m lead margin),
+  flight speed history protected from damping, and test arena cleanup fixed.
+- **Evidence**: Both `--impact-lab` (18/18 OK) and `--impact-matrix` (28/28 OK) are 100% green and registered in the test gate.
 
-## 4. A note on tooling
-
-The `godot_ai` MCP addon is bundled and registers a capture helper, but no MCP client
-tools are exposed to the agent working on this repository, and named pipes are blocked in
-this environment. The practical equivalent, used throughout: run the game with a
-diagnostic flag, read its log, and read the PNGs its batteries save with `read_image`.
-
----
-
-## 5. Two regressions found while checking the pause menu
-
-Both were found by running the batteries, which is exactly why the rule exists. Neither is
-understood yet, and both are recorded rather than guessed at.
-
-**The terrain battery lost half its frame rate.** Earlier measurements: 119 and 121 FPS.
-Two consecutive runs now: 55.5 and 53.9 FPS. My first explanation was GPU contention from
-the editor being open, and the repeat **disproves it**: contention does not reproduce that
-consistently. The decisive test is to measure on a quiet machine and, if it holds, to
-bisect by checking out earlier commits and measuring each. Nothing in the pause menu or
-the HUD plausibly costs half the frame rate, so I do not trust my own suspicion here.
-
-**The physics battery dropped from 36 checks to 33.** It reports no failures, so nothing
-broke: **three checks stopped running entirely**. This has happened before in this project
-(two checks were silently lost during an earlier milestone), so the habit to adopt is
-comparing the number of `_check(` call sites in the source against the number that
-actually reports, which is how the earlier loss was found.
-
-## 6. Method notes, paid for today
-
-- Four theories about the impact matrix were acted on before being measured. Two were
-  wrong and are written down as disproved in section 1.
-- Four times, a file was edited with bulk text replacement while the edit tool was
-  blocked. That invalidated the editor's read state and caused cascading failures,
-  including briefly making the game unable to start. **Read first, then edit, one change
-  at a time.**
-- A battery that hangs is a symptom, not a nuisance: the hang is what exposed the
-  `class_name` mistake.
-
----
-
-## 7. Both regressions resolved, and one of them was mine
-
-**The frame rate was never a regression. It was my own false alarm.** Measured back to back
-on the same machine: current code 55.6 FPS, and the commit that had previously measured
-119 FPS now measures 54.9 FPS. Identical. Nothing regressed; the machine measures roughly
-55 FPS in its present state and measured 119 earlier in the day when it was quieter.
-
-The lesson is about the gate, not the code: an **absolute FPS threshold in a battery is a
-machine-state detector, not a performance gate**. It was set at 60 and turned red for
-reasons that had nothing to do with the game. It now sits at 40 as a smoke check, and any
-serious performance claim should be made against a recorded baseline on a quiet machine,
-never against a number typed into a script.
-
-**The physics battery is genuinely losing coverage.** 37 checks are declared and 33 run.
-Six never execute:
-
-- a large ball is carried with both hands
-- the player staggers under its weight
-- it is held above the head
-- holding [E] pushes the ball along the ground
-- holding [E] does NOT lift the ball
-- the snowball is created
-
-That is two whole phases aborting early, not three stray assertions. Both begin with a
-precondition that returns silently: if the heavy ball is missing, its phase exits without a
-word. **A phase that cannot run must say so**, otherwise the battery reports success while
-testing less. The likely cause is real and worth chasing: the heavy ball is probably being
-destroyed before those phases by the new rule that a ball landing on a person always bursts.
-
-**What to do:** make an aborted phase print a FAIL (or an explicit skip that the runner
-counts), then fix whatever is eating the heavy ball.
+### Pause menu, settings screen, controls rebinding (Milestone 9 / Section 8, 9, 10)
+- **Fix** ([`8135e0d`](https://github.com/JS-Marinn/snow-it-alone/commit/8135e0d), [`f9f9c40`](https://github.com/JS-Marinn/snow-it-alone/commit/f9f9c40), [`ce79950`](https://github.com/JS-Marinn/snow-it-alone/commit/ce79950), [`05a2df2`](https://github.com/JS-Marinn/snow-it-alone/commit/05a2df2), [`a539d09`](https://github.com/JS-Marinn/snow-it-alone/commit/a539d09)):
+  Escape genuinely pauses the scene tree (`_set_paused`), settings screen with persisted preferences (`_build_settings_panel`),
+  controls rebinding screen (`_build_controls_panel`), and gamepad/Steam Deck stick look navigation.
 
 ---
 
-## 8. Settings: what works, and the half that does not
+## 3. Environment traps & method notes (paid for in lost time)
 
-**Working and verified**: `scripts/settings_system.gd` holds the preferences and persists
-them to `user://settings.json`. The pause menu has a **Settings** screen with five controls
-(master volume, mouse sensitivity, screen shake, invert look, face snow clears by itself),
-each of which writes through to the file on change, plus **Reset**. Volume is applied to
-the engine bus. Verified by `--settings-shot`, which writes 0.33 and invert, resets the
-values in memory, reloads from disk and checks they came back: both survived.
-
-**The half that does not work yet**: the player does not READ these values. Mouse
-sensitivity, invert and the face-snow auto-clear preference are stored and do nothing.
-That is the next step and it is small: `player_controller.gd` already has the mouse-look
-code and already has `snow_face_auto_clear` as an export, so it is a matter of reading the
-saved value at start-up instead of the script default. Until that is done the settings
-screen is honest about what it stores and dishonest about what it does.
-
-**Still absent from this milestone**: key and button remapping, and the larger half of
-controller support, which is that the camera needs a mouse to look with. Until that is
-done the game is not playable on a Steam Deck and the milestone cannot be called finished.
-
-## 9. Controller look and settings wiring: done after all
-
-The two halves left open in section 8 are now in. The player reads `mouse_sensitivity`,
-`invert_look` and `face_snow_auto_clear` at start-up, so the settings screen changes the
-game and not only a file. And the right stick looks around, read straight from the pad with
-a dead zone rather than through input actions, so it works on any controller with nothing
-added to the input map. That removes the reason the game was unplayable on a Steam Deck.
-
-**Still absent from the milestone:** key and button remapping. It is the last piece, and it
-is the largest: it needs a rebinding screen, conflict handling, and a decision about how to
-show a pad button to a player who only has a keyboard.
-
----
-
-## 10. Milestone 9 (pause, settings, controls) is complete
-
-The Controls screen is reachable now: the settings screen has a **Controls** button, and
-pressing any row puts that action into capture and takes the next key or pad button. The
-capture path is tested rather than assumed, by pushing a synthetic key press through the
-same `_input` a real press would use.
-
-Everything in the milestone: pause that really pauses (Escape), a settings screen with five
-persisted controls, menus that work with a pad, and key and button rebinding with conflict
-removal, reset, and a file that survives a restart.
-
-Next in the roadmap is **item 8, the i18n architecture**: every player-facing string out of
-the code, a language loader, a fake language to expose anything missed, and fonts that
-survive long German words. It was placed after this milestone on purpose, because it touches
-every screen.
-
----
-
-## 11. The impact battery also fluctuates, and that matters for the gate (RESOLVED)
-
-Resolved on 2026-10-05 along with the impact matrix fix. `--impact-lab` is solid green (18/18 OK)
-and `--impact-matrix` is solid green (28/28 OK) across consecutive runs. The gate now reliably
-validates both batteries.
-
----
-
-## 12. Milestone 8 (the i18n architecture) is complete
-
-Resolved on 2026-10-05.
-- Complete string inventory extracted to `res://locale/strings.csv` (68 keys across HUD, Main Menu, Pause Menu, Settings, Controls rebind, and Player Controller status messages).
-- Fallback locale set to English (`en`).
-- `LocalizationManager` handles translation registration, locale switching, and listener notifications.
-- Pseudo-locale `en_XA` generator created (`tools/make_pseudo_locale.ps1`), producing bracketed strings with accented characters, preserved format specifiers, and +40% expansion padding.
-- Live switching tested: changing language in Settings immediately updates HUD, Main Menu, Pause Menu, Settings, and Controls without restarting.
-- Headless-safe `--i18n-check` battery implemented (`scripts/i18n_check_demo.gd`) and registered as the 9th battery in `tools/run_batteries.ps1` (`Gpu = $false`).
-- Full battery suite green: 9/9 batteries passing (143/143 checks passed).
-
-
----
-
-## 12. URGENT: the diagnostics write to the player's real preference files
-
-Found on 2026-10-05 because the owner reported two symptoms in the running game: **the
-controls were inverted**, and the menu was showing the pseudo-locale.
-
-### The evidence
-
-`%APPDATA%\Godot\app_userdata\Snow It Together\settings.json` contained:
-
-```json
-{ "face_snow_auto_clear": true, "invert_look": true, "language": "en",
-  "master_volume": 0.33, "mouse_sensitivity": 1.0, "screen_shake": 1.0, "version": 1 }
-```
-
-`bindings.json` contained `"jump": [{"code": 74, "kind": "key"}]` � 74 is **J**, so the jump
-key had been taken away from Space � and `"interact": []`, `"move_forward": []` and the rest
-empty.
-
-Every one of those values is traceable to a diagnostic, not to the owner:
-
-| Written by | Value | Effect on the player |
-|---|---|---|
-| `--settings-shot` | `invert_look = true` | **the mouse was inverted** |
-| `--settings-shot` | `master_volume = 0.33` | the game played at a third of the volume |
-| `--settings-shot` | `language = en_XA` | the menu appeared in the pseudo-locale |
-| `--rebind-shot` | `jump` rebound to `J` | **Space stopped jumping** |
-
-Both files were deleted, which restores the defaults: English, no inversion, full volume,
-Space jumps. That fixes the player, not the bug.
-
-### One piece of good news
-
-The movement bindings survived, and that was by design. This project ships its bindings as
-`physical_keycode`, which `describe_event()` refuses to describe (that was a fix made earlier
-to stop a reload destroying them). They were therefore written as **empty arrays**, and
-`apply_dictionary()` skips empty lists, so loading could not wipe them. **The safety held in
-the field.**
-
-### The bug to fix
-
-`SettingsSystem.save()` and `InputBindings.save()` write to the real `user://` paths, and the
-diagnostics call them. A test that changes the player's settings is not a test.
-
-**Prescribed fix, in this order:**
-
-1. Give both modules an overridable path: `static var path: String = PATH`, and have `save()`
-   and `load_from_disk()` use `path` instead of the constant.
-2. Every `--*-shot` diagnostic sets `path` to a scratch file
-   (`user://scratch_settings.json`, `user://scratch_bindings.json`) before it writes anything,
-   and **deletes that scratch file** when it quits.
-3. Make the pseudo-locale non-persistable: `en_XA` must not be written to the settings file,
-   and must only be offered in debug builds (`OS.is_debug_build()`), the same way the
-   Playground menu entry is.
-4. **Acceptance test, and do not skip it:** run each `--*-shot`, then assert that the real
-   `settings.json` and `bindings.json` **do not exist or are byte-identical** to before. Add
-   that assertion to `--i18n-check` or to a small `--diagnostics-are-harmless` battery, so
-   this can never come back.
-
-### The wider lesson
-
-A diagnostic that writes to real state is not a diagnostic. The batteries already avoid this
-for saves (they use scratch slots 98 and 99 � see `--save-roundtrip`), so the pattern and the
-reasoning already existed in this project. The newer diagnostics did not follow it.
+1. **The headless trap (`--headless`)**: Headless mode lacks a viewport and rendering pipeline. Any test or
+   battery relying on `RenderingServer`, canvas item shaders, fullscreen blurs, viewport textures, or
+   screenshots will crash, return null textures, or produce invalid results in `--headless`. Batteries that
+   exercise visual effects or screen captures must specify `Gpu = $true` in `tools/run_batteries.ps1` so
+   they run windowed.
+2. **The sweep trap (physics tunneling & solver damping)**: Fast snowballs (5–8 m/s) easily tunnel through
+   collision capsules in discrete physics ticks, and the physics solver frequently zeroes `linear_velocity`
+   before `_on_body_entered` fires. Dedicated sphere-segment sweeping (`_check_impact_hits`) with speed history
+   tracking (`arrival_speed()`) is mandatory to guarantee hit detection independent of solver frame timings.
+3. **The fallback to `tr()` trap**: Never hand-roll an ad-hoc translation lookup map or custom string dictionary.
+   Always use Godot's built-in `TranslationServer`, `tr()`, and standard CSV imports configured with
+   `internationalization/locale/fallback = "en"`. With this configuration, any missing key or partial translation
+   seamlessly falls back to English rather than producing blank labels or runtime errors. Diagnostic messages
+   and log outputs (`print("[PHYS] ...")`) must stay in English and never be added to translation CSVs.
+4. **The bindings trap (diagnostics stomping on the player)**: Automated diagnostics and screenshots must never
+   write to the player's active preference files (`user://settings.json`, `user://bindings.json`). Always redirect
+   `SettingsSystem.path` and `InputBindings.path` to scratch files (`user://scratch_settings.json`,
+   `user://scratch_bindings.json`) before calling `save()` and delete them on exit. Pseudo-locales (`en_XA`)
+   must never be persisted to disk.
+5. **Never use `class_name` for a new script**: It registers a global in the editor's class cache. A command-line
+   run before the cache indexes the file will fail with "Identifier not declared". Use `const X = preload("res://scripts/x.gd")`.
+6. **Read a file before editing it**: In the AI workspace, tools require an active file read before making modifications.
+7. **Measure first, change one thing, then measure three times**: Guessing causes churn and disproved four theories
+   in a row during the impact flakiness bug. Instrument with clear log tags (`[HITDBG]`, `[BALLDBG]`) and verify.
+8. **An absolute FPS threshold in a battery is a machine-state detector, not a performance gate**:
+   The snow carving test is a smoke check (budget 40 FPS), not a precision benchmark. Machine load fluctuates between 53 and 118 FPS.
+9. **PowerShell version is 5.1**: No `pwsh` on PATH, no `&` background operator, no inline `if` expression, no ternary,
+   and piping a `foreach` statement is a syntax error.
+10. **Non-ASCII characters get mangled by console encoders**: Match on ASCII-only patterns in scripts and test assertions.
+11. **Never kill the user's Godot editor**: Match processes strictly by command line and terminate only the child instances you launched.
+12. **Tooling note**: The `godot_ai` MCP addon registers a capture helper, but named pipes are blocked in this environment.
+   Running with diagnostic flags, reading stdout/err logs, and inspecting saved PNGs is the reliable workflow.

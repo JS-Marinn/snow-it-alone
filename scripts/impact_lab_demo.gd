@@ -69,7 +69,7 @@ func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -
 		[8.0, _s_check_blocked_immune],
 		[8.2, _s_reset],
 		# A ball that is only rolling is not a hit.
-		[8.4, func(): _throw_at_player(true, 0.25, 2.0)],
+		[8.4, func(): _throw_at_player(false, 0.25, 1.8)],
 		[8.8, _s_check_too_slow],
 		[9.0, _s_reset],
 		# Wiping beats waiting.
@@ -125,6 +125,10 @@ func _s_reset() -> void:
 		_carried.queue_free()
 	_carried = null
 	if player:
+		var height := 0.32
+		if snow_field and snow_field.has_method("get_support_snow_height"):
+			height = maxf(snow_field.get_support_snow_height(Vector3(0.0, 0.0, HIT_Z), 0.35), 0.0)
+		player.global_position = Vector3(0.0, height, HIT_Z)
 		player.reset_hit_reactions()
 		player.set("auto_bhop", false)
 		player.velocity = Vector3.ZERO
