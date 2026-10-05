@@ -531,6 +531,12 @@ func _is_head_hit(body: Node) -> bool:
 func _shatter(impact_velocity: Vector3 = Vector3.ZERO) -> void:
 	if _shattered or is_carried:
 		return
+	# Where a ball dies is the one fact that identifies what killed it, and a burst is
+	# the only way a ball can vanish without a reaction being applied. Left in
+	# deliberately: it is one line, it is only read when a battery is being diagnosed,
+	# and guessing at this cost four wrong theories in a row.
+	print("[BALLDBG] %.2f m ball burst at %s moving %.1f m/s" % [
+		radius, str(global_position), impact_velocity.length()])
 	_shattered = true
 	_break_weld()
 	SnowBurst.spawn(get_parent(), global_position, radius, packed_mass(), impact_velocity, snow_field)
