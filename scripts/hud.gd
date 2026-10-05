@@ -121,6 +121,13 @@ func _set_paused(paused: bool) -> void:
 	get_tree().paused = paused
 	if _pause_menu:
 		_pause_menu.visible = paused
+		if paused:
+			# Focus the first action so a controller can drive this without a mouse, the
+			# way the Steam Deck and console targets need. Keyboard users keep working
+			# exactly as before, because ui_cancel still closes the menu.
+			for node in _pause_menu.find_children("*", "Button", true, false):
+				(node as Button).grab_focus()
+				break
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if paused else Input.MOUSE_MODE_CAPTURED
 	print("[PAUSE] paused=%s" % str(paused))
 
