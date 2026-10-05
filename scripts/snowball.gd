@@ -479,6 +479,12 @@ func arrival_speed() -> float:
 func _on_body_entered(body: Node) -> void:
 	if _shattered:
 		return
+	# A ball in someone's hands cannot smash against them. Without this the rule below,
+	# that a ball landing on a person always bursts, destroys a carried ball the moment
+	# the carrier's own capsule touches it: measured as a 124 kg ball bursting at 2.05 m
+	# of height and zero speed, which silently killed two phases of the physics battery.
+	if is_carried:
+		return
 	# Hitting a person. Resolved from this actual contact and not from the sweep:
 	# a body stops the ball before it would reach the analytic spheres.
 	if body != null and body.is_in_group(IMPACT_GROUP) and body.has_method("receive_ball_hit"):

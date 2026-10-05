@@ -141,6 +141,10 @@ func _s_heavy_carry() -> void:
 
 func _s_heavy_check() -> void:
 	if player == null or _heavy_ball == null or not is_instance_valid(_heavy_ball):
+		# Reporting the abort matters more than the test: a phase that cannot run must
+		# never look like a phase that passed, which is how this battery quietly went
+		# from 36 checks to 33 without a single failure.
+		_check("the heavy ball survived long enough to be inspected", false)
 		return
 	var two := bool(player.get("carry_two_hands"))
 	var st: float = float(player.get("stagger"))
@@ -193,6 +197,7 @@ func _s_heavy_walk_stop() -> void:
 ## Hold [E]: the ball rolls along the ground without being lifted.
 func _s_ground_push_start() -> void:
 	if player == null or props == null:
+		_check("the ground push test could set itself up", false)
 		return
 	# Do it from a known central spot so the test does not depend on wherever the
 	# earlier phases left the player.
