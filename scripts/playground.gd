@@ -64,6 +64,14 @@ func _ready() -> void:
 	# operation buffer is bounded and a burst of 180 would be dropped.
 	if snow_field.has_signal("op_volume_ready"):
 		snow_field.op_volume_ready.connect(_on_op_volume_ready)
+	if OS.get_cmdline_user_args().has("--beetle-roll"):
+		var script = load("res://scripts/beetle_roll_demo.gd")
+		var demo = Node.new()
+		demo.set_script(script)
+		add_child(demo)
+		if demo.has_method("setup"):
+			demo.setup(self, snow_field, player, props)
+		return
 	if _check_mode:
 		_start_check()
 	else:

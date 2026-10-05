@@ -24,7 +24,7 @@ HUD_TOOL_BLOWER,"Tool: [2] Motorized Snow Blower","[Tööl: [2] Mötörïzêd Sn
 HUD_TOOL_SALT,"Tool: [3] Thermal Salt Spreader","[Tööl: [3] Thêrmål Sålt Sprêådêr~~~~~~~~~~~]"
 HUD_WIPE_FACE,"Snow on your face - hold [E] to wipe it off","[Snöw ön ýöûr fåcê - höld [ê] tö wïpê ït öff~~~~~~~~~~~~~~~~]"
 HUD_SHOVEL_JAMMED,"SHOVEL JAMMED! Look ahead to shave thin, or press [Q] to tamp","[SHöVêL JåMMêD! Löök åhêåd tö shåvê thïn, ör prêss [Q] tö tåmp~~~~~~~~~~~~~~~~~~~~~~~]"
-HUD_GROUND_PUSHING,"Pushing the ball along the ground - release [E] to leave it","[Pûshïng thê båll ålöng thê gröûnd - rêlêåsê [ê] tö lêåvê ït~~~~~~~~~~~~~~~~~~~~~~]"
+HUD_GROUND_PUSHING,"Pushing %.0f kg along the ground - release [E] to leave it","[Pûshïng %.0f kg ålöng thê gröûnd - rêlêåsê [ê] tö lêåvê ït~~~~~~~~~~~~~~~~~~~~~~]"
 HUD_CARRY_SLIP,"ABOUT TO SLIP! %.0f kg - press [E] to drop it","[åBöûT Tö SLïP! %.0f kg - prêss [ê] tö dröp ït~~~~~~~~~~~~~~~~]"
 HUD_CARRY_OVERHEAD,"BALL OF %.0f KG overhead - grip %d%% - [E] drop, right click throw","[BåLL öF %.0f KG övêrhêåd - grïp %d%% - [ê] dröp, rïght clïck thröw~~~~~~~~~~~~~~~~~~~~~~~~~]"
 HUD_CARRY_ONE_HAND,"Carrying %.1f kg - [E] drop, right click throw","[Cårrýïng %.1f kg - [ê] dröp, rïght clïck thröw~~~~~~~~~~~~~~~~~]"

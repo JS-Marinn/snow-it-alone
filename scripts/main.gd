@@ -52,6 +52,8 @@ func _ready() -> void:
 		_start_demo_script("res://scripts/impact_lab_demo.gd")
 	if args.has("--impact-matrix"):
 		_start_demo_script("res://scripts/impact_matrix_demo.gd")
+	if args.has("--beetle-roll"):
+		_start_demo_script("res://scripts/beetle_roll_demo.gd")
 
 ## Picks up the session started from the main menu: restores the money counter and
 ## starts tracking playtime for the save slot.

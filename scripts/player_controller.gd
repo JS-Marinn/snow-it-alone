@@ -211,6 +211,7 @@ var grip_left: float = 1.0
 var _stagger_phase: float = 0.0
 ## Push with held [E]: the ball rolls along the ground.
 var is_ground_pushing: bool = false
+var pushed_mass: float = 0.0
 var _interact_hold: float = 0.0
 var _interact_was_pressed: bool = false
 var _pushed_during_hold: bool = false
@@ -457,8 +458,24 @@ func _physics_process(delta: float) -> void:
 		var weight_factor := 1.0 / (1.0 + carried_mass / maxf(carry_weight_ref, 1.0))
 		target_speed *= maxf(weight_factor, carry_speed_floor)
 
+	# Rolling a snowball on the ground: the player moves at the ball's rolling speed
+	var rolling_target: Node3D = _push_target as Node3D
+	if (is_ground_pushing or (Input.is_action_pressed("interact") and _push_target != null)) and rolling_target and is_instance_valid(rolling_target):
+		var ball_target_speed: float = rolling_target.target_push_speed() if rolling_target.has_method("target_push_speed") else 1.8
+		var offset: Vector3 = rolling_target.global_position - global_position
+		var dist: float = Vector2(offset.x, offset.z).length()
+		var dist_error: float = dist - 1.5
+		target_speed = ball_target_speed * clampf(1.0 + dist_error * 0.6, 0.4, 1.4)
+
 	var wish_dir = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 	var wants_move := input_dir.length_squared() > 0.01
+
+	# When actively pushing a ball forward, guide player's forward movement directly behind the ball
+	if is_ground_pushing and rolling_target and is_instance_valid(rolling_target) and input_dir.y < -0.5:
+		var to_ball := rolling_target.global_position - global_position
+		to_ball.y = 0.0
+		if to_ball.length_squared() > 0.01:
+			wish_dir = to_ball.normalized()
 
 	# Stagger from an oversized ball: lateral drift and less control.
 	if stagger > 0.01:
@@ -1025,6 +1042,7 @@ func _process_interaction(delta: float) -> void:
 	if face_snow_timer > 0.0:
 		_push_target = null
 		is_ground_pushing = false
+		pushed_mass = 0.0
 		_interact_hold = 0.0
 		_interact_was_pressed = false
 		return
@@ -1044,7 +1062,7 @@ func _process_interaction(delta: float) -> void:
 			elif not _has_interactable_ahead() and _push_target == null:
 				_try_pickup_or_pack()
 		_interact_hold += delta
-		if _interact_hold >= interact_hold_time and not is_carrying():
+		if (_interact_hold >= interact_hold_time or _push_target != null) and not is_carrying():
 			_pushed_during_hold = _ground_push() or _pushed_during_hold
 		return
 
@@ -1057,6 +1075,7 @@ func _process_interaction(delta: float) -> void:
 	_pushed_during_hold = false
 	_push_target = null
 	is_ground_pushing = false
+	pushed_mass = 0.0
 
 ## Finds an interactable ball or prop ahead of the player via raycast or feet area.
 func _find_interactable_ahead() -> CollisionObject3D:
@@ -1096,9 +1115,32 @@ func _ground_push() -> bool:
 		else:
 			_push_target = null
 			is_ground_pushing = false
+			pushed_mass = 0.0
 			return false
-	_push_target.push(global_position, ground_push_strength)
+
+	var offset: Vector3 = _push_target.global_position - global_position
+	var dist := Vector2(offset.x, offset.z).length()
+	var min_reach: float = float(_push_target.get("PUSH_REACH_MIN")) if _push_target.get("PUSH_REACH_MIN") != null else 0.8
+	var max_reach: float = float(_push_target.get("PUSH_REACH_MAX")) if _push_target.get("PUSH_REACH_MAX") != null else 3.0
+
+	# Keep the ball in front: if too close, or player is standing on top of it, stop pushing
+	var ball_r: float = float(_push_target.get("radius")) if _push_target.get("radius") != null else 0.2
+	if dist < min_reach or (dist < ball_r + 0.4 and global_position.y > _push_target.global_position.y + ball_r * 0.4):
+		is_ground_pushing = false
+		pushed_mass = 0.0
+		return false
+
+	# If the ball rolls too far ahead (> 3 m), stop pushing so the player must walk behind it
+	if dist > max_reach:
+		is_ground_pushing = false
+		pushed_mass = 0.0
+		if dist > max_reach + 1.5:
+			_push_target = null
+		return false
+
+	_push_target.push(global_position, ground_push_strength, self)
 	is_ground_pushing = true
+	pushed_mass = float(_push_target.get("mass")) if _push_target.get("mass") != null else 0.0
 	return true
 
 func _try_pickup_or_pack() -> void:
@@ -1343,6 +1385,8 @@ func _push_touched_bodies(horiz_speed: float) -> void:
 		var c := get_slide_collision(i)
 		var other = c.get_collider()
 		if other == null or other == self:
+			continue
+		if other == _push_target and is_ground_pushing:
 			continue
 		if (other is SnowBall or other is PinProp) and other.has_method("push"):
 			other.push(global_position, strength)

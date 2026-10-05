@@ -27,6 +27,16 @@ const MIN_RADIUS: float = 0.07
 const PUSH_FORCE_NEWTONS: float = 260.0
 ## Push acceleration cap, so a tiny ball is not launched across the field.
 const PUSH_MAX_ACCEL: float = 26.0
+## Target rolling speed (m/s) when pushing a light ball along the ground.
+const PUSH_SPEED: float = 1.8
+## Floor on the target push speed (m/s) so a massive ball never stalls completely.
+const PUSH_MIN_SPEED: float = 0.8
+## Reference mass (kg) at and below which the ball rolls at full PUSH_SPEED.
+const PUSH_REF_MASS: float = 15.0
+## Minimum distance (m) to push: prevents pushing when standing on or inside the ball.
+const PUSH_REACH_MIN: float = 1.0
+## Maximum distance (m) to push: player must walk behind the ball if it rolls further.
+const PUSH_REACH_MAX: float = 3.0
 ## Stiffness and damping of the snow support (per unit of mass).
 const SUPPORT_STIFFNESS: float = 400.0
 const SUPPORT_DAMPING: float = 40.0
@@ -94,6 +104,9 @@ var _flight_max_speed: float = 0.0
 const THROW_GRACE_DURATION: float = 0.35
 var thrower: Node = null
 var throw_grace_timer: float = 0.0
+## Pusher grace: a ball being rolled along the ground ignores its pusher so it cannot burst against them.
+var pusher: Node = null
+var push_grace_timer: float = 0.0
 
 var _mesh_instance: MeshInstance3D
 var _sphere_mesh: SphereMesh
@@ -427,7 +440,9 @@ func _check_impact_hits() -> void:
 	if speed < TIER_MIN_SPEED[ball_tier]:
 		return
 	for target in get_tree().get_nodes_in_group(IMPACT_GROUP):
-		if throw_grace_timer > 0.0 and target == thrower:
+		if (throw_grace_timer > 0.0 and target == thrower) or (push_grace_timer > 0.0 and target == pusher):
+			continue
+		if target.has_method("is_carrying") and target.get("_push_target") == self:
 			continue
 		if not target.has_method("impact_spheres"):
 			continue
@@ -476,6 +491,10 @@ func _physics_process(delta: float) -> void:
 		throw_grace_timer = maxf(throw_grace_timer - delta, 0.0)
 		if throw_grace_timer <= 0.0:
 			thrower = null
+	if push_grace_timer > 0.0:
+		push_grace_timer = maxf(push_grace_timer - delta, 0.0)
+		if push_grace_timer <= 0.0:
+			pusher = null
 	if is_carried:
 		return
 
@@ -510,7 +529,9 @@ func _on_body_entered(body: Node) -> void:
 	# of height and zero speed, which silently killed two phases of the physics battery.
 	if is_carried:
 		return
-	if throw_grace_timer > 0.0 and body == thrower:
+	if (throw_grace_timer > 0.0 and body == thrower) or (push_grace_timer > 0.0 and body == pusher):
+		return
+	if body.has_method("is_carrying") and body.get("_push_target") == self:
 		return
 	# Hitting a person. Resolved from this actual contact if the sweep did not catch it:
 	if body != null and body.is_in_group(IMPACT_GROUP) and body.has_method("receive_ball_hit"):
@@ -583,22 +604,68 @@ func _shatter(impact_velocity: Vector3 = Vector3.ZERO) -> void:
 	SnowBurst.spawn(get_parent(), global_position, radius, packed_mass(), impact_velocity, snow_field)
 	queue_free()
 
+## Target rolling speed for this ball's current mass (the beetle scale).
+func target_push_speed() -> float:
+	var mass_factor: float = clampf(PUSH_REF_MASS / maxf(mass, 0.1), 0.45, 1.0)
+	return maxf(PUSH_SPEED * mass_factor, PUSH_MIN_SPEED)
+
 # Interaction
-## Player push: a capped FORCE (not an acceleration) applied at the grip point
-## rather than at the centre of mass. The ball therefore rolls instead of
-## sliding and, above all, a heavy ball barely moves while a light one rolls away.
-func push(from_position: Vector3, strength: float) -> void:
-	if is_carried:
+## Player push: rolls the ball toward a target speed scaled by mass (the dung beetle
+## mechanic). Applies force at a point below the centre of mass so it rolls forward
+## rather than sliding, and shuts off force when the ball is at or above target speed.
+func push(from_position: Vector3, strength: float, by_node: Node = null) -> void:
+	if is_carried or _shattered:
 		return
-	var dir := global_position - from_position
-	dir.y = 0.0
+	if by_node != null:
+		pusher = by_node
+		push_grace_timer = 0.4
+	var offset := global_position - from_position
+	var horizontal_dist := Vector2(offset.x, offset.z).length()
+	if horizontal_dist < PUSH_REACH_MIN or horizontal_dist > PUSH_REACH_MAX:
+		return
+	# Cannot push if standing on top of the ball (beetle cannot push its own ride)
+	if horizontal_dist < radius + 0.4 and from_position.y > global_position.y + radius * 0.4:
+		return
+	var dir := Vector3(offset.x, 0.0, offset.z)
 	if dir.length_squared() < 1e-4:
 		return
 	dir = dir.normalized()
-	var grip := global_position - Vector3(0.0, radius * 0.45, 0.0)
-	# Capped force, with an acceleration cap for very light balls
-	var force := minf(strength * PUSH_FORCE_NEWTONS, PUSH_MAX_ACCEL * mass)
-	apply_force(dir * force, grip - global_position)
+
+	var fwd := dir
+	var has_pusher := false
+	var pusher_right := Vector3.ZERO
+	var lateral_err := 0.0
+
+	if by_node != null and by_node is Node3D:
+		var n3d := by_node as Node3D
+		var pfwd: Vector3 = -n3d.global_transform.basis.z
+		pfwd.y = 0.0
+		if pfwd.length_squared() > 1e-4:
+			fwd = pfwd.normalized()
+			pusher_right = n3d.global_transform.basis.x
+			pusher_right.y = 0.0
+			pusher_right = pusher_right.normalized()
+			lateral_err = offset.dot(pusher_right)
+			has_pusher = true
+
+	# 1. Lateral steering / centering: pusher's hands keep the ball centered along their heading
+	if has_pusher:
+		var lateral_v: float = linear_velocity.dot(pusher_right)
+		var centering_accel: float = -lateral_err * 12.0 - lateral_v * 6.0
+		var max_lateral := maxf(PUSH_FORCE_NEWTONS * 0.5, mass * 3.0)
+		var centering_force := pusher_right * clampf(centering_accel * mass, -max_lateral, max_lateral)
+		apply_force(centering_force, Vector3.ZERO)
+
+	# 2. Forward rolling push: applied above center of mass to roll forward towards target speed
+	var target_speed := target_push_speed()
+	var cur_fwd_speed := linear_velocity.dot(fwd)
+	if cur_fwd_speed < target_speed:
+		var speed_deficit := target_speed - cur_fwd_speed
+		var force_factor := clampf(speed_deficit / maxf(target_speed * 0.4, 0.1), 0.0, 1.0)
+		var max_push := maxf(PUSH_FORCE_NEWTONS, mass * 4.2)
+		var force := minf(strength * max_push * force_factor, PUSH_MAX_ACCEL * mass)
+		var fwd_force := fwd * force
+		apply_force(fwd_force, Vector3(0.0, radius * 0.15, 0.0))
 
 func begin_carry() -> void:
 	_break_weld()

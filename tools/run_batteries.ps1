@@ -58,7 +58,8 @@ $batteries = @(
     @{ Flag = 'impact-matrix';  Name = 'Impact matrix'; Kind = 'result';    Gpu = $true  },
     @{ Flag = 'phys-demo';      Name = 'Physics';      Kind = 'result';     Gpu = $true  },
     @{ Flag = 'playground-check'; Name = 'Playground'; Kind = 'result';     Gpu = $true  },
-    @{ Flag = 'carve-quality';  Name = 'Snow carving'; Kind = 'diagnostic'; Gpu = $true; MinFps = 40 }
+    @{ Flag = 'beetle-roll';      Name = 'Dung beetle roll'; Kind = 'result'; Gpu = $true },
+    @{ Flag = 'carve-quality';    Name = 'Snow carving'; Kind = 'diagnostic'; Gpu = $true; MinFps = 40 }
 )
 
 function Resolve-Godot {

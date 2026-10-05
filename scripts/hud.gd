@@ -630,7 +630,8 @@ func _update_hint() -> void:
 	elif player_ref and player_ref.get("is_stuck") == true:
 		text = tr("HUD_SHOVEL_JAMMED")
 	elif player_ref and player_ref.get("is_ground_pushing") == true:
-		text = tr("HUD_GROUND_PUSHING")
+		var mass: float = float(player_ref.get("pushed_mass"))
+		text = tr("HUD_GROUND_PUSHING") % mass
 	elif player_ref and player_ref.has_method("is_carrying") and player_ref.is_carrying():
 		var mass: float = float(player_ref.get("carried_mass"))
 		if player_ref.get("carry_two_hands") == true:
