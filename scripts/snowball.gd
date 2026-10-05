@@ -467,7 +467,9 @@ func _check_impact_hits() -> void:
 				str(target.get("hit_state")), str(target.get("hit_immunity"))])
 			if hit_speed >= TIER_MIN_SPEED[ball_tier]:
 				target.receive_ball_hit(ball_tier, hit_speed, bool(best_sphere["head"]), best_point, linear_velocity)
-			_shatter(linear_velocity)
+				# Only a hit that counts breaks the ball. Bursting on any contact meant a player
+				# walking into a big ball resting on the ground destroyed it without throwing it.
+				_shatter(linear_velocity)
 			return
 
 ## Closest approach of a segment to a sphere: the impact point, or INF on a miss.
@@ -550,10 +552,10 @@ func _on_body_entered(body: Node) -> void:
 			str(body.get("hit_state")), str(body.get("hit_immunity"))])
 		if hit_speed >= TIER_MIN_SPEED[ball_tier]:
 			body.receive_ball_hit(ball_tier, hit_speed, _is_head_hit(body), global_position, arrival)
-		# A snowball that lands on a person always bursts, whether or not they were in a
-		# state to react. Falling through to the generic branch below used to break the
-		# ball on them with no reaction and no record that anything had happened.
-		_shatter(arrival)
+			# Only a hit that counts breaks the ball. Bursting on any contact meant a player
+			# simply walking into a big ball resting on the ground destroyed it, with nothing
+			# thrown and nothing recorded.
+			_shatter(arrival)
 		return
 	var speed := linear_velocity.length()
 	# Hard hit against anything shatters the ball
