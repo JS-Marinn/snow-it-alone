@@ -81,9 +81,24 @@ addons/      third-party editor tooling (the Godot AI MCP plugin)
 Generated content is not tracked: `.godot/`, root-level diagnostic screenshots,
 logs, `extension_api.json` and `scratch_assets/`. See `.gitignore`.
 
-## Publishing
+## Repository and publishing
 
-The repository has no remote configured yet. When it does, a plain `git push`
-uploads the whole history; nothing is squashed. The commit author is currently
-`MrSeb <mseb@users.noreply.github.com>`, set locally in this checkout; it can be
-rewritten for every commit with a single rebase before the first push.
+The remote is `https://github.com/JS-Marinn/snow-it-alone` (public) and the local
+`main` branch tracks `origin/main`. Commits are authored as
+`JS-Marinn <JS-Marinn@users.noreply.github.com>`, configured in this checkout.
+
+Routine for every milestone: run the batteries, commit, push.
+
+```
+git add -A
+git commit -m "feat: <milestone>"
+git push
+```
+
+A push carries the whole history of the branch; nothing is squashed or lost.
+
+Files that must never be published are covered by `.gitignore`: the editor cache,
+export presets (they can hold keystore passwords), local addon state and staging
+asset packs. Check `git status` before adding anything that was downloaded rather
+than authored: third-party asset licences are the author's responsibility, and
+this repository is public.
