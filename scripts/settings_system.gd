@@ -19,6 +19,16 @@ static var invert_look: bool = false
 static var screen_shake: float = 1.0
 static var face_snow_auto_clear: bool = true
 
+static var _loaded: bool = false
+
+## Loads once per run, whichever system asks first. The player and the HUD both need the
+## values and neither can be relied on to run before the other.
+static func ensure_loaded() -> void:
+	if _loaded:
+		return
+	_loaded = true
+	load_from_disk()
+
 static func defaults() -> void:
 	master_volume = 1.0
 	mouse_sensitivity = 1.0

@@ -1,6 +1,10 @@
 extends CharacterBody3D
 
 const SessionModeScript = preload("res://scripts/session_mode.gd")
+const SettingsSystemScript = preload("res://scripts/settings_system.gd")
+## Controller look: speed at full deflection, and how far the stick must move first.
+const STICK_LOOK_SPEED: float = 2.4
+const STICK_DEADZONE: float = 0.18
 const SnowChunkScript = preload("res://scripts/snow_chunk.gd")
 const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 const SnowBallScript = preload("res://scripts/snowball.gd")
@@ -237,6 +241,10 @@ func _ready() -> void:
 	floor_snap_length = 0.0
 	_player_owner = int(get_instance_id())
 	add_to_group(SnowBall.IMPACT_GROUP)
+	# Preferences are read here rather than left to whatever the script defaults are, so
+	# the settings screen actually changes the game and not just a file.
+	SettingsSystemScript.ensure_loaded()
+	snow_face_auto_clear = SettingsSystemScript.face_snow_auto_clear
 
 	_setup_audio()
 	_build_tools_visuals()
@@ -275,8 +283,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		mouse_input = event.relative
-		rotate_y(-event.relative.x * mouse_sensitivity)
-		camera.rotate_x(-event.relative.y * mouse_sensitivity)
+		var sens := mouse_sensitivity * SettingsSystemScript.mouse_sensitivity
+		var pitch_sign := 1.0 if SettingsSystemScript.invert_look else -1.0
+		rotate_y(-event.relative.x * sens)
+		camera.rotate_x(pitch_sign * event.relative.y * sens)
 		camera.rotation.x = clampf(camera.rotation.x, deg_to_rad(-75.0), deg_to_rad(80.0))
 
 	if event.is_action_pressed("toggle_cursor"):
@@ -487,6 +497,12 @@ func _physics_process(delta: float) -> void:
 		move_speed = target_speed
 	_move_horizontal(wish_dir, move_speed, delta, wants_move)
 
+	# Looking around with a controller. The right stick is read straight from the pad
+	# rather than through input actions, so it works on any controller without a single
+	# line added to the input map. Without this the camera needs a mouse, which is the
+	# reason the game was not playable on a Steam Deck.
+	_apply_stick_look(delta)
+
 	# Camera sway while staggering, plus the knock of a hit.
 	if camera:
 		var wobble := sin(_stagger_phase * 2.6) * 0.11 * stagger
@@ -619,6 +635,21 @@ func _refresh_surface() -> void:
 
 ## Quake's PM_Friction: a proportional speed loss, with a floor on the control
 ## term so the player comes to a clean stop instead of sliding for ever.
+## Right-stick look, with a dead zone so a drifting stick does not creep the view.
+func _apply_stick_look(delta: float) -> void:
+	if camera == null:
+		return
+	var stick := Vector2(
+		Input.get_joy_axis(0, JOY_AXIS_RIGHT_X),
+		Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y))
+	if stick.length() < STICK_DEADZONE:
+		return
+	var speed := STICK_LOOK_SPEED * SettingsSystemScript.mouse_sensitivity * delta
+	var pitch_sign := 1.0 if SettingsSystemScript.invert_look else -1.0
+	rotate_y(-stick.x * speed)
+	camera.rotate_x(pitch_sign * -stick.y * speed)
+	camera.rotation.x = clampf(camera.rotation.x, deg_to_rad(-75.0), deg_to_rad(80.0))
+
 func _apply_ground_friction(delta: float) -> void:
 	var flat := Vector2(velocity.x, velocity.z)
 	var speed := flat.length()

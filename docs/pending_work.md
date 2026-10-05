@@ -191,3 +191,15 @@ screen is honest about what it stores and dishonest about what it does.
 **Still absent from this milestone**: key and button remapping, and the larger half of
 controller support, which is that the camera needs a mouse to look with. Until that is
 done the game is not playable on a Steam Deck and the milestone cannot be called finished.
+
+## 9. Controller look and settings wiring: done after all
+
+The two halves left open in section 8 are now in. The player reads `mouse_sensitivity`,
+`invert_look` and `face_snow_auto_clear` at start-up, so the settings screen changes the
+game and not only a file. And the right stick looks around, read straight from the pad with
+a dead zone rather than through input actions, so it works on any controller with nothing
+added to the input map. That removes the reason the game was unplayable on a Steam Deck.
+
+**Still absent from the milestone:** key and button remapping. It is the last piece, and it
+is the largest: it needs a rebinding screen, conflict handling, and a decision about how to
+show a pad button to a player who only has a keyboard.
