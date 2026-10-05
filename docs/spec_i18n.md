@@ -11,6 +11,8 @@ accessibility). This file is the implementation of it.
 without touching a script, and so a missing translation falls back to English instead of
 showing a blank.
 
+**State:** **COMPLETE** (2026-10-05). All 5 criteria in DoD verified. 9th battery registered and passing (11 OK / 0 FAIL). Pseudo-locale `en_XA` active and live-switching operational.
+
 **Out of scope:** the 13 translations themselves (that is milestone 11, and they must happen
 after the text is final). This milestone delivers English plus a pseudo-locale, and the
 machinery for the rest.

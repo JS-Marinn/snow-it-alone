@@ -27,6 +27,10 @@ static var _captured: bool = false
 
 ## Human-readable action names for the screen.
 static func action_label(action: String) -> String:
+	var key := "ACTION_" + action.to_upper()
+	var text := TranslationServer.translate(key)
+	if text != key:
+		return text
 	var words := action.replace("_", " ")
 	return words.substr(0, 1).to_upper() + words.substr(1)
 

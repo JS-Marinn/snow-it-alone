@@ -1,0 +1,97 @@
+keys,en,en_XA
+MENU_TITLE,"SNOW IT TOGETHER","[SNöW ïT TöGêTHêR~~~~~]"
+MENU_SUBTITLE,"Snow clearing crew - prototype","[Snöw clêårïng crêw - prötötýpê~~~~~~~~~~]"
+MENU_HINT,"W A S D move - Left click push/cut - Right click dump/throw - E interact - H help","[W å S D mövê - Lêft clïck pûsh/cût - Rïght clïck dûmp/thröw - ê ïntêråct - H hêlp~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+MENU_SLOTS_TITLE,"Save slots","[Såvê slöts~~]"
+MENU_CONTINUE,"Continue","[Cöntïnûê~~]"
+MENU_NEW_GAME,"New Game","[Nêw Gåmê~~]"
+MENU_OVERWRITE_SLOT,"Overwrite slot %d?","[övêrwrïtê slöt %d?~~~~~~]"
+MENU_DELETE_SLOT,"Delete Slot","[Dêlêtê Slöt~~~]"
+MENU_SLOT_DELETED,"Slot %d deleted.","[Slöt %d dêlêtêd.~~~~~]"
+MENU_QUIT,"Quit","[Qûït~~]"
+MENU_SLOT_UNREADABLE,"That slot could not be read.","[Thåt slöt cöûld nöt bê rêåd.~~~~~~~~~~]"
+MENU_SLOT_EMPTY,"Slot %d - Empty","[Slöt %d - êmptý~~~~]"
+MENU_SLOT_DETAILS,"Slot %d - %s - %d%% cleared - $%d - %d min","[Slöt %d - %s - %d%% clêårêd - $%d - %d mïn~~~~~~~~~~~~~~~]"
+MENU_LEVEL_N,"Level %d","[Lêvêl %d~~]"
+MENU_PLAYGROUND_DEV,"Playground (dev)","[Plåýgröûnd (dêv)~~~~~]"
+MENU_PLAYGROUND_TOOLTIP,"Measuring bench: 40 m runway, four surfaces, dummies. Not part of the game.","[Mêåsûrïng bênch: 40 m rûnwåý, föûr sûrfåcês, dûmmïês. Nöt pårt öf thê gåmê.~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+HUD_TITLE,"SNOW IT TOGETHER - Entrance Path","[SNöW ïT TöGêTHêR - êntråncê Påth~~~~~~~~~~~]"
+HUD_MONEY,"Money: $%d","[Mönêý: $%d~~]"
+HUD_CLEARED,"Cleared: %d%%","[Clêårêd: %d%%~~~~]"
+HUD_SNOW_REMOVED,"Snow removed: %.1f kg","[Snöw rêmövêd: %.1f kg~~~~~~~]"
+HUD_TOOL_SHOVEL,"Tool: [1] Snow Shovel","[Tööl: [1] Snöw Shövêl~~~~~~~]"
+HUD_TOOL_BLOWER,"Tool: [2] Motorized Snow Blower","[Tööl: [2] Mötörïzêd Snöw Blöwêr~~~~~~~~~~~]"
+HUD_TOOL_SALT,"Tool: [3] Thermal Salt Spreader","[Tööl: [3] Thêrmål Sålt Sprêådêr~~~~~~~~~~~]"
+HUD_WIPE_FACE,"Snow on your face - hold [E] to wipe it off","[Snöw ön ýöûr fåcê - höld [ê] tö wïpê ït öff~~~~~~~~~~~~~~~~]"
+HUD_SHOVEL_JAMMED,"SHOVEL JAMMED! Look ahead to shave thin, or press [Q] to tamp","[SHöVêL JåMMêD! Löök åhêåd tö shåvê thïn, ör prêss [Q] tö tåmp~~~~~~~~~~~~~~~~~~~~~~~]"
+HUD_GROUND_PUSHING,"Pushing the ball along the ground - release [E] to leave it","[Pûshïng thê båll ålöng thê gröûnd - rêlêåsê [ê] tö lêåvê ït~~~~~~~~~~~~~~~~~~~~~~]"
+HUD_CARRY_SLIP,"ABOUT TO SLIP! %.0f kg - press [E] to drop it","[åBöûT Tö SLïP! %.0f kg - prêss [ê] tö dröp ït~~~~~~~~~~~~~~~~]"
+HUD_CARRY_OVERHEAD,"BALL OF %.0f KG overhead - grip %d%% - [E] drop, right click throw","[BåLL öF %.0f KG övêrhêåd - grïp %d%% - [ê] dröp, rïght clïck thröw~~~~~~~~~~~~~~~~~~~~~~~~~]"
+HUD_CARRY_ONE_HAND,"Carrying %.1f kg - [E] drop, right click throw","[Cårrýïng %.1f kg - [ê] dröp, rïght clïck thröw~~~~~~~~~~~~~~~~~]"
+HUD_SHOVEL_LOAD,"Load: %.1f kg - hold right click to dump, tap to throw","[Löåd: %.1f kg - höld rïght clïck tö dûmp, tåp tö thröw~~~~~~~~~~~~~~~~~~~~]"
+HUD_BLADE_FULL_HINT,"Blade full - right click to THROW","[Blådê fûll - rïght clïck tö THRöW~~~~~~~~~~~~]"
+STATUS_NOT_ENOUGH_SNOW,"Not enough snow to pack","[Nöt ênöûgh snöw tö påck~~~~~~~~]"
+STATUS_PACKING_SNOW,"Packing snow...","[Påckïng snöw...~~~~]"
+STATUS_BALL_IN_HANDS,"Snowball in hands: %.1f kg","[Snöwbåll ïn hånds: %.1f kg~~~~~~~~~]"
+STATUS_BALL_ON_GROUND,"Snowball on the ground: %.1f kg","[Snöwbåll ön thê gröûnd: %.1f kg~~~~~~~~~~~]"
+STATUS_BALL_SLIPPED,"The ball slipped out of your hands!","[Thê båll slïppêd öût öf ýöûr hånds!~~~~~~~~~~~~]"
+HUD_VICTORY_TITLE,"ENTRANCE PATH CLEARED","[êNTRåNCê PåTH CLêåRêD~~~~~~~]"
+HUD_VICTORY_SUB,"The snow is cleared. Press [R] to play again.","[Thê snöw ïs clêårêd. Prêss [R] tö plåý ågåïn.~~~~~~~~~~~~~~~~]"
+HELP_CONTROLS,"CONTROLS  (H to hide this panel)
+- W, A, S, D: Move (Shift: Sprint)
+- Space: Jump
+- Left click: Push / cut snow
+- Look ahead: the blade shaves thin sheets (sculpting)
+- Right click (hold): tilt the blade and DUMP
+- Right click (tap): THROW snow
+- Q: Tamp and pack the snow down
+- E (tap): Pick up objects and balls - pack a snowball
+- E (hold): Push a ball along the ground, never lift it
+- While carrying: right click throws it, E drops it
+- Large ball: both hands overhead, you stagger with it
+- Hit in the face: hold E to wipe the snow off
+- 1, 2, 3: Shovel / Blower / Salt
+- ESC: release mouse - R: restart level - H: hide help","[CöNTRöLS  (H tö hïdê thïs pånêl)
+- W, å, S, D: Mövê (Shïft: Sprïnt)
+- Spåcê: Jûmp
+- Lêft clïck: Pûsh / cût snöw
+- Löök åhêåd: thê blådê shåvês thïn shêêts (scûlptïng)
+- Rïght clïck (höld): tïlt thê blådê ånd DûMP
+- Rïght clïck (tåp): THRöW snöw
+- Q: Tåmp ånd påck thê snöw döwn
+- ê (tåp): Pïck ûp öbjêcts ånd bålls - påck å snöwbåll
+- ê (höld): Pûsh å båll ålöng thê gröûnd, nêvêr lïft ït
+- Whïlê cårrýïng: rïght clïck thröws ït, ê dröps ït
+- Lårgê båll: böth hånds övêrhêåd, ýöû ståggêr wïth ït
+- Hït ïn thê fåcê: höld ê tö wïpê thê snöw öff
+- 1, 2, 3: Shövêl / Blöwêr / Sålt
+- êSC: rêlêåsê möûsê - R: rêstårt lêvêl - H: hïdê hêlp~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+PAUSE_TITLE,"Paused","[Påûsêd~]"
+PAUSE_RESUME,"Resume","[Rêsûmê~]"
+PAUSE_RESTART,"Restart level","[Rêstårt lêvêl~~~~]"
+PAUSE_SETTINGS,"Settings","[Sêttïngs~~]"
+PAUSE_QUIT_MENU,"Quit to menu","[Qûït tö mênû~~~]"
+SETTINGS_TITLE,"Settings","[Sêttïngs~~]"
+SETTINGS_VOLUME,"Master volume","[Måstêr völûmê~~~~]"
+SETTINGS_SENSITIVITY,"Mouse sensitivity","[Möûsê sênsïtïvïtý~~~~~]"
+SETTINGS_SHAKE,"Screen shake","[Scrêên shåkê~~~]"
+SETTINGS_INVERT,"Invert look","[ïnvêrt löök~~~]"
+SETTINGS_FACE_SNOW,"Face snow clears by itself","[Fåcê snöw clêårs bý ïtsêlf~~~~~~~~~]"
+SETTINGS_LANGUAGE,"Language","[Långûågê~~]"
+SETTINGS_BACK,"Back","[Båck~~]"
+SETTINGS_CONTROLS,"Controls","[Cöntröls~~]"
+SETTINGS_RESET,"Reset","[Rêsêt~~]"
+CONTROLS_TITLE,"Controls","[Cöntröls~~]"
+CONTROLS_BACK,"Back","[Båck~~]"
+CONTROLS_RESET,"Reset controls","[Rêsêt cöntröls~~~~]"
+CONTROLS_LISTENING,"press a key or button","[prêss å kêý ör bûttön~~~~~~~]"
+ACTION_MOVE_FORWARD,"Move forward","[Mövê förwård~~~]"
+ACTION_MOVE_BACKWARD,"Move backward","[Mövê båckwård~~~~]"
+ACTION_MOVE_LEFT,"Move left","[Mövê lêft~~]"
+ACTION_MOVE_RIGHT,"Move right","[Mövê rïght~~]"
+ACTION_SPRINT,"Sprint","[Sprïnt~]"
+ACTION_JUMP,"Jump","[Jûmp~~]"
+ACTION_INTERACT,"Interact","[ïntêråct~~]"
+ACTION_TOOL_1,"Tool 1","[Tööl 1~]"
+ACTION_TOOL_2,"Tool 2","[Tööl 2~]"
+ACTION_TOOL_3,"Tool 3","[Tööl 3~]"

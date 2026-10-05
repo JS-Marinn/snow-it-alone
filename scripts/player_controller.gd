@@ -1187,7 +1187,7 @@ func _update_carry_state(delta: float) -> void:
 		stagger = clampf((carried_mass - two_hands_mass) / span, 0.0, 1.0)
 		grip_left = maxf(grip_left - delta * (grip_drain_base + grip_drain_stagger * stagger), 0.0)
 		if grip_left <= 0.0:
-			status_message = "The ball slipped out of your hands!"
+			status_message = tr("STATUS_BALL_SLIPPED")
 			_release_carried(Vector3.ZERO)
 			grip_left = 0.30   # room to try again
 			stagger = 0.0
@@ -1250,12 +1250,12 @@ func _pack_snowball() -> void:
 	if snow_field.has_method("get_height_at"):
 		h = snow_field.get_height_at(pt)
 	if h < 0.05:
-		status_message = "Not enough snow to pack"
+		status_message = tr("STATUS_NOT_ENOUGH_SNOW")
 		return
 	_pending_pack = true
 	var depth := minf(0.10, maxf(h * 0.45, 0.03))
 	snow_field.request_harvest(_player_owner, pt, pt + Vector3(0.03, 0.0, 0.03), 0.20, depth)
-	status_message = "Packing snow..."
+	status_message = tr("STATUS_PACKING_SNOW")
 
 func _on_op_volume_ready(role: String, owner: int, kg: float) -> void:
 	if role != "harvest" or owner != _player_owner:
@@ -1264,7 +1264,7 @@ func _on_op_volume_ready(role: String, owner: int, kg: float) -> void:
 		return
 	_pending_pack = false
 	if kg < pack_min_kg:
-		status_message = "Not enough snow to pack"
+		status_message = tr("STATUS_NOT_ENOUGH_SNOW")
 		return
 	var r := pow(maxf(3.0 * kg / (4.0 * PI * PACKED_DENSITY), 1e-6), 1.0 / 3.0)
 	r = clampf(r, 0.08, 0.22)
@@ -1279,10 +1279,10 @@ func _on_op_volume_ready(role: String, owner: int, kg: float) -> void:
 	if is_carrying():
 		# Already carrying something (rare case): the ball drops at your feet instead of being lost
 		ball.global_position = global_position + _forward_flat() * 0.7 + Vector3.UP * (r + 0.05)
-		status_message = "Snowball on the ground: %.1f kg" % ball.packed_mass()
+		status_message = tr("STATUS_BALL_ON_GROUND") % ball.packed_mass()
 	else:
 		_begin_carry(ball)
-		status_message = "Snowball in hands: %.1f kg" % ball.packed_mass()
+		status_message = tr("STATUS_BALL_IN_HANDS") % ball.packed_mass()
 	var sfx := AudioStreamPlayer3D.new()
 	sfx.stream = SoundEffectsScript.get_snow_thud()
 	sfx.volume_db = -6.0

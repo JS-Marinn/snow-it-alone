@@ -18,6 +18,7 @@ static var mouse_sensitivity: float = 1.0
 static var invert_look: bool = false
 static var screen_shake: float = 1.0
 static var face_snow_auto_clear: bool = true
+static var language: String = "en"
 
 static var _loaded: bool = false
 
@@ -35,6 +36,7 @@ static func defaults() -> void:
 	invert_look = false
 	screen_shake = 1.0
 	face_snow_auto_clear = true
+	language = "en"
 
 static func to_dictionary() -> Dictionary:
 	return {
@@ -44,6 +46,7 @@ static func to_dictionary() -> Dictionary:
 		"invert_look": invert_look,
 		"screen_shake": screen_shake,
 		"face_snow_auto_clear": face_snow_auto_clear,
+		"language": language,
 	}
 
 ## Missing keys keep their current value, so a settings file written by an older build
@@ -54,6 +57,7 @@ static func from_dictionary(data: Dictionary) -> void:
 	invert_look = bool(data.get("invert_look", invert_look))
 	screen_shake = clampf(float(data.get("screen_shake", screen_shake)), 0.0, 2.0)
 	face_snow_auto_clear = bool(data.get("face_snow_auto_clear", face_snow_auto_clear))
+	language = String(data.get("language", language))
 
 static func save() -> bool:
 	var file := FileAccess.open(PATH, FileAccess.WRITE)
@@ -88,6 +92,8 @@ static func apply_to_engine() -> void:
 	if bus >= 0:
 		AudioServer.set_bus_volume_db(bus, linear_to_db(clampf(master_volume, 0.0001, 1.0)))
 		AudioServer.set_bus_mute(bus, master_volume <= 0.0001)
+	if not language.is_empty():
+		TranslationServer.set_locale(language)
 
 ## True when the value differs from its default, for a settings screen that highlights
 ## what has been changed.
@@ -96,9 +102,10 @@ static func is_modified() -> bool:
 		or absf(mouse_sensitivity - 1.0) > 0.001 \
 		or invert_look \
 		or absf(screen_shake - 1.0) > 0.001 \
-		or not face_snow_auto_clear
+		or not face_snow_auto_clear \
+		or language != "en"
 
 static func describe() -> String:
-	return "volume %.2f, sensitivity %.2f, invert %s, shake %.2f, auto-clear %s" % [
+	return "volume %.2f, sensitivity %.2f, invert %s, shake %.2f, auto-clear %s, language %s" % [
 		master_volume, mouse_sensitivity, str(invert_look), screen_shake,
-		str(face_snow_auto_clear)]
+		str(face_snow_auto_clear), language]

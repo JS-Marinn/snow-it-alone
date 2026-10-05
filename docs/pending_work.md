@@ -84,16 +84,10 @@ dummy. Still open:
 
 ## 3. Not started
 
-- **Roadmap item 8**, the i18n architecture: every player-facing string out of the code,
-  a language loader, a fake language to expose anything missed, fonts that survive long
-  German words.
-- **Roadmap item 9**, pause and settings: a pause menu that actually pauses (ESC currently
-  only frees the mouse while the world keeps running), video and audio screens, comfort
-  options, key remapping, and menus navigable with a controller alone, which the Steam
-  Deck target needs because it has no mouse.
+- **The remaining roadmap milestones** (see `docs/roadmap.md`). Milestone 9 (pause, settings, controls) and Milestone 8 (i18n architecture) are now complete.
 
 **Order agreed:** item 9 before item 8, because the i18n pass touches every screen and is
-worth doing once the state layer has stopped moving.
+worth doing once the state layer has stopped moving. Both are now done.
 
 ## 4. A note on tooling
 
@@ -226,3 +220,17 @@ every screen.
 Resolved on 2026-10-05 along with the impact matrix fix. `--impact-lab` is solid green (18/18 OK)
 and `--impact-matrix` is solid green (28/28 OK) across consecutive runs. The gate now reliably
 validates both batteries.
+
+---
+
+## 12. Milestone 8 (the i18n architecture) is complete
+
+Resolved on 2026-10-05.
+- Complete string inventory extracted to `res://locale/strings.csv` (68 keys across HUD, Main Menu, Pause Menu, Settings, Controls rebind, and Player Controller status messages).
+- Fallback locale set to English (`en`).
+- `LocalizationManager` handles translation registration, locale switching, and listener notifications.
+- Pseudo-locale `en_XA` generator created (`tools/make_pseudo_locale.ps1`), producing bracketed strings with accented characters, preserved format specifiers, and +40% expansion padding.
+- Live switching tested: changing language in Settings immediately updates HUD, Main Menu, Pause Menu, Settings, and Controls without restarting.
+- Headless-safe `--i18n-check` battery implemented (`scripts/i18n_check_demo.gd`) and registered as the 9th battery in `tools/run_batteries.ps1` (`Gpu = $false`).
+- Full battery suite green: 9/9 batteries passing (143/143 checks passed).
+

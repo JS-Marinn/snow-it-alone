@@ -160,15 +160,15 @@ func _migrate(raw: Dictionary) -> Dictionary:
 		migrated["playtime"] = 0.0
 	return migrated
 
-## Formats a slot header for the menu, in English, with no engine locale surprises.
+## Formats a slot header for the menu.
 func slot_label(slot: int, level_names: Array = []) -> String:
 	var info := slot_info(slot)
 	if not info["exists"]:
-		return "Slot %d - Empty" % (slot + 1)
+		return tr("MENU_SLOT_EMPTY") % (slot + 1)
 	var level_index := int(info["level_index"])
-	var level_name := "Level %d" % (level_index + 1)
+	var level_name := tr("MENU_LEVEL_N") % (level_index + 1)
 	if level_index < level_names.size():
 		level_name = String(level_names[level_index])
 	var minutes := int(float(info["playtime"]) / 60.0)
-	return "Slot %d - %s - %d%% cleared - $%d - %d min" % [
+	return tr("MENU_SLOT_DETAILS") % [
 		slot + 1, level_name, int(float(info["cleared_pct"])), int(info["coins"]), minutes]

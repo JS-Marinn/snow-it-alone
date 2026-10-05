@@ -3,11 +3,13 @@ extends CanvasLayer
 const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 const SettingsSystemScript = preload("res://scripts/settings_system.gd")
 const InputBindingsScript = preload("res://scripts/input_bindings.gd")
+const LocalizationManagerScript = preload("res://scripts/localization_manager.gd")
 
 ## Emitted once when the level reaches the clear target, so the save file can be
 ## updated without the HUD knowing anything about persistence.
 signal level_completed(cleared_pct: float)
 
+@onready var label_title: Label = $MarginContainer/VBoxTop/Title
 @onready var progress_bar: ProgressBar = $MarginContainer/VBoxTop/ProgressBar
 @onready var label_pct: Label = $MarginContainer/VBoxTop/HBoxInfo/LabelPct
 @onready var label_kg: Label = $MarginContainer/VBoxTop/HBoxInfo/LabelKg
@@ -17,6 +19,8 @@ signal level_completed(cleared_pct: float)
 @onready var shovel_bar: ProgressBar = $VBoxBottom/ShovelBar
 @onready var label_toss_hint: Label = $VBoxBottom/LabelTossHint
 @onready var victory_panel: PanelContainer = $VictoryPanel
+@onready var victory_title: Label = $VictoryPanel/VBox/Title
+@onready var victory_sub: Label = $VictoryPanel/VBox/Sub
 @onready var panel_controls: PanelContainer = $PanelControls
 @onready var label_controls: Label = $PanelControls/Margin/LabelControls
 
@@ -24,35 +28,45 @@ var coins: int = 0
 var has_won: bool = false
 var player_ref: CharacterBody3D
 var _hint_timer: float = 0.0
+var _last_pct: float = 0.0
+var _last_kg: float = 0.0
 ## Snow across the face. Sits under the HUD text but over the world.
 var _face_overlay: TextureRect
 ## The pause panel, and the physics frame count when it opened, for the diagnostic.
 var _pause_menu: PanelContainer
+var _pause_title: Label
+var _pause_resume_btn: Button
+var _pause_restart_btn: Button
+var _pause_settings_btn: Button
+var _pause_quit_btn: Button
+
 var _settings_panel: PanelContainer
+var _settings_title: Label
+var _settings_vol_label: Label
+var _settings_sens_label: Label
+var _settings_shake_label: Label
+var _settings_invert_check: CheckButton
+var _settings_face_check: CheckButton
+var _settings_lang_label: Label
+var _settings_lang_opt: OptionButton
+var _settings_back_btn: Button
+var _settings_controls_btn: Button
+var _settings_reset_btn: Button
+
 var _controls_panel: PanelContainer
+var _controls_title: Label
+var _control_labels: Dictionary = {}
 var _control_buttons: Dictionary = {}
+var _controls_back_btn: Button
+var _controls_reset_btn: Button
 var _listening_for: String = ""
 var _physics_frames_at_pause: int = 0
 
 const CLEAR_TARGET_PCT: float = 90.0
 
-const CONTROLS_TEXT := """CONTROLS  (H to hide this panel)
-- W, A, S, D: Move (Shift: Sprint)
-- Space: Jump
-- Left click: Push / cut snow
-- Look ahead: the blade shaves thin sheets (sculpting)
-- Right click (hold): tilt the blade and DUMP
-- Right click (tap): THROW snow
-- Q: Tamp and pack the snow down
-- E (tap): Pick up objects and balls - pack a snowball
-- E (hold): Push a ball along the ground, never lift it
-- While carrying: right click throws it, E drops it
-- Large ball: both hands overhead, you stagger with it
-- Hit in the face: hold E to wipe the snow off
-- 1, 2, 3: Shovel / Blower / Salt
-- ESC: release mouse - R: restart level - H: hide help"""
-
 func _ready() -> void:
+	LocalizationManagerScript.ensure_loaded()
+	LocalizationManagerScript.add_listener(refresh_text)
 	_build_face_overlay()
 	# The HUD has to keep working while the game is paused: it owns the pause menu, so
 	# being paused must not stop it from reading the key that unpauses.
@@ -61,6 +75,7 @@ func _ready() -> void:
 	_build_settings_panel()
 	SettingsSystemScript.load_from_disk()
 	SettingsSystemScript.apply_to_engine()
+	refresh_text()
 	if OS.get_cmdline_user_args().has("--rebind-shot"):
 		_run_rebind_shot()
 	if OS.get_cmdline_user_args().has("--settings-shot"):
@@ -70,10 +85,11 @@ func _ready() -> void:
 	# The help panel starts hidden so it never covers the scene.
 	if panel_controls:
 		panel_controls.visible = false
-	if label_controls:
-		label_controls.text = CONTROLS_TEXT
 	if OS.get_cmdline_user_args().has("--pause-shot"):
 		_run_pause_shot()
+
+func _exit_tree() -> void:
+	LocalizationManagerScript.remove_listener(refresh_text)
 
 ## Pause that pauses. Until now ESC only released the mouse while the snow kept falling
 ## behind it, which is not a pause menu, it is a way to lose the mouse.
@@ -104,24 +120,28 @@ func _build_pause_menu() -> void:
 	column.add_theme_constant_override("separation", 10)
 	margin.add_child(column)
 
-	var title := Label.new()
-	title.text = "Paused"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 22)
-	column.add_child(title)
+	_pause_title = Label.new()
+	_pause_title.text = tr("PAUSE_TITLE")
+	_pause_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_pause_title.add_theme_font_size_override("font_size", 22)
+	column.add_child(_pause_title)
 
-	column.add_child(_pause_button("Resume", func() -> void: _set_paused(false)))
-	column.add_child(_pause_button("Restart level", func() -> void:
+	_pause_resume_btn = _pause_button("PAUSE_RESUME", func() -> void: _set_paused(false))
+	column.add_child(_pause_resume_btn)
+	_pause_restart_btn = _pause_button("PAUSE_RESTART", func() -> void:
 		_set_paused(false)
-		get_tree().reload_current_scene()))
-	column.add_child(_pause_button("Settings", func() -> void: _show_settings(true)))
-	column.add_child(_pause_button("Quit to menu", func() -> void:
+		get_tree().reload_current_scene())
+	column.add_child(_pause_restart_btn)
+	_pause_settings_btn = _pause_button("PAUSE_SETTINGS", func() -> void: _show_settings(true))
+	column.add_child(_pause_settings_btn)
+	_pause_quit_btn = _pause_button("PAUSE_QUIT_MENU", func() -> void:
 		_set_paused(false)
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")))
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn"))
+	column.add_child(_pause_quit_btn)
 
-func _pause_button(label: String, action: Callable) -> Button:
+func _pause_button(label_or_key: String, action: Callable) -> Button:
 	var button := Button.new()
-	button.text = label
+	button.text = tr(label_or_key)
 	button.custom_minimum_size = Vector2(0.0, 40.0)
 	button.pressed.connect(action)
 	return button
@@ -152,48 +172,94 @@ func _build_settings_panel() -> void:
 	column.add_theme_constant_override("separation", 9)
 	margin.add_child(column)
 
-	var title := Label.new()
-	title.text = "Settings"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 22)
-	column.add_child(title)
+	_settings_title = Label.new()
+	_settings_title.text = tr("SETTINGS_TITLE")
+	_settings_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_settings_title.add_theme_font_size_override("font_size", 22)
+	column.add_child(_settings_title)
 
-	column.add_child(_setting_slider("Master volume", 0.0, 1.0, 0.01,
+	var vol_box := _setting_slider("SETTINGS_VOLUME", 0.0, 1.0, 0.01,
 		SettingsSystemScript.master_volume,
 		func(v: float) -> void:
 			SettingsSystemScript.master_volume = v
-			SettingsSystemScript.apply_to_engine()))
-	column.add_child(_setting_slider("Mouse sensitivity", 0.1, 3.0, 0.05,
+			SettingsSystemScript.apply_to_engine())
+	_settings_vol_label = vol_box.get_child(0) as Label
+	column.add_child(vol_box)
+
+	var sens_box := _setting_slider("SETTINGS_SENSITIVITY", 0.1, 3.0, 0.05,
 		SettingsSystemScript.mouse_sensitivity,
-		func(v: float) -> void: SettingsSystemScript.mouse_sensitivity = v))
-	column.add_child(_setting_slider("Screen shake", 0.0, 2.0, 0.05,
+		func(v: float) -> void: SettingsSystemScript.mouse_sensitivity = v)
+	_settings_sens_label = sens_box.get_child(0) as Label
+	column.add_child(sens_box)
+
+	var shake_box := _setting_slider("SETTINGS_SHAKE", 0.0, 2.0, 0.05,
 		SettingsSystemScript.screen_shake,
-		func(v: float) -> void: SettingsSystemScript.screen_shake = v))
-	column.add_child(_setting_check("Invert look", SettingsSystemScript.invert_look,
-		func(on: bool) -> void: SettingsSystemScript.invert_look = on))
-	column.add_child(_setting_check("Face snow clears by itself", SettingsSystemScript.face_snow_auto_clear,
-		func(on: bool) -> void: SettingsSystemScript.face_snow_auto_clear = on))
+		func(v: float) -> void: SettingsSystemScript.screen_shake = v)
+	_settings_shake_label = shake_box.get_child(0) as Label
+	column.add_child(shake_box)
+
+	_settings_invert_check = _setting_check("SETTINGS_INVERT", SettingsSystemScript.invert_look,
+		func(on: bool) -> void: SettingsSystemScript.invert_look = on)
+	column.add_child(_settings_invert_check)
+
+	_settings_face_check = _setting_check("SETTINGS_FACE_SNOW", SettingsSystemScript.face_snow_auto_clear,
+		func(on: bool) -> void: SettingsSystemScript.face_snow_auto_clear = on)
+	column.add_child(_settings_face_check)
+
+	column.add_child(_build_language_row())
 
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 10)
 	column.add_child(buttons)
-	buttons.add_child(_pause_button("Back", func() -> void: _show_settings(false)))
-	buttons.add_child(_pause_button("Controls", func() -> void:
+	_settings_back_btn = _pause_button("SETTINGS_BACK", func() -> void: _show_settings(false))
+	buttons.add_child(_settings_back_btn)
+	_settings_controls_btn = _pause_button("SETTINGS_CONTROLS", func() -> void:
 		_build_controls_panel()
-		_show_controls(true)))
-	buttons.add_child(_pause_button("Reset", func() -> void:
+		_show_controls(true))
+	buttons.add_child(_settings_controls_btn)
+	_settings_reset_btn = _pause_button("SETTINGS_RESET", func() -> void:
 		SettingsSystemScript.defaults()
 		SettingsSystemScript.apply_to_engine()
 		SettingsSystemScript.save()
 		_show_settings(false)
-		_show_settings(true)))
+		_show_settings(true))
+	buttons.add_child(_settings_reset_btn)
+
+func _build_language_row() -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+
+	_settings_lang_label = Label.new()
+	_settings_lang_label.text = tr("SETTINGS_LANGUAGE")
+	_settings_lang_label.custom_minimum_size = Vector2(180.0, 0.0)
+	row.add_child(_settings_lang_label)
+
+	_settings_lang_opt = OptionButton.new()
+	_settings_lang_opt.custom_minimum_size = Vector2(180.0, 32.0)
+	var langs = LocalizationManagerScript.available_languages()
+	var cur = LocalizationManagerScript.current_language()
+	var select_idx := 0
+	for i in range(langs.size()):
+		var entry = langs[i]
+		_settings_lang_opt.add_item(entry["name"])
+		_settings_lang_opt.set_item_metadata(i, entry["code"])
+		if entry["code"] == cur:
+			select_idx = i
+	_settings_lang_opt.selected = select_idx
+	_settings_lang_opt.item_selected.connect(func(idx: int):
+		var code: String = _settings_lang_opt.get_item_metadata(idx)
+		SettingsSystemScript.language = code
+		SettingsSystemScript.save()
+		LocalizationManagerScript.set_language(code))
+	row.add_child(_settings_lang_opt)
+	return row
 
 ## A slider that writes through to the settings on every change, then persists.
-func _setting_slider(label: String, low: float, high: float, step: float,
+func _setting_slider(key: String, low: float, high: float, step: float,
 		value: float, on_change: Callable) -> VBoxContainer:
 	var box := VBoxContainer.new()
 	var text := Label.new()
-	text.text = label
+	text.text = tr(key)
 	box.add_child(text)
 	var slider := HSlider.new()
 	slider.min_value = low
@@ -207,9 +273,9 @@ func _setting_slider(label: String, low: float, high: float, step: float,
 	box.add_child(slider)
 	return box
 
-func _setting_check(label: String, value: bool, on_change: Callable) -> CheckButton:
+func _setting_check(key: String, value: bool, on_change: Callable) -> CheckButton:
 	var check := CheckButton.new()
-	check.text = label
+	check.text = tr(key)
 	check.button_pressed = value
 	check.toggled.connect(func(on: bool) -> void:
 		on_change.call(on)
@@ -367,30 +433,33 @@ func init_hud(player: CharacterBody3D, snow_field: Node3D) -> void:
 func set_coins(value: int) -> void:
 	coins = value
 	if label_coins:
-		label_coins.text = "Money: $%d" % coins
+		label_coins.text = tr("HUD_MONEY") % coins
 
 func _process(delta: float) -> void:
 	if not player_ref:
 		return
 	_hint_timer = maxf(_hint_timer - delta, 0.0)
+	_update_tool_label()
+	_update_face_overlay()
+	_update_hint()
 
+func _update_tool_label() -> void:
+	if not label_tool_name or not player_ref:
+		return
 	if "current_tool" in player_ref:
 		match player_ref.current_tool:
 			0: # SHOVEL
-				label_tool_name.text = "Tool: [1] Snow Shovel"
+				label_tool_name.text = tr("HUD_TOOL_SHOVEL")
 				shovel_bar.visible = true
 				if "shovel_current_load" in player_ref:
 					shovel_bar.value = player_ref.shovel_current_load
 					shovel_bar.max_value = player_ref.shovel_capacity_max
 			1: # BLOWER
-				label_tool_name.text = "Tool: [2] Motorized Snow Blower"
+				label_tool_name.text = tr("HUD_TOOL_BLOWER")
 				shovel_bar.visible = false
 			2: # SALT
-				label_tool_name.text = "Tool: [3] Thermal Salt Spreader"
+				label_tool_name.text = tr("HUD_TOOL_SALT")
 				shovel_bar.visible = false
-
-	_update_face_overlay()
-	_update_hint()
 
 ## Snow across the face, driven by the player's reaction state.
 func _update_face_overlay() -> void:
@@ -406,35 +475,40 @@ func _update_hint() -> void:
 	if label_toss_hint == null:
 		return
 	var text := ""
-	if float(player_ref.get("face_snow_timer")) > 0.0:
-		text = "Snow on your face - hold [E] to wipe it off"
-	elif player_ref.get("is_stuck") == true:
-		text = "SHOVEL JAMMED! Look ahead to shave thin, or press [Q] to tamp"
-	elif player_ref.get("is_ground_pushing") == true:
-		text = "Pushing the ball along the ground - release [E] to leave it"
-	elif player_ref.has_method("is_carrying") and player_ref.is_carrying():
+	if player_ref and float(player_ref.get("face_snow_timer")) > 0.0:
+		text = tr("HUD_WIPE_FACE")
+	elif player_ref and player_ref.get("is_stuck") == true:
+		text = tr("HUD_SHOVEL_JAMMED")
+	elif player_ref and player_ref.get("is_ground_pushing") == true:
+		text = tr("HUD_GROUND_PUSHING")
+	elif player_ref and player_ref.has_method("is_carrying") and player_ref.is_carrying():
 		var mass: float = float(player_ref.get("carried_mass"))
 		if player_ref.get("carry_two_hands") == true:
 			var grip: float = float(player_ref.get("grip_left"))
 			if grip < 0.3:
-				text = "ABOUT TO SLIP! %.0f kg - press [E] to drop it" % mass
+				text = tr("HUD_CARRY_SLIP") % mass
 			else:
-				text = "BALL OF %.0f KG overhead - grip %d%% - [E] drop, right click throw" % [
+				text = tr("HUD_CARRY_OVERHEAD") % [
 					mass, int(grip * 100.0)]
 		else:
-			text = "Carrying %.1f kg - [E] drop, right click throw" % mass
-	elif String(player_ref.get("status_message")) != "" and _hint_timer <= 0.0:
+			text = tr("HUD_CARRY_ONE_HAND") % mass
+	elif player_ref and String(player_ref.get("status_message")) != "" and _hint_timer <= 0.0:
 		text = String(player_ref.get("status_message"))
 		_hint_timer = 3.0
-	elif "shovel_current_load" in player_ref and player_ref.shovel_current_load > 5.0:
-		text = "Load: %.1f kg - hold right click to dump, tap to throw" % player_ref.shovel_current_load
+	elif player_ref and "shovel_current_load" in player_ref and player_ref.shovel_current_load > 5.0:
+		if player_ref.shovel_current_load >= float(player_ref.get("shovel_capacity_max")) - 0.5:
+			text = tr("HUD_BLADE_FULL_HINT")
+		else:
+			text = tr("HUD_SHOVEL_LOAD") % player_ref.shovel_current_load
 	label_toss_hint.visible = text != ""
 	label_toss_hint.text = text
 
 func _on_progress_updated(pct: float, kg_cleared: float, _kg_total: float) -> void:
+	_last_pct = pct
+	_last_kg = kg_cleared
 	progress_bar.value = pct
-	label_pct.text = "Cleared: %d%%" % int(pct)
-	label_kg.text = "Snow removed: %.1f kg" % kg_cleared
+	label_pct.text = tr("HUD_CLEARED") % int(pct)
+	label_kg.text = tr("HUD_SNOW_REMOVED") % kg_cleared
 
 	if pct >= CLEAR_TARGET_PCT and not has_won:
 		has_won = true
@@ -453,6 +527,10 @@ func _on_snow_tossed(bonus: int, _pos: Vector3) -> void:
 func _show_victory() -> void:
 	if victory_panel:
 		victory_panel.visible = true
+	if victory_title:
+		victory_title.text = tr("HUD_VICTORY_TITLE")
+	if victory_sub:
+		victory_sub.text = tr("HUD_VICTORY_SUB")
 	var sfx = AudioStreamPlayer.new()
 	sfx.stream = SoundEffectsScript.get_sound("victory")
 	add_child(sfx)
@@ -467,13 +545,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			if panel_controls:
 				panel_controls.visible = not panel_controls.visible
 
-
 ## The controls screen. One row per action, showing what it is bound to right now.
-##
-## NOT yet reachable from the menu: the settings screen would need a "Controls" button and
-## the press-to-capture hook in _input. Until those two exist this is exercised by
-## --rebind-shot, which is deliberate: a screen a player can open but not use would be
-## worse than no screen.
 func _build_controls_panel() -> void:
 	if _controls_panel != null:
 		_refresh_control_buttons()
@@ -501,13 +573,14 @@ func _build_controls_panel() -> void:
 	column.add_theme_constant_override("separation", 7)
 	margin.add_child(column)
 
-	var title := Label.new()
-	title.text = "Controls"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 22)
-	column.add_child(title)
+	_controls_title = Label.new()
+	_controls_title.text = tr("CONTROLS_TITLE")
+	_controls_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_controls_title.add_theme_font_size_override("font_size", 22)
+	column.add_child(_controls_title)
 
 	_control_buttons.clear()
+	_control_labels.clear()
 	for action in InputBindingsScript.ACTIONS:
 		if not InputMap.has_action(action):
 			continue
@@ -518,6 +591,7 @@ func _build_controls_panel() -> void:
 		label.text = InputBindingsScript.action_label(action)
 		label.custom_minimum_size = Vector2(200.0, 0.0)
 		row.add_child(label)
+		_control_labels[action] = label
 		var button := Button.new()
 		button.custom_minimum_size = Vector2(200.0, 32.0)
 		button.pressed.connect(_start_listening.bind(action))
@@ -527,17 +601,19 @@ func _build_controls_panel() -> void:
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 10)
 	column.add_child(buttons)
-	buttons.add_child(_pause_button("Back", func() -> void: _show_controls(false)))
-	buttons.add_child(_pause_button("Reset controls", func() -> void:
+	_controls_back_btn = _pause_button("CONTROLS_BACK", func() -> void: _show_controls(false))
+	buttons.add_child(_controls_back_btn)
+	_controls_reset_btn = _pause_button("CONTROLS_RESET", func() -> void:
 		InputBindingsScript.reset_to_defaults()
-		_refresh_control_buttons()))
+		_refresh_control_buttons())
+	buttons.add_child(_controls_reset_btn)
 	_refresh_control_buttons()
 
 func _refresh_control_buttons() -> void:
 	for action in _control_buttons.keys():
 		var button: Button = _control_buttons[action]
 		if action == _listening_for:
-			button.text = "press a key or button"
+			button.text = tr("CONTROLS_LISTENING")
 		else:
 			button.text = InputBindingsScript.binding_label(action)
 
@@ -556,6 +632,77 @@ func _show_controls(visible_now: bool) -> void:
 		_pause_menu.visible = false
 	if not visible_now:
 		_refresh_control_buttons()
+
+func refresh_text() -> void:
+	if label_title:
+		label_title.text = tr("HUD_TITLE")
+	if label_pct:
+		label_pct.text = tr("HUD_CLEARED") % int(_last_pct)
+	if label_kg:
+		label_kg.text = tr("HUD_SNOW_REMOVED") % _last_kg
+	if label_coins:
+		label_coins.text = tr("HUD_MONEY") % coins
+	if label_controls:
+		label_controls.text = tr("HELP_CONTROLS")
+	if victory_title:
+		victory_title.text = tr("HUD_VICTORY_TITLE")
+	if victory_sub:
+		victory_sub.text = tr("HUD_VICTORY_SUB")
+
+	_update_tool_label()
+	_update_hint()
+
+	# Pause menu
+	if _pause_title:
+		_pause_title.text = tr("PAUSE_TITLE")
+	if _pause_resume_btn:
+		_pause_resume_btn.text = tr("PAUSE_RESUME")
+	if _pause_restart_btn:
+		_pause_restart_btn.text = tr("PAUSE_RESTART")
+	if _pause_settings_btn:
+		_pause_settings_btn.text = tr("PAUSE_SETTINGS")
+	if _pause_quit_btn:
+		_pause_quit_btn.text = tr("PAUSE_QUIT_MENU")
+
+	# Settings panel
+	if _settings_title:
+		_settings_title.text = tr("SETTINGS_TITLE")
+	if _settings_vol_label:
+		_settings_vol_label.text = tr("SETTINGS_VOLUME")
+	if _settings_sens_label:
+		_settings_sens_label.text = tr("SETTINGS_SENSITIVITY")
+	if _settings_shake_label:
+		_settings_shake_label.text = tr("SETTINGS_SHAKE")
+	if _settings_invert_check:
+		_settings_invert_check.text = tr("SETTINGS_INVERT")
+	if _settings_face_check:
+		_settings_face_check.text = tr("SETTINGS_FACE_SNOW")
+	if _settings_lang_label:
+		_settings_lang_label.text = tr("SETTINGS_LANGUAGE")
+	if _settings_back_btn:
+		_settings_back_btn.text = tr("SETTINGS_BACK")
+	if _settings_controls_btn:
+		_settings_controls_btn.text = tr("SETTINGS_CONTROLS")
+	if _settings_reset_btn:
+		_settings_reset_btn.text = tr("SETTINGS_RESET")
+
+	if _settings_lang_opt:
+		var cur = LocalizationManagerScript.current_language()
+		for i in range(_settings_lang_opt.item_count):
+			if _settings_lang_opt.get_item_metadata(i) == cur:
+				_settings_lang_opt.selected = i
+				break
+
+	# Controls panel
+	if _controls_title:
+		_controls_title.text = tr("CONTROLS_TITLE")
+	for action in _control_labels.keys():
+		_control_labels[action].text = InputBindingsScript.action_label(action)
+	if _controls_back_btn:
+		_controls_back_btn.text = tr("CONTROLS_BACK")
+	if _controls_reset_btn:
+		_controls_reset_btn.text = tr("CONTROLS_RESET")
+	_refresh_control_buttons()
 
 ## Diagnostic: prove a rebinding survives a restart, which is the only thing that makes it
 ## useful. Rebinds jump, wipes it deliberately, reloads from disk and checks it came back.
