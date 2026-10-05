@@ -169,3 +169,25 @@ destroyed before those phases by the new rule that a ball landing on a person al
 
 **What to do:** make an aborted phase print a FAIL (or an explicit skip that the runner
 counts), then fix whatever is eating the heavy ball.
+
+---
+
+## 8. Settings: what works, and the half that does not
+
+**Working and verified**: `scripts/settings_system.gd` holds the preferences and persists
+them to `user://settings.json`. The pause menu has a **Settings** screen with five controls
+(master volume, mouse sensitivity, screen shake, invert look, face snow clears by itself),
+each of which writes through to the file on change, plus **Reset**. Volume is applied to
+the engine bus. Verified by `--settings-shot`, which writes 0.33 and invert, resets the
+values in memory, reloads from disk and checks they came back: both survived.
+
+**The half that does not work yet**: the player does not READ these values. Mouse
+sensitivity, invert and the face-snow auto-clear preference are stored and do nothing.
+That is the next step and it is small: `player_controller.gd` already has the mouse-look
+code and already has `snow_face_auto_clear` as an export, so it is a matter of reading the
+saved value at start-up instead of the script default. Until that is done the settings
+screen is honest about what it stores and dishonest about what it does.
+
+**Still absent from this milestone**: key and button remapping, and the larger half of
+controller support, which is that the camera needs a mouse to look with. Until that is
+done the game is not playable on a Steam Deck and the milestone cannot be called finished.
