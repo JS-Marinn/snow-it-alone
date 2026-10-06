@@ -30,7 +30,10 @@ func _ready() -> void:
 	_restore_session()
 
 	const CelShadingSystem = preload("res://scripts/cel_shading_system.gd")
-	CelShadingSystem.apply_cel_shading(self)
+	# Cel shading is off: the owner tried it in game and did not like the result. The shaders
+	# and this system are intact in materials/_future/ and here, so bringing it back is a matter of
+	# uncommenting the next line and switching toon_enabled back to true in the snow shader.
+	#CelShadingSystem.apply_cel_shading(self)
 
 	var args := OS.get_cmdline_user_args()
 	var is_demo := args.has("--plow-demo")
