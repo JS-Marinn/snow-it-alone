@@ -22,6 +22,8 @@ extends Node3D
 const DummyScript = preload("res://scripts/training_dummy.gd")
 const DisposalMachineScript = preload("res://scripts/disposal_machine.gd")
 const DISPOSAL_SCENE: String = "res://scenes/disposal_machine.tscn"
+const BUCKET_SCENE: String = "res://scenes/snow_bucket.tscn"
+const BARROW_SCENE: String = "res://scenes/wheelbarrow.tscn"
 
 const LANE_X: Array[float] = [-3.75, -1.25, 1.25, 3.75]
 const LANE_NAMES: Array[String] = ["virgin", "packed", "shovelled", "deep"]
@@ -60,6 +62,7 @@ func _ready() -> void:
 	_build_dummies()
 	_build_ramps()
 	_place_disposal_machine()
+	_place_containers()
 	_build_overlay()
 	_build_free_camera()
 
@@ -165,6 +168,32 @@ func _on_snow_sent(kg: float, world_pos: Vector3) -> void:
 	if player != null:
 		player.add_coins(coins)
 	print("[DISP] %.2f kg sent at %s, paid %d coins" % [kg, str(world_pos), coins])
+
+
+## Places the bucket and the wheelbarrow in the playground near player spawn.
+func _place_containers() -> void:
+	var bucket_res := load(BUCKET_SCENE)
+	if bucket_res != null:
+		var bucket: Node = bucket_res.instantiate()
+		bucket.name = "SnowBucket"
+		bucket.set("snow_field", snow_field)
+		var b_pos := Vector3(-1.8, 0.0, RUN_START + 2.5)
+		b_pos.y = _support_height(b_pos) + 0.22
+		(bucket as Node3D).position = b_pos
+		add_child(bucket)
+		print("[PG] bucket placed at %s" % str(b_pos))
+
+	var barrow_res := load(BARROW_SCENE)
+	if barrow_res != null:
+		var barrow: Node = barrow_res.instantiate()
+		barrow.name = "Wheelbarrow"
+		barrow.set("snow_field", snow_field)
+		var w_pos := Vector3(1.8, 0.0, RUN_START + 2.5)
+		w_pos.y = _support_height(w_pos) + 0.22
+		(barrow as Node3D).position = w_pos
+		add_child(barrow)
+		print("[PG] wheelbarrow placed at %s" % str(w_pos))
+
 
 ## Ramps are geometry only. Simulated snow needs a field, and a field is a horizontal
 ## plane, so giving a slope real snow means a rotated field instance: that is H4 work.

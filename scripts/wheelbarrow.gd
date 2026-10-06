@@ -546,39 +546,6 @@ func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 
 	_apply_levelling_torque(state, normal)
 
-	# Friction at each point, still per point: it is what makes a wheel refuse a sideways shove
-	# and what turns the push into travel. None of it is vertical, so none of it can lever the
-	# barrow up.
-	for local in _contact_points:
-		var world := origin + state.transform.basis * local
-		if support_height_at(world) - world.y <= 0.0:
-			continue
-		var offset := world - origin
-		var point_mass := mass / float(_contact_points.size())
-		var surface_vel := state.linear_velocity + state.angular_velocity.cross(offset)
-		# The slip is measured against a level ground plane, matching the vertical support
-		# above: friction that used the tilted normal would reintroduce the same spurious push.
-		var slip := surface_vel - Vector3.UP * surface_vel.y
-		var heading := _ground_heading()
-		var along := slip.dot(heading)
-		var across := slip - heading * along
-		var lateral := -across * point_mass * 30.0
-		var max_lateral := CONTACT_FRICTION * normal_force / float(_contact_points.size())
-		if lateral.length() > max_lateral:
-			lateral = lateral.normalized() * max_lateral
-		if _finite(lateral.length()):
-			state.apply_force(lateral, offset)
-		# Rolling resistance opposes the motion it resists. Applying it always along the
-		# barrow's own -heading made it a PUSH whenever the barrow rolled backwards: measured,
-		# raising this coefficient from 0.04 to 0.12 made a run FASTER (1.71 -> 2.96 m/s).
-		var roll_sign := signf(along)
-		if roll_sign == 0.0:
-			roll_sign = 1.0
-		var roll := -heading * (roll_sign * rolling_resistance * normal_force / float(_contact_points.size()))
-		if _finite(roll.length()):
-			state.apply_force(roll, offset)
-
-	_apply_levelling_torque(state, normal)
 
 
 ## Holds the barrow's attitude to the ground it is standing on, which is the job the support
