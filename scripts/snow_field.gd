@@ -471,10 +471,11 @@ func _on_stats_ready(data: PackedByteArray) -> void:
 		if k >= MAX_OPS:
 			break
 		var fixed := float(data.decode_u32((16 + k) * 4)) / 4096.0
-		if fixed <= 0.0:
-			continue
 		var op_entry: Dictionary = meta[k]
-		op_volume_ready.emit(String(op_entry.get("role", "")), int(op_entry.get("owner", -1)), fixed * kg_per_unit)
+		var role: String = String(op_entry.get("role", ""))
+		if role.is_empty() and fixed <= 0.0:
+			continue
+		op_volume_ready.emit(role, int(op_entry.get("owner", -1)), maxf(fixed, 0.0) * kg_per_unit)
 
 # Tool API
 func _local_xz(world_pos: Vector3) -> Vector2:
@@ -537,6 +538,7 @@ func carve(world_pos: Vector3, radius_meters: float, _depth_cut: float, _push_di
 		return 0.0
 
 	_queue_op(Vector4(local.x, local.y, 0.0, -1.0), Vector4(3.0, radius_meters, 0.0, 1.0 if desalinate else 0.0), "radial_clear")
+	_mark_active(local, radius_meters + 0.4)
 	_probe_pos[2] = local
 	if _probe_h[2] > 0.05:
 		return radius_meters * minf(_probe_h[2], 1.0) * 5.0
@@ -582,6 +584,23 @@ func _emit_progress() -> void:
 	var pct = (float(cleared_pixels) / float(total_pixels)) * 100.0
 	kg_cleared_cumulative = (float(cleared_pixels) / float(total_pixels)) * total_snow_kg
 	progress_updated.emit(pct, kg_cleared_cumulative, total_snow_kg)
+
+## True when the GPU coarse mirror has received its first valid readback.
+func is_coarse_ready() -> bool:
+	return _coarse_valid and not _coarse.is_empty()
+
+## Real total snow mass (kg) currently present on the field, integrated from the GPU coarse mirror.
+func measure_total_mass() -> float:
+	if not is_coarse_ready():
+		return total_snow_kg
+	var cell_area := (field_width / float(COARSE_SIZE)) * (field_length / float(COARSE_SIZE))
+	var mass := 0.0
+	var count := COARSE_SIZE * COARSE_SIZE
+	for i in range(count):
+		var h: float = _coarse[i * 4 + 0]
+		if h > 0.0:
+			mass += (h * snow_depth) * cell_area * snow_density
+	return mass
 
 # Gameplay queries (CPU mirror)
 func _coarse_sample(world_pos: Vector3, channel: int) -> float:

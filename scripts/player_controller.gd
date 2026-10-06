@@ -98,7 +98,12 @@ enum HitState { NORMAL = 0, STAGGERED = 1, KNOCKED_DOWN = 2 }
 @export var fill_rate: float = 34.0
 @export var tamp_radius: float = 0.36
 ## Minimum snow mass for hand-packing a ball (kg).
-@export var pack_min_kg: float = 0.4
+const PACK_MIN_KG: float = 0.435
+const PACK_REACH_STRICT: float = 1.3
+const PACK_REACH_EXTENDED: float = 2.4
+const PACK_HARVEST_RADIUS: float = 0.22
+const PACK_HARVEST_DEPTH: float = 0.10
+@export var pack_min_kg: float = PACK_MIN_KG
 @export var carry_distance: float = 1.15
 ## Throw: reference speed for the reference light ball. Speed falls with mass
 ## along a SOFTENED exponent (`throw_mass_exponent`), not constant energy: an
@@ -220,6 +225,9 @@ var _right_hold: float = 0.0
 var _thrown_this_press: bool = false
 var _player_owner: int = 0
 var _pending_pack: bool = false
+var _pending_pack_time: float = 0.0
+var _pack_harvest_pt: Vector3 = Vector3.ZERO
+var last_pack_harvest_kg: float = 0.0
 var status_message: String = ""
 ## Diagnostic traces for the shovel cycle.
 var debug_shovel: bool = false
@@ -242,6 +250,8 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	floor_snap_length = 0.0
 	_player_owner = int(get_instance_id())
+	if pack_min_kg < SnowBall.min_pack_mass():
+		pack_min_kg = SnowBall.min_pack_mass()
 	add_to_group(SnowBall.IMPACT_GROUP)
 	# Preferences are read here rather than left to whatever the script defaults are, so
 	# the settings screen actually changes the game and not just a file.
@@ -494,6 +504,11 @@ func _physics_process(delta: float) -> void:
 			wish_dir = wish_dir.normalized()
 
 	_time += delta
+	if _pending_pack:
+		_pending_pack_time += delta
+		if _pending_pack_time > 1.0:
+			_pending_pack = false
+			_pending_pack_time = 0.0
 	_refresh_surface()
 
 	# Jump input is read BEFORE the movement, exactly like Quake's PM_WalkMove
@@ -1294,21 +1309,70 @@ func _update_carried(delta: float) -> void:
 	carried_velocity = carried_velocity.lerp(instant, clampf(delta * 12.0, 0.0, 1.0))
 	_carried_prev_pos = carried.global_position
 
+## Estimates available snow mass (kg) at a world position using the GPU coarse mirror.
+func _estimate_available_snow_kg(pos: Vector3, harvest_radius: float = PACK_HARVEST_RADIUS) -> float:
+	if snow_field == null or not snow_field.has_method("get_height_at"):
+		return 0.0
+	var h0: float = snow_field.get_height_at(pos)
+	if h0 <= 0.005:
+		return 0.0
+	var r_sample := harvest_radius * 0.5
+	var h1: float = snow_field.get_height_at(pos + Vector3(r_sample, 0.0, 0.0))
+	var h2: float = snow_field.get_height_at(pos - Vector3(r_sample, 0.0, 0.0))
+	var h3: float = snow_field.get_height_at(pos + Vector3(0.0, 0.0, r_sample))
+	var h4: float = snow_field.get_height_at(pos - Vector3(0.0, 0.0, r_sample))
+	var h_avg: float = (h0 * 2.0 + h1 + h2 + h3 + h4) / 6.0
+	if h_avg <= 0.01:
+		return 0.0
+	var cut_h: float = minf(h_avg, PACK_HARVEST_DEPTH)
+	# Harvest mode in snow_sim.glsl has smoothstep falloff with effective area ~1.5 * R^2
+	var eff_area: float = 1.50 * harvest_radius * harvest_radius
+	var density: float = float(snow_field.get("snow_density")) if snow_field.get("snow_density") != null else 150.0
+	return cut_h * eff_area * density
+
+## Finds the closest ground position with enough snow to pack a ball (Scenario A & B).
+## Checks strict aim point first, then searches concentric rings up to PACK_REACH_EXTENDED.
+func _find_pack_target() -> Vector3:
+	var fwd := _forward_flat()
+	if fwd.length_squared() < 0.01:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+
+	# 1. Aimed point in strict reach
+	var target := _get_target_ground_pos()
+	var offset_target := target - global_position
+	var dist_target := Vector2(offset_target.x, offset_target.z).length()
+	if dist_target <= PACK_REACH_STRICT and _estimate_available_snow_kg(target) >= pack_min_kg:
+		return target
+
+	# 2. Concentric rings around player (closest first)
+	var angles: Array[float] = [0.0, 0.5236, -0.5236, 1.0472, -1.0472, 1.5708, -1.5708, 2.0944, -2.0944, 2.618, -2.618, 3.14159]
+	var radii: Array[float] = [0.6, 0.9, PACK_REACH_STRICT, 1.7, 2.0, PACK_REACH_EXTENDED]
+
+	for r in radii:
+		for angle in angles:
+			var dir: Vector3 = fwd.rotated(Vector3.UP, angle)
+			var candidate: Vector3 = global_position + dir * r
+			if _estimate_available_snow_kg(candidate) >= pack_min_kg:
+				return candidate
+
+	return Vector3.INF
+
 ## Packs snow by hand: the mass comes from the snowpack and forms a real ball
 ## whose radius depends on the exact volume removed.
 func _pack_snowball() -> void:
 	if _pending_pack or snow_field == null or not snow_field.has_method("request_harvest"):
 		return
-	var pt := _get_target_ground_pos()
-	var h := 0.0
-	if snow_field.has_method("get_height_at"):
-		h = snow_field.get_height_at(pt)
-	if h < 0.05:
+	var pt := _find_pack_target()
+	if pt == Vector3.INF:
 		status_message = tr("STATUS_NOT_ENOUGH_SNOW")
 		return
+	_pack_harvest_pt = pt
 	_pending_pack = true
-	var depth := minf(0.10, maxf(h * 0.45, 0.03))
-	snow_field.request_harvest(_player_owner, pt, pt + Vector3(0.03, 0.0, 0.03), 0.20, depth)
+	_pending_pack_time = 0.0
+	var h: float = snow_field.get_height_at(pt) if snow_field.has_method("get_height_at") else 0.10
+	var depth := minf(PACK_HARVEST_DEPTH, maxf(h * 0.8, 0.04))
+	snow_field.request_harvest(_player_owner, pt, pt + Vector3(0.02, 0.0, 0.02), PACK_HARVEST_RADIUS, depth)
 	status_message = tr("STATUS_PACKING_SNOW")
 
 func _on_op_volume_ready(role: String, owner: int, kg: float) -> void:
@@ -1317,18 +1381,25 @@ func _on_op_volume_ready(role: String, owner: int, kg: float) -> void:
 	if not _pending_pack:
 		return
 	_pending_pack = false
+	last_pack_harvest_kg = kg
 	if kg < pack_min_kg:
+		# Structural guarantee: return harvested snow to the field so mass is never lost
+		if snow_field != null and snow_field.has_method("dump_snow"):
+			snow_field.dump_snow(_pack_harvest_pt, kg, PACK_HARVEST_RADIUS)
 		status_message = tr("STATUS_NOT_ENOUGH_SNOW")
 		return
-	var r := pow(maxf(3.0 * kg / (4.0 * PI * PACKED_DENSITY), 1e-6), 1.0 / 3.0)
-	r = clampf(r, 0.08, 0.22)
+	var r := SnowBall.radius_for_packed_mass(kg)
 	if props_system == null or not props_system.has_method("spawn_snowball"):
+		if snow_field != null and snow_field.has_method("dump_snow"):
+			snow_field.dump_snow(_pack_harvest_pt, kg, PACK_HARVEST_RADIUS)
 		return
 	# The packed snow is born ALREADY IN THE HANDS: it is instanced at the grip
 	# point and put in carry mode instead of being dropped on the ground.
 	var anchor := _carry_anchor(r)
 	var ball = props_system.spawn_snowball(anchor, r)
 	if ball == null:
+		if snow_field != null and snow_field.has_method("dump_snow"):
+			snow_field.dump_snow(_pack_harvest_pt, kg, PACK_HARVEST_RADIUS)
 		return
 	if is_carrying():
 		# Already carrying something (rare case): the ball drops at your feet instead of being lost

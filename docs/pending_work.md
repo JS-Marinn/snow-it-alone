@@ -4,7 +4,7 @@ Current state of the project: what is done, what remains genuinely open, and the
 environment rules and method notes. Written down so nothing depends on memory.
 
 Last updated: 2026-10-05.
-Status: **10 batteries registered in `tools/run_batteries.ps1` · 222 checks passing (ALL GREEN)**.
+Status: **13 batteries registered in `tools/run_batteries.ps1` · 242 checks passing (ALL GREEN)**.
 
 ---
 
@@ -105,6 +105,20 @@ Status: **10 batteries registered in `tools/run_batteries.ps1` · 222 checks pas
 - **Evidence**: Added `--contact-burst` dual regression battery to `tools/run_batteries.ps1` (12 batteries total, 232 checks, 100% ALL GREEN):
   verifies (a) walking into a resting large ball for 2.0s does NOT burst the ball and does NOT knock down the player, and
   (b) a large ball thrown at the player DOES burst and DOES knock down the player.
+
+### Hand packing mass conservation & all-or-nothing packing
+- **Problem**: When attempting to pack a snowball by hand in an area with little or scarce snow, snow was removed from the terrain without creating a snowball, causing permanent mass loss in violation of the game's $\pm 0.05\%$ physical conservation guarantee.
+- **Measured Cause**:
+  1. `scripts/player_controller.gd` previously had an arbitrary cutoff `pack_min_kg = 0.4 kg` in `_on_op_volume_ready`, rejecting yields $< 0.4$ kg without returning the harvested snow to the terrain via `dump_snow()`.
+  2. The physical minimum snowball mass corresponding to `MIN_RADIUS = 0.07 m` in `scripts/snowball.gd` is $(4/3)\pi (0.07)^3 \times 300 = 0.43498 \approx 0.435$ kg.
+  3. `player_controller.gd` previously clamped the packed radius to `clampf(r, 0.08, 0.22)`. At $r=0.08$, mass is $0.643$ kg, artificially synthesizing mass out of thin air if harvested $kg$ was between $0.40$ and $0.64$ kg.
+  4. In `scripts/snow_field.gd`, `carve()` failed to call `_mark_active()`, and `_on_stats_ready()` skipped emitting `op_volume_ready` when `fixed <= 0.0`, leaving `_pending_pack` stuck indefinitely whenever an empty harvest occurred.
+- **Fix**:
+  1. **Strict pre-check**: `player_controller.gd::_find_pack_target()` inspects available snow within reach (`PACK_REACH_STRICT = 1.3 m`, extending up to `PACK_REACH_EXTENDED = 2.4 m`). If insufficient snow is within reach, no harvest op is queued, `status_message` displays `tr("STATUS_NOT_ENOUGH_SNOW")`, and terrain mass is 100% untouched.
+  2. **Mathematical radius inversion**: Added `SnowBall.radius_for_packed_mass(kg)`, which inverts `mass_for_radius(r)` via 24-step bisection to $< 10^{-6}$ kg machine precision.
+  3. **Structural return guarantee**: If `op_volume_ready` returns $kg < \text{pack\_min\_kg}$ ($0.435$ kg) or ball instancing fails, `snow_field.dump_snow(_pack_harvest_pt, kg, PACK_HARVEST_RADIUS)` returns the harvested mass back to the terrain.
+  4. **Simulation integrity**: In `snow_field.gd`, `carve()` calls `_mark_active()`, `is_coarse_ready()` ensures valid mirror readiness, and `op_volume_ready` emits for named roles even at 0 kg so requesters never hang. Added `_pending_pack_time` safety timeout in `player_controller.gd`.
+- **Evidence**: Added `--hand-pack` acceptance battery (`scripts/hand_pack_demo.gd`), registered in `tools/run_batteries.ps1` (`Gpu = $true`, 10/10 OK). Total test gate passes all 13 batteries (242/242 checks, 100% ALL GREEN).
 
 ---
 

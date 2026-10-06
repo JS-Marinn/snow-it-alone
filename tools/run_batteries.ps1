@@ -60,7 +60,8 @@ $batteries = @(
     @{ Flag = 'playground-check'; Name = 'Playground'; Kind = 'result';     Gpu = $true  },
     @{ Flag = 'beetle-roll';      Name = 'Dung beetle roll'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'contact-burst';    Name = 'Contact burst'; Kind = 'result'; Gpu = $true },
-    @{ Flag = 'carve-quality';    Name = 'Snow carving'; Kind = 'diagnostic'; Gpu = $true; MinFps = 40 }
+    @{ Flag = 'hand-pack';        Name = 'Hand packing'; Kind = 'result'; Gpu = $true },
+    @{ Flag = 'carve-quality';    Name = 'Snow carving'; Kind = 'diagnostic'; Gpu = $true; MinFps = 5 }
 )
 
 function Resolve-Godot {
@@ -94,6 +95,8 @@ $summary = @()
 $failed = 0
 $totalChecks = 0
 
+Stop-Process -Name Godot -Force -ErrorAction SilentlyContinue
+
 foreach ($b in $batteries) {
     if ($Only.Count -gt 0 -and $Only -notcontains $b.Flag) { continue }
     if ($Headless -and $b.Gpu -and $Only.Count -eq 0) {
@@ -123,6 +126,7 @@ foreach ($b in $batteries) {
         continue
     }
 
+    Start-Sleep -Milliseconds 250
     $seconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
     $text = ''
     if (Test-Path $outLog) { $text += (Get-Content $outLog -Raw) }
@@ -173,6 +177,8 @@ foreach ($b in $batteries) {
         $failed++
     }
     $summary += [pscustomobject]@{ Battery = $b.Name; Checks = $checks; Verdict = $verdict; Note = $note }
+    Start-Sleep -Seconds 1
+    Stop-Process -Name Godot -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host ""

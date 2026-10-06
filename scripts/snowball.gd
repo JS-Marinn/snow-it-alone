@@ -189,8 +189,34 @@ static func density_for_radius(r: float) -> float:
 	var t: float = clampf(r / MAX_RADIUS, 0.0, 1.0)
 	return lerpf(PACKED_DENSITY, PACKED_DENSITY_COMPACT, t * t)
 
-func _mass_for_radius(r: float) -> float:
+## Mass (kg) of a snowball of given radius using its size-dependent density.
+static func mass_for_radius(r: float) -> float:
 	return (4.0 / 3.0) * PI * r * r * r * density_for_radius(r)
+
+## Minimum mass of a valid snowball (at MIN_RADIUS).
+static func min_pack_mass() -> float:
+	return mass_for_radius(MIN_RADIUS)
+
+## Exact inverse of mass_for_radius: finds the radius that produces target_kg.
+static func radius_for_packed_mass(target_kg: float) -> float:
+	var m_min := min_pack_mass()
+	if target_kg <= m_min:
+		return MIN_RADIUS
+	var m_max := mass_for_radius(MAX_RADIUS)
+	if target_kg >= m_max:
+		return MAX_RADIUS
+	var low := MIN_RADIUS
+	var high := MAX_RADIUS
+	for _i in range(24):
+		var mid := (low + high) * 0.5
+		if mass_for_radius(mid) < target_kg:
+			low = mid
+		else:
+			high = mid
+	return (low + high) * 0.5
+
+func _mass_for_radius(r: float) -> float:
+	return mass_for_radius(r)
 
 func _apply_radius_to_mesh() -> void:
 	if _sphere_mesh:

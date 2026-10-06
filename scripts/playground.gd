@@ -47,6 +47,7 @@ var _check_mode: bool = false
 var _t: float = 0.0
 var _steps: Array = []
 var _step_index: int = 0
+var _empty_since: float = 0.0
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -206,8 +207,12 @@ func _process(delta: float) -> void:
 		_surfaces_built = true
 		_build_surfaces()
 	_drain_ops()
+	if not _pending_ops.is_empty():
+		_empty_since = _t
 	if _check_mode:
 		while _step_index < _steps.size() and _t >= float(_steps[_step_index][0]):
+			if (_step_index == 1 or _step_index == 4) and (_t - _empty_since < 0.6):
+				break
 			var fn: Callable = _steps[_step_index][1]
 			fn.call()
 			_step_index += 1
