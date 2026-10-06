@@ -42,6 +42,8 @@ var _last_kg: float = 0.0
 var _face_blind_rect: ColorRect
 var _face_overlay: TextureRect
 var _reticle_drawer: Control
+## The plain dot. See _build_reticle: this exists because the drawn reticle was wrong three times.
+var _reticle_dot: ColorRect
 var _reticle_state: int = 0
 var _audio_lpf: AudioEffectLowPassFilter = null
 var _audio_bus_idx: int = -1
@@ -663,6 +665,18 @@ func _build_reticle() -> void:
 	_reticle_drawer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_reticle_drawer.draw.connect(_on_reticle_draw)
 	centre.add_child(_reticle_drawer)
+
+	# The plainest thing that can work: a small solid square, on its own canvas layer, in pure
+	# screen coordinates, sized by its own minimum and centred by preset. No custom draw, no
+	# container that sizes it, no arithmetic: the three things that broke the drawn reticle.
+	_reticle_dot = ColorRect.new()
+	_reticle_dot.name = "ReticleDot"
+	_reticle_dot.custom_minimum_size = Vector2(6.0, 6.0)
+	_reticle_dot.color = Color(1.0, 1.0, 1.0, 0.95)
+	_reticle_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	reticle_layer.add_child(_reticle_dot)
+	_reticle_dot.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_reticle_dot.visible = false
 	_reticle_drawer.visible = true
 
 ## The reticle state lives on the player, because the player is what decides whether snow is
@@ -682,6 +696,10 @@ func _sync_reticle_from_player() -> void:
 	_reticle_state = state
 	_reticle_drawer.visible = state != 0
 	_reticle_drawer.queue_redraw()
+	if _reticle_dot != null:
+		_reticle_dot.visible = state != 0
+		# Cyan when a tool can carve, white when a ball can be packed.
+		_reticle_dot.color = Color(0.35, 0.95, 1.0, 0.95) if state == 2 else Color(1.0, 1.0, 1.0, 0.95)
 
 func _on_reticle_draw() -> void:
 	if _reticle_drawer == null or _reticle_state == 0:
