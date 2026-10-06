@@ -34,6 +34,10 @@ var _finished: bool = false
 
 var _packed_ball_mass: float = 0.0
 var _coins_before_delivery: int = 0
+## Frames of throw-following, so a ball that never arrives can say where it went instead.
+var _trace: int = 0
+## The machine, so a trace can read what it has actually taken.
+var _mach: Node = null
 
 func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -> void:
 	root = scene_root
@@ -82,6 +86,7 @@ func _physics_process(delta: float) -> void:
 			_check("player initial coins are 0", player.coins == 0)
 
 			var mach := root.get_node_or_null("DisposalMachine")
+			_mach = mach
 			var mach_pos := (mach as Node3D).global_position if mach != null else Vector3(0.0, 0.0, -7.6)
 			var to_mach_z := -1.0 if mach_pos.z < 0.0 else 1.0
 			var ply_z := mach_pos.z - to_mach_z * 2.2
@@ -124,12 +129,20 @@ func _physics_process(delta: float) -> void:
 				print("[TOOL] Ball packed in hands: mass = %.3f kg" % _packed_ball_mass)
 				_check("player packed and is carrying snowball", player.is_carrying() and ball != null)
 
-				# Throw the snowball into the machine's mouth. Aimed a little above the
-				# mouth so the arc drops into it rather than short of it.
+				# Throw the snowball into the machine's mouth.
+				#
+				# AIMED WITH A BALLISTIC CORRECTION, and the +0.35 that used to be here is why this
+				# battery never delivered. The throw is aimed FROM THE CAMERA THROUGH THE BALL,
+				# which sits lower in the hand, so the line already points downwards before gravity
+				# is added: a guessed 0.35 above the mouth was not enough, and the ball landed short
+				# every time. The machine's own battery measured the correction at ITS distance --
+				# aim about 0.14 m high for a 1.45 m throw. The drop grows with the square of the
+				# flight time and this throw is 2.2 m, so roughly twice that.
+				const AIM_LIFT: float = 0.30
 				var cur_mach := root.get_node_or_null("DisposalMachine")
 				var cur_mach_pos := (cur_mach as Node3D).global_position if cur_mach != null else Vector3(0.0, 0.0, -7.6)
 				if player.camera:
-					player.camera.look_at(Vector3(0.0, cur_mach_pos.y + MACHINE_MOUTH_Y + 0.35, cur_mach_pos.z), Vector3.UP)
+					player.camera.look_at(Vector3(0.0, cur_mach_pos.y + MACHINE_MOUTH_Y + AIM_LIFT, cur_mach_pos.z), Vector3.UP)
 				player._throw_carried()
 				print("[TOOL] Threw snowball towards the disposal machine at %s" % str(cur_mach_pos))
 				_change_state(3)
@@ -140,14 +153,28 @@ func _physics_process(delta: float) -> void:
 		3:
 			# State 3: Wait for the ball to reach the machine and for the balance to move
 			#
-			# KNOWN BLOCKER, measured: the throw never reaches the machine, so this check cannot
-			# pass yet. The ball is created and thrown, and then the PLAYGROUND SCENE is loaded
-			# on top of the level ("[PG] disposal machine placed at ..." appears in this run's
-			# log), which takes the whole tree away with it -- so the ball stops existing and the
-			# machine never registers a delivery. That is why this battery used to HANG at
-			# `cd2095a` instead of failing: nothing was ever packed, so this state was never
-			# reached. It now reaches it, which is progress, and the remaining fault is the scene
-			# switch and not the throw or the payout.
+			# The comment that used to be here blamed the Playground scene loading on top of the
+			# level. That was a real defect and it is FIXED -- the second world is gone, see the
+			# state 6 rewrite -- so the remaining cause is somewhere else and this trace says
+			# where. "It never arrived" and "it arrived somewhere else" look identical in a coin
+			# count.
+			if _trace < 10:
+				_trace += 1
+				var found: Node3D = null
+				for b in get_tree().get_nodes_in_group("snowballs"):
+					if b is Node3D and is_instance_valid(b):
+						found = b
+						break
+				if found == null:
+					print("[TOOL]   throw trace %d: no snowball in the world (machine ledger %.4f kg over %d deliveries)" % [
+						_trace, float(_mach.get("accepted_kg")) if _mach != null else -1.0,
+						int(_mach.get("deliveries")) if _mach != null else -1])
+				else:
+					print("[TOOL]   throw trace %d: ball at %s (%.2f m from the machine, ledger %.4f kg over %d deliveries)" % [
+						_trace, str(found.global_position),
+						found.global_position.distance_to((_mach as Node3D).global_position if _mach != null else Vector3.ZERO),
+						float(_mach.get("accepted_kg")) if _mach != null else -1.0,
+						int(_mach.get("deliveries")) if _mach != null else -1])
 			var coins_earned: int = int(player.coins) - _coins_before_delivery
 			if coins_earned > 0 or _state_time >= 6.0:
 				var expected_coins: int = int(ceil(_packed_ball_mass * DisposalMachineScript.PAYOUT_PER_KG))
