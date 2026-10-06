@@ -644,15 +644,18 @@ func _build_reticle() -> void:
 	if legacy_ch2:
 		legacy_ch2.visible = false
 
-	# A plain Control, not a CenterContainer: a Container overrides its children's rects, so any
-	# anchoring set on the reticle below would be ignored. That is what put the dot off centre.
-	var centre := Control.new()
+	# Reticle in its own dedicated CanvasLayer in pure screen coordinates,
+	# completely independent of HUD transforms, margins or offsets.
+	var reticle_layer := CanvasLayer.new()
+	reticle_layer.name = "ReticleCanvasLayer"
+	reticle_layer.layer = 100
+	add_child(reticle_layer)
+
+	var centre := CenterContainer.new()
 	centre.name = "ReticleCentre"
-	# Anchors AND offsets: set_anchors_preset leaves the offsets alone, so a HUD that does not
-	# start at (0,0) drags the whole reticle with it.
 	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(centre)
+	reticle_layer.add_child(centre)
 
 	_reticle_drawer = Control.new()
 	_reticle_drawer.name = "ReticleDrawer"
@@ -660,16 +663,12 @@ func _build_reticle() -> void:
 	_reticle_drawer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_reticle_drawer.draw.connect(_on_reticle_draw)
 	centre.add_child(_reticle_drawer)
-	# Centre the drawer on its own parent, by half of its own size, instead of trusting layout.
-	_reticle_drawer.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	_reticle_drawer.visible = false
+	_reticle_drawer.visible = true
 
 func _on_reticle_draw() -> void:
-	if _reticle_drawer == null:
+	if _reticle_drawer == null or _reticle_state == 0:
 		return
-	# The centre of its own rect, whatever size that turns out to be. A hardcoded 16 assumed a
-	# 32x32 box that layout was free to change.
-	var c := _reticle_drawer.size * 0.5
+	var c := _reticle_drawer.size * 0.5 + Vector2(0.5, 0.5)
 	match _reticle_state:
 		1: # CAN_PACK (clean white dot & ring for packing snow by hand)
 			_reticle_drawer.draw_circle(c, 3.2, Color(1.0, 1.0, 1.0, 0.95))
@@ -693,7 +692,6 @@ func _update_reticle() -> void:
 
 	if state != _reticle_state:
 		_reticle_state = state
-		_reticle_drawer.visible = (_reticle_state != 0)
 		_reticle_drawer.queue_redraw()
 
 func _process(delta: float) -> void:
