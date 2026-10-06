@@ -1331,32 +1331,58 @@ func _process_shovel(delta: float, _horiz_speed: float) -> void:
 		is_stuck = blade_snow_height > stuck_height_m or snow_resistance > stuck_resistance
 
 		var kg_cut = 0.0
-		if prev_scoop_pos != Vector3.INF and prev_scoop_pos.distance_squared_to(scoop_pt) > 0.005:
-			var dist_travel = prev_scoop_pos.distance_to(scoop_pt)
-			var steps = clampi(int(dist_travel / 0.08) + 1, 1, 4)
-			for step_i in range(steps):
-				var lerp_pt = prev_scoop_pos.lerp(scoop_pt, float(step_i + 1) / float(steps))
-				kg_cut += snow_field.carve_shovel(lerp_pt, forward_flat, 0.76, 0.30, max_cut)
-		else:
-			kg_cut = snow_field.carve_shovel(scoop_pt, forward_flat, 0.76, 0.30, max_cut)
+		# HOW MUCH THE FIELD MAY GIVE UP THIS FRAME. The fill rate is a rate on the CUT, which is
+		# the only place it can be honest: applied afterwards, to what the blade keeps, it becomes
+		# a deletion (see the note below). The blade's remaining room is the other cap, and when
+		# there is no room nothing is cut at all -- so a full blade stops taking snow out of the
+		# world instead of quietly removing it and dropping it.
+		var room := maxf(shovel_capacity_max - shovel_current_load, 0.0)
+		# NO PER-FRAME FLOOR. There used to be a `+ 0.35` here, which was a guard against a frame
+		# granting nothing -- but on a rate it is a distortion: 0.35 kg per frame is 21 kg/s, and
+		# multiplying it by the residue fraction alone is 5.25 kg/s of the declared 8.50. Measured
+		# with the floor in, pushing fed 12.49 kg/s against a declared 8.50.
+		var allow := minf(fill_rate * delta, room)
+		# In LOAD_AND_PUSH the residue is a rule about how much the push FEEDS, so it scales what
+		# is cut. The blade then keeps all of what the field actually gave up.
+		if shovel_mode == SHOVEL_MODE_LOAD_AND_PUSH:
+			allow *= _push_residue_fraction()
+		if allow > 0.001:
+			if prev_scoop_pos != Vector3.INF and prev_scoop_pos.distance_squared_to(scoop_pt) > 0.005:
+				var dist_travel = prev_scoop_pos.distance_to(scoop_pt)
+				var steps = clampi(int(dist_travel / 0.08) + 1, 1, 4)
+				for step_i in range(steps):
+					var lerp_pt = prev_scoop_pos.lerp(scoop_pt, float(step_i + 1) / float(steps))
+					kg_cut += snow_field.carve_shovel(lerp_pt, forward_flat, 0.76, 0.30, max_cut)
+			else:
+				kg_cut = snow_field.carve_shovel(scoop_pt, forward_flat, 0.76, 0.30, max_cut)
+			kg_cut = minf(kg_cut, allow)
 
 		prev_scoop_pos = scoop_pt
 
-		# In LOAD_AND_PUSH this is the RESIDUE: the snow the blade collects just from being
-		# dragged along the ground, which is a property of pushing and not of loading. It scales
-		# the push feed rather than adding to it, so the two buttons stay different in kind --
-		# pushing trickles, loading bites.
-		if shovel_mode == SHOVEL_MODE_LOAD_AND_PUSH:
-			kg_cut *= _push_residue_fraction()
-
+		# THE MASS THE FIELD GAVE UP IS THE MASS THE BLADE RECEIVES.
+		#
+		# `carve_shovel` has ALREADY removed these kilograms from the field: it queues the
+		# operation and returns what it handed over. So the blade must take all of it, and the
+		# only thing that may reduce it is the blade being full -- which is handled above, by not
+		# cutting more than there is room for.
+		#
+		# This used to be `minf(kg_cut * 0.4, fill_rate * delta + 0.35)`, which meant the field
+		# lost a kilogram and the blade gained 400 grams: SIXTY PER CENT of the snow was deleted
+		# from the world every frame the shovel touched it, silently, with nothing accounting for
+		# it. In LOAD_AND_PUSH the same line scaled it again by the residue fraction, so the blade
+		# kept TEN per cent and ninety per cent vanished -- measured by the shovel battery as
+		# "field lost -90.979 kg, blade gained 13.717 kg", a 763% error that was blamed on the
+		# battery's measurement window. It was not the window. It was this arithmetic.
+		#
+		# The 0.4 was almost certainly meant as "the shovel does not fill in one hit". That is now
+		# true because the CUT is rate-limited, which is the only version of it that does not
+		# destroy snow. Mass is sacred in this project, and a factor applied after the removal is
+		# an unaccounted deletion.
 		if kg_cut > 0.0:
 			if shovel_spray_particles and not shovel_spray_particles.emitting:
 				shovel_spray_particles.emitting = true
-			if shovel_current_load < shovel_capacity_max:
-				# Fill rate limited: the shovel does not fill in one hit
-				var added := minf(kg_cut * 0.4, fill_rate * delta + 0.35)
-				shovel_current_load = minf(shovel_current_load + added, shovel_capacity_max)
-				_update_shovel_snow_visual()
+			shovel_current_load = minf(shovel_current_load + kg_cut, shovel_capacity_max)
+			_update_shovel_snow_visual()
 
 			if randf() < 0.28:
 				var clump = SnowChunkScript.new()

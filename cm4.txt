@@ -1,0 +1,55 @@
+fix: the shovel stops deleting 60% of the snow it picks up
+
+A mass-conservation defect, in the shipped game and not only in the new mode, found while chasing a
+number the shovel battery had been reporting as a measurement problem.
+
+## What the arithmetic did
+
+`carve_shovel` REMOVES the kilograms from the field. It queues the GPU operation and returns what
+it handed over. So the blade must take all of that, and the only honest thing that may reduce it is
+the blade being full.
+
+It was `minf(kg_cut * 0.4, fill_rate * delta + 0.35)`: the field lost a kilogram and the blade
+gained 400 grams. Sixty per cent of the snow was deleted from the world every frame the shovel
+touched it, silently, with nothing accounting for it -- and in LEGACY, which is the main game, not
+only in the mode this branch added. In LOAD_AND_PUSH the same line scaled it again by the residue
+fraction, so the blade kept ten per cent and ninety per cent vanished.
+
+That is the whole explanation for the shovel battery's "field lost -90.979 kg, blade gained
+13.717 kg", a 763% error. The previous commit blamed the battery's measurement window. It was not
+the window. It was this line, and the correction belongs in the record.
+
+## What it does now
+
+The fill rate is applied to the CUT, which is the only place a rate can be honest: `allow =
+min(fill_rate * delta, room)` caps how much the field may give up this frame, and the blade then
+receives all of it. When the blade is full, `room` is zero and NOTHING is cut, so a full blade stops
+taking snow out of the world instead of quietly removing it and dropping it. The `0.4` was almost
+certainly meant as "the shovel does not fill in one hit"; that is now true because the cut is
+rate-limited, which is the only version of it that does not destroy snow.
+
+The residue fraction moved with it, to the same place: it scales what is CUT, so pushing feeds the
+blade at a quarter rate because the field gives up a quarter as much. The blade takes all of that.
+
+## The per-frame floor had to go, and it is why the rate was wrong
+
+`+ 0.35` was a guard against a frame granting nothing, but on a rate it is a distortion: 0.35 kg per
+frame is 21 kg/s. Measured with the floor in, pushing fed 12.49 kg/s against a declared 8.50.
+
+Measured after: pushing feeds 8.50 kg/s against a declared 8.50, loading feeds 34.00 against a
+declared 34.00, and the blade gains 17.000 kg in 2.00 s, which is exactly 8.5 x 2.
+
+## State
+
+--shovel-modes 16 OK / 1 FAIL (the push's own ledger verdict, still measuring the field's solver
+drift rather than the push), --playground-check 11/0, --hand-pack 12/0, --phys-demo 34/2.
+
+## A crash pattern that is now measured rather than mysterious
+
+--phys-demo and --disposal-machine both pass or fail consistently when run ALONE and lose the
+Vulkan device when run inside the full gate: "Vulkan device was lost" with a driver backtrace.
+--phys-demo ran twice alone for 34 OK / 2 FAILURES both times. The breadcrumb IDs are per-process
+(12823 in one battery against 1328 in another) so they say nothing about which change caused it.
+The reading is that a long session of GPU snow operations accumulates into a device loss, not that
+any one battery is at fault. Recorded, not chased: it is a driver-level fault and every attempt to
+fix a driver fault by guessing has cost this project more than it returned.
