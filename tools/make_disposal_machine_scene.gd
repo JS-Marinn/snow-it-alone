@@ -75,13 +75,38 @@ func _build() -> StaticBody3D:
 	var body_mat := _flat_colour(0.55, 0.30, 0.14, 0.85)
 	_add_box(root, "Body", BODY_SIZE, Vector3(0.0, BODY_CENTRE_Y, 0.0), body_mat)
 
-	var body_shape := CollisionShape3D.new()
-	body_shape.name = "BodyCollision"
-	var box := BoxShape3D.new()
-	box.size = BODY_SIZE
-	body_shape.shape = box
-	body_shape.position = Vector3(0.0, BODY_CENTRE_Y, 0.0)
-	root.add_child(body_shape)
+	# THE THROAT, and this is the fix for the machine never paying for a thrown ball.
+	#
+	# The collision used to be ONE solid box the height of the machine, with the mouth drawn as a
+	# plate on its front. So there was no opening at all: a thrown ball hit the box, and a ball
+	# moving faster than `break_speed_threshold` SHATTERED on it and only the fragments that
+	# happened to fall into the reception zone were counted. Measured: a 1.211 kg ball delivered
+	# 0.068 kg, and the loss grew with the ball. The machine is the game's only income, so a ball
+	# never paying what it weighs was the most expensive defect in the project.
+	#
+	# The collision is therefore split into a sill, two jambs and a lintel, leaving a real opening
+	# at the mouth's height and width. The mouth plate stays where it is as the visible lip, and it
+	# is no longer what stops the snow -- the opening behind it is.
+	var gap_h := MOUTH_SIZE.y
+	var gap_w := MOUTH_SIZE.x
+	var gap_bottom := MOUTH_CENTRE.y - gap_h * 0.5
+	var gap_top := MOUTH_CENTRE.y + gap_h * 0.5
+	var body_bottom := BODY_CENTRE_Y - BODY_SIZE.y * 0.5
+	var body_top := BODY_CENTRE_Y + BODY_SIZE.y * 0.5
+	var jamb_w := (BODY_SIZE.x - gap_w) * 0.5
+	# Sill: the whole footprint below the opening.
+	_add_collision_box(root, "ThroatSill",
+		Vector3(BODY_SIZE.x, gap_bottom - body_bottom, BODY_SIZE.z),
+		Vector3(0.0, (body_bottom + gap_bottom) * 0.5, 0.0))
+	# Lintel: the whole footprint above it.
+	_add_collision_box(root, "ThroatLintel",
+		Vector3(BODY_SIZE.x, body_top - gap_top, BODY_SIZE.z),
+		Vector3(0.0, (gap_top + body_top) * 0.5, 0.0))
+	# Jambs: the two sides of the opening, level with it.
+	for side in [-1.0, 1.0]:
+		_add_collision_box(root, "ThroatJamb%s" % ("L" if side < 0.0 else "R"),
+			Vector3(jamb_w, gap_h, BODY_SIZE.z),
+			Vector3(side * (gap_w * 0.5 + jamb_w * 0.5), MOUTH_CENTRE.y, 0.0))
 
 	# The mouth: darker, recessed, so the front reads as an opening.
 	var mouth_mat := _flat_colour(0.09, 0.09, 0.11, 0.95)
@@ -131,6 +156,18 @@ func _build() -> StaticBody3D:
 
 	_own_all(root)
 	return root
+
+
+## A CollisionShape3D box. Named and positioned like the visual boxes so a reader can
+## match the throat's four pieces against the machine's silhouette.
+func _add_collision_box(parent: Node, name: String, size: Vector3, centre: Vector3) -> void:
+	var cs := CollisionShape3D.new()
+	cs.name = name
+	var b := BoxShape3D.new()
+	b.size = size
+	cs.shape = b
+	cs.position = centre
+	parent.add_child(cs)
 
 
 func _add_box(parent: Node, name: String, size: Vector3, centre: Vector3, mat: Material) -> void:
