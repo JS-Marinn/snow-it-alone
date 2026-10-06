@@ -470,7 +470,17 @@ func _physics_process(delta: float) -> void:
 
 	# Rolling a snowball on the ground: the player moves at the ball's rolling speed
 	var rolling_target: Node3D = _push_target as Node3D
-	if (is_ground_pushing or (Input.is_action_pressed("interact") and _push_target != null)) and rolling_target and is_instance_valid(rolling_target):
+	var target_is_grounded := false
+	if rolling_target and is_instance_valid(rolling_target):
+		if rolling_target.has_method("height_above_support"):
+			var br: float = float(rolling_target.get("radius")) if rolling_target.get("radius") != null else 0.2
+			target_is_grounded = rolling_target.height_above_support() <= br + 0.15
+		elif rolling_target.has_method("is_grounded"):
+			target_is_grounded = rolling_target.is_grounded()
+		else:
+			target_is_grounded = true
+
+	if target_is_grounded and (is_ground_pushing or (Input.is_action_pressed("interact") and _push_target != null)) and rolling_target and is_instance_valid(rolling_target):
 		var is_sprint := Input.is_action_pressed("sprint")
 		var ball_target_speed: float = rolling_target.target_push_speed(is_sprint) if rolling_target.has_method("target_push_speed") else 3.2
 		var offset: Vector3 = rolling_target.global_position - global_position
@@ -481,8 +491,8 @@ func _physics_process(delta: float) -> void:
 	var wish_dir = (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 	var wants_move := input_dir.length_squared() > 0.01
 
-	# When actively pushing a ball forward, guide player's forward movement directly behind the ball
-	if is_ground_pushing and rolling_target and is_instance_valid(rolling_target) and input_dir.y < -0.5:
+	# When actively pushing a ball forward on the ground, guide player's forward movement directly behind the ball
+	if is_ground_pushing and target_is_grounded and rolling_target and is_instance_valid(rolling_target) and input_dir.y < -0.5:
 		var to_ball := rolling_target.global_position - global_position
 		to_ball.y = 0.0
 		if to_ball.length_squared() > 0.01:
@@ -1130,9 +1140,21 @@ func _ground_push() -> bool:
 	if _push_target == null or not is_instance_valid(_push_target):
 		var target := _find_interactable_ahead()
 		if target != null and target.has_method("push"):
+			if target.has_method("height_above_support"):
+				var br: float = float(target.get("radius")) if target.get("radius") != null else 0.2
+				if target.height_above_support() > br + 0.15:
+					return false
 			_push_target = target
 		else:
 			_push_target = null
+			is_ground_pushing = false
+			pushed_mass = 0.0
+			return false
+
+	# Ground push requires contact with the snowpack/ground: a ball in flight cannot be pushed
+	if _push_target.has_method("height_above_support"):
+		var br: float = float(_push_target.get("radius")) if _push_target.get("radius") != null else 0.2
+		if _push_target.height_above_support() > br + 0.15:
 			is_ground_pushing = false
 			pushed_mass = 0.0
 			return false
@@ -1229,6 +1251,9 @@ func _release_carried(impulse: Vector3) -> void:
 	carried_mass = 0.0
 	carry_two_hands = false
 	stagger = 0.0
+	_push_target = null
+	is_ground_pushing = false
+	pushed_mass = 0.0
 	_update_carry_visuals()
 
 ## Weight carried in the hands and what it implies: past a certain size the
@@ -1281,6 +1306,9 @@ func _throw_carried() -> void:
 	# The impulse inherits the hand motion so the throw feels natural
 
 	_release_carried(impulse)
+	_push_target = null
+	is_ground_pushing = false
+	pushed_mass = 0.0
 	grip_left = maxf(grip_left, 0.35)
 
 ## Launch speed of a throw. Falls with mass in a SOFTENED way (exponent 0.30

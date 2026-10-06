@@ -672,6 +672,9 @@ func target_push_speed(sprint: bool = false) -> float:
 func push(from_position: Vector3, strength: float, by_node: Node = null) -> void:
 	if is_carried or _shattered:
 		return
+	# Una bola en vuelo solo obedece a la gravedad y a lo que golpea: el empuje exige contacto con el suelo
+	if height_above_support() > radius + 0.15:
+		return
 	if by_node != null:
 		pusher = by_node
 		push_grace_timer = 0.4
@@ -705,7 +708,8 @@ func push(from_position: Vector3, strength: float, by_node: Node = null) -> void
 			has_pusher = true
 
 	# 1. Lateral steering / centering: pusher's hands keep the ball centered along their heading
-	if has_pusher:
+	# Positional centering never acts in the air
+	if has_pusher and height_above_support() <= radius + 0.08:
 		var lateral_v: float = linear_velocity.dot(pusher_right)
 		var centering_accel: float = -lateral_err * 12.0 - lateral_v * 6.0
 		var max_lateral := maxf(PUSH_FORCE_NEWTONS * 0.5, mass * 3.0)
@@ -723,6 +727,17 @@ func push(from_position: Vector3, strength: float, by_node: Node = null) -> void
 		var force := minf(strength * max_push * force_factor, PUSH_MAX_ACCEL * mass)
 		var fwd_force := fwd * force
 		apply_force(fwd_force, Vector3(0.0, radius * 0.15, 0.0))
+
+func is_grounded() -> bool:
+	return _grounded or height_above_support() <= radius + 0.05
+
+func height_above_support() -> float:
+	var support_y := 0.0
+	if snow_field and snow_field.has_method("get_height_at"):
+		var h: float = snow_field.get_height_at(global_position)
+		if h >= 0.0:
+			support_y = h
+	return global_position.y - support_y
 
 func begin_carry() -> void:
 	_break_weld()
@@ -744,6 +759,8 @@ func end_carry(impulse_velocity: Vector3 = Vector3.ZERO, by_node: Node = null) -
 	is_carried = false
 	freeze = false
 	_hit_applied = false
+	pusher = null
+	push_grace_timer = 0.0
 	if by_node != null:
 		thrower = by_node
 		throw_grace_timer = THROW_GRACE_DURATION
