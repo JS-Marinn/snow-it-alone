@@ -629,6 +629,8 @@ func _physics_process(delta: float) -> void:
 		target_speed *= maxf(weight_factor, carry_speed_floor)
 
 	# Rolling a snowball on the ground: the player moves at the ball's rolling speed
+	if _push_target != null and not is_instance_valid(_push_target):
+		_push_target = null
 	var rolling_target: Node3D = _push_target as Node3D
 	var target_is_grounded := false
 	if rolling_target and is_instance_valid(rolling_target):

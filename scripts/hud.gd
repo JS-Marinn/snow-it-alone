@@ -19,6 +19,7 @@ signal level_completed(cleared_pct: float)
 @onready var label_tool_name: Label = $VBoxBottom/LabelTool
 @onready var shovel_bar: ProgressBar = $VBoxBottom/ShovelBar
 @onready var label_toss_hint: Label = $VBoxBottom/LabelTossHint
+@onready var label_container: Label = $VBoxBottom/LabelContainer
 @onready var victory_panel: PanelContainer = $VictoryPanel
 @onready var victory_title: Label = $VictoryPanel/VBox/Title
 @onready var victory_sub: Label = $VictoryPanel/VBox/Sub
@@ -700,9 +701,57 @@ func _process(delta: float) -> void:
 		return
 	_hint_timer = maxf(_hint_timer - delta, 0.0)
 	_update_tool_label()
+	_update_container_label()
 	_update_face_overlay()
 	_update_hint()
 	_update_reticle()
+
+## What the bucket or the wheelbarrow is holding, and the warning when it will take no more.
+##
+## The row shows the container the player is looking at, the one in their hands, or the
+## nearest one, so the number is on screen whenever a container is plausibly in play. Text
+## comes from the translation table like every other string the player reads.
+func _update_container_label() -> void:
+	if label_container == null or player_ref == null:
+		return
+	var container := _container_in_play()
+	if container == null:
+		label_container.visible = false
+		return
+	var contents := float(container.get("contents_kg"))
+	var capacity := float(container.get("capacity_kg"))
+	var full := capacity > 0.0 and contents >= capacity - 0.001
+	var is_barrow: bool = container.has_method("target_speed_on_surface")
+	if full:
+		label_container.text = tr("HUD_CONTAINER_BARROW_FULL") if is_barrow else tr("HUD_CONTAINER_FULL")
+	else:
+		var key := "HUD_CONTAINER_BARROW" if is_barrow else "HUD_CONTAINER"
+		label_container.text = tr(key) % [contents, capacity]
+	label_container.visible = true
+
+
+## The container the readout should describe: what is aimed at, what is in the hands, or the
+## nearest one within a few metres.
+func _container_in_play() -> Node:
+	if player_ref == null:
+		return null
+	if player_ref.has_method("_find_aimed_container"):
+		var aimed = player_ref.call("_find_aimed_container")
+		if aimed != null:
+			return aimed
+	var carried = player_ref.get("carried")
+	if carried != null and is_instance_valid(carried) and carried.is_in_group("snow_containers"):
+		return carried
+	var best: Node = null
+	var best_distance := 4.0
+	for node in get_tree().get_nodes_in_group("snow_containers"):
+		if node == null or not is_instance_valid(node) or not (node is Node3D):
+			continue
+		var distance: float = (node as Node3D).global_position.distance_to(player_ref.global_position)
+		if distance < best_distance:
+			best_distance = distance
+			best = node
+	return best
 
 func _update_tool_label() -> void:
 	if not label_tool_name:

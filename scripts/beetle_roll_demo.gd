@@ -50,9 +50,9 @@ func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -
 	_prepare_player_and_ball()
 
 func _prepare_player_and_ball() -> void:
-	# Position on virgin snow runway in the playground (Lane 0 at x=-3.75)
+	# Position on virgin snow runway in the playground (Lane 0 at x=-3.0 to keep margin from bank)
 	# Running from z=12.0 towards -Z (along unobstructed runway to -12.0).
-	var x_pos := -3.75
+	var x_pos := -3.0
 	var z_pos := 12.0
 	if "field_length" in snow_field and float(snow_field.field_length) < 25.0:
 		x_pos = 0.0

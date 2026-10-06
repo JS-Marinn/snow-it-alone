@@ -1,0 +1,42 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/snow_bucket.gd" id="1_fsqkj"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ximuv"]
+albedo_color = Color(0.36, 0.42, 0.5, 1)
+metallic = 0.25
+roughness = 0.72
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_p3hpj"]
+top_radius = 0.22
+bottom_radius = 0.22
+height = 0.42
+radial_segments = 16
+
+[sub_resource type="CylinderShape3D" id="CylinderShape3D_3rnjr"]
+height = 0.42
+radius = 0.22
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_x4la0"]
+albedo_color = Color(0.28, 0.3, 0.33, 1)
+roughness = 0.6
+
+[sub_resource type="TorusMesh" id="TorusMesh_7e75u"]
+inner_radius = 0.165
+outer_radius = 0.187
+
+[node name="SnowBucket" type="RigidBody3D" unique_id=1972266568]
+mass = 1.8
+script = ExtResource("1_fsqkj")
+
+[node name="Body" type="MeshInstance3D" parent="." unique_id=1484393525]
+material_override = SubResource("StandardMaterial3D_ximuv")
+mesh = SubResource("CylinderMesh_p3hpj")
+
+[node name="Collision" type="CollisionShape3D" parent="." unique_id=615098346]
+shape = SubResource("CylinderShape3D_3rnjr")
+
+[node name="Handle" type="MeshInstance3D" parent="." unique_id=1404210643]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, 0, 0.21, 0)
+material_override = SubResource("StandardMaterial3D_x4la0")
+mesh = SubResource("TorusMesh_7e75u")

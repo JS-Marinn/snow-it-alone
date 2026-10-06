@@ -34,7 +34,7 @@ const PUSH_MIN_SPEED: float = 1.8
 ## Reference mass (kg) at and below which the ball rolls at full PUSH_SPEED.
 const PUSH_REF_MASS: float = 25.0
 ## Minimum distance (m) to push: prevents pushing when standing on or inside the ball.
-const PUSH_REACH_MIN: float = 1.0
+const PUSH_REACH_MIN: float = 0.8
 ## Maximum distance (m) to push: player must walk behind the ball if it rolls further.
 const PUSH_REACH_MAX: float = 3.0
 ## Stiffness and damping of the snow support (per unit of mass).
