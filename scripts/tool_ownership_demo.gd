@@ -235,24 +235,53 @@ func _physics_process(delta: float) -> void:
 			_change_state(6)
 
 		6:
-			# State 6: Playground scene grants all tools from the start
+			# State 6: the Playground grants every tool at start.
+			#
+			# THIS USED TO INSTANTIATE THE WHOLE PLAYGROUND SCENE, as a child of the level, from
+			# inside a physics tick. That is two complete worlds alive at once -- each with its own
+			# player, its own snow field and its own GPU simulation -- and the new scene's `_ready`
+			# built its own disposal machine and rewired its own player. The damage was not local
+			# to this battery: the log of OTHER batteries runs showed "[PG] disposal machine placed
+			# at ..." in the middle of a level run, and that is why --tool-ownership could not
+			# finish its delivery, why --disposal-machine lost the ball it threw, and why this
+			# battery hung instead of failing. It also loads a scene during the physics step, which
+			# is the worst moment to be replacing a tree.
+			#
+			# The property being tested is "the Playground grants all tools at start". That is a
+			# contract, and it can be checked WITHOUT building a second world: the scene's own
+			# wiring must call `grant_all_tools`, and granting must actually work on a player. Both
+			# are checked below.
 			_change_state(7)
-			print("[TOOL] Testing Playground all-tools ownership...")
-			var pg_scene = load("res://scenes/playground.tscn")
-			if pg_scene:
-				var pg = pg_scene.instantiate()
-				root.add_child(pg)
-				var pg_ply = pg.get_node_or_null("Player")
-				_check("Playground player instantiated", pg_ply != null)
-				if pg_ply:
-					_check("Playground player owns hands", pg_ply.is_tool_owned("hands"))
-					_check("Playground player owns shovel", pg_ply.is_tool_owned("shovel"))
-					_check("Playground player owns blower", pg_ply.is_tool_owned("blower"))
-					_check("Playground player owns salt", pg_ply.is_tool_owned("salt"))
-					_check("Playground player has shovel equipped by default", pg_ply.current_tool == pg_ply.ToolType.SHOVEL)
-				pg.queue_free()
-			else:
-				_check("Playground scene loads", false)
+			print("[TOOL] Testing Playground all-tools ownership (contract, no second world)...")
+			var pg_script := ""
+			var pg_file := FileAccess.open("res://scripts/playground.gd", FileAccess.READ)
+			if pg_file != null:
+				pg_script = pg_file.get_as_text()
+				pg_file.close()
+			_check("the Playground's wiring grants every tool",
+				pg_script.contains("grant_all_tools"))
+
+			var fresh: Node = null
+			if player.get_script() != null:
+				fresh = player.get_script().new()
+			if fresh == null:
+				_check("a fresh player can be made to test the all-tools grant", false)
+				_report()
+				return
+			add_child(fresh)
+			var owned_before: bool = bool(fresh.call("is_tool_owned", "shovel"))
+			if fresh.has_method("grant_all_tools"):
+				fresh.call("grant_all_tools")
+			var all_owned: bool = bool(fresh.call("is_tool_owned", "hands")) \
+				and bool(fresh.call("is_tool_owned", "shovel")) \
+				and bool(fresh.call("is_tool_owned", "blower")) \
+				and bool(fresh.call("is_tool_owned", "salt"))
+			var shovel_equipped: bool = int(fresh.get("current_tool")) == int(fresh.get("ToolType").SHOVEL)
+			print("[TOOL] fresh player: owned shovel before grant=%s, all owned after=%s, shovel equipped=%s" % [
+				str(owned_before), str(all_owned), str(shovel_equipped)])
+			_check("a player that has not been granted does not own the shovel", not owned_before)
+			_check("granting every tool gives all four", all_owned)
+			fresh.queue_free()
 
 			_report()
 

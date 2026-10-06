@@ -178,7 +178,7 @@ func _ph_read_forward() -> void:
 func _ph_case_sky() -> void:
 	if _phase_t < 0.4:
 		return
-	_press("looking at the sky", Vector3(0.0, 40.0, 6.0))
+	_press("looking at the sky", Vector3(0.4, 40.0, 6.4))
 	_next()
 
 

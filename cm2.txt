@@ -1,0 +1,53 @@
+fix: one world at a time, and the aim ceiling stops rolling the camera
+
+Two defects found by a structural audit of the project, both of which were costing real time
+without ever being named.
+
+## A battery was building a second game inside the running one
+
+`tool_ownership_demo.gd` state 6 instantiated `res://scenes/playground.tscn` and added it as a
+CHILD OF THE LEVEL, from inside a physics tick. That is two complete worlds alive at once -- each
+with its own player, its own snow field and its own GPU simulation -- and the new scene's `_ready`
+then placed its own disposal machine, wired its own player and granted its own tools.
+
+It was not a local problem for that one battery. Other batteries' logs contained
+"[PG] disposal machine placed at ..." in the middle of a LEVEL run, which is this line, and it is
+the cause this project wrote down as "the anti-soft-lock chain": the tree the thrown ball lived in
+was replaced underneath it, so the delivery could not land and the coin never moved.
+
+The property under test is "the Playground grants every tool at start". That is a contract and it
+is now checked as one: the scene's own wiring must call `grant_all_tools`, and granting must
+actually give a fresh player all four tools and leave it without them beforehand. No second world,
+no scene load in a physics step.
+
+--tool-ownership: 38 checks -> 35, still 2 failing, and the two that fail are the anti-soft-lock
+delivery rather than the ownership contract this battery exists for.
+
+## The sky target was directly overhead, which rolled the camera
+
+`reticle_aim_demo.gd` aimed at `(0, 40, 6)` from a player at `(0, 0.32, 6)`: exactly vertical.
+`look_at` warns "Target and up vectors are colinear" and picks an arbitrary roll, and that warning
+was the ONLY line in the battery's error log on the run the gate reported as "no verdict printed
+(crashed?)" -- an intermittent failure that looked like a crash in the gate and passed when run
+alone. The target is now slightly off-axis.
+
+--reticle-aim passes inside the gate again (23 OK / 0 FAIL), which it did not before: the gate
+went from 5 red to 4.
+
+## Free win: Godot was importing duplicates of its own code
+
+`backup/` and `scratch_wip/` had no `.gdignore`, so the engine imported 4,806 lines of duplicated
+GDScript including a second 1,755-line `player_controller.gd` declaring the same class. Nothing
+live references either tree (the only match is `tools/restore_flat_snow.ps1`, which reads by disk
+path and not through `res://`), so both now carry an empty `.gdignore`. One empty file each.
+
+## Still failing, and now with a better name for it
+
+  * --tool-ownership and --disposal-machine: the anti-soft-lock delivery does not land. The second
+    world is gone, so the remaining cause is the delivery itself and not the tree.
+  * --phys-demo: 34/2, its rig stands where the new aim is out of reach.
+  * --shovel-modes: 16/1, the push's exact-loss verdict, which is a flaw in the battery's
+    measurement window and not in the mechanic.
+  * --disposal-machine ALSO loses the Vulkan device in its last phase ("Vulkan device was lost"),
+    after a large teleport of the player. Intermittent, driver-level, and recorded here rather
+    than chased: it is the only device loss in the project's logs.
