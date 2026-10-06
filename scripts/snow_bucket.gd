@@ -12,6 +12,14 @@ extends RigidBody3D
 ## project's mass invariant true. Who may fill it, and from where, is gameplay and lives in
 ## `scripts/container_interaction.gd`.
 
+## Emitted whenever the contents change. NOTHING CONNECTS TO IT, and that is deliberate rather than
+## broken: the HUD reads the readout by POLLING `contents_kg` each frame (`hud.gd`, the container
+## line), so the display is correct without a listener.
+##
+## It is kept because the parked container interaction work emits it, and it is documented here
+## because a signal that looks like the update path and is not one is a DECOY: the next person to
+## write a container will connect to it, see nothing happen, and have to discover why. If the HUD
+## is ever changed to listen instead of poll, this is the hook it should use.
 signal contents_changed(contents_kg: float, capacity_kg: float)
 
 const SoundEffectsScript = preload("res://scripts/sound_effects.gd")

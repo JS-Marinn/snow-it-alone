@@ -328,7 +328,7 @@ func _ph_read_push() -> void:
 func _ph_push_verdict() -> void:
 	if _phase_t < 2.5:
 		return
-	var mass_lost := _blade_yield() - _yield_before
+	var mass_lost := _carve_yield() - _yield_before
 	var behind := Vector3(TEST_AT.x, 0.0, TEST_AT.z + 3.0)
 	var front := Vector3(TEST_AT.x, 0.0, TEST_AT.z - 3.5)
 	_behind_after = _height(behind)
@@ -652,6 +652,25 @@ func _blade_yield() -> float:
 func _reset_blade_yield() -> void:
 	if snow_field.has_method("reset_shovel_yield"):
 		snow_field.call("reset_shovel_yield")
+
+
+## Every kilogram the field gave up by ANY route, including the radial clearing this battery's own
+## setup uses.
+##
+## WHY BOTH LEDGERS EXIST. This battery clears a strip with `carve` and then pushes along it. The
+## blade ledger counts only `carve_shovel`, so the setup's kilograms were never in the number the
+## push verdict subtracted -- and no reset can remove what was never counted. Measured: -90.979 kg
+## of "field loss" against a 17.000 kg blade. This ledger counts both routes, so resetting it after
+## the setup leaves exactly the push.
+func _carve_yield() -> float:
+	if snow_field.has_method("carve_yield_kg"):
+		return float(snow_field.call("carve_yield_kg"))
+	return _blade_yield()
+
+
+func _reset_carve_yield() -> void:
+	if snow_field.has_method("reset_carve_yield"):
+		snow_field.call("reset_carve_yield")
 
 
 ## Snow height averaged over a small disc, from the field's own query.

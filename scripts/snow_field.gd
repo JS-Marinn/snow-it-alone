@@ -517,6 +517,8 @@ func _inside_field(local: Vector2, margin: float = 0.0) -> bool:
 ## This is an exact record of what the field HANDED OVER, so it needs no integral and cannot
 ## drift. Read it with `shovel_yield_kg()`; reset it with `reset_shovel_yield()`.
 var _shovel_yield_kg: float = 0.0
+## The same, for every route out of the field. See carve_yield_kg.
+var _total_yield_kg: float = 0.0
 
 
 ## The blade ledger: total kilograms handed to blades since the last reset.
@@ -527,6 +529,23 @@ func shovel_yield_kg() -> float:
 ## Clears the blade ledger, so a test can measure a carve from a known zero.
 func reset_shovel_yield() -> void:
 	_shovel_yield_kg = 0.0
+
+
+## EVERY kilogram this field has given up, by any route, since the last reset.
+##
+## `shovel_yield_kg` counts only `carve_shovel`, which is the right ledger for a blade. This one
+## also counts `carve` -- the radial clearing used for tests, lanes and pits -- because a test that
+## clears a strip and then pushes along it needs to measure the push WITHOUT the clearing in the
+## sum. Measured reason: the shovel battery's push verdict read -90.979 kg of field loss for a
+## 17.000 kg blade, because the battery reset the blade ledger while its own setup clearing went
+## through `carve` and was never in that number at all.
+func carve_yield_kg() -> float:
+	return _total_yield_kg
+
+
+## Clears the all-routes ledger.
+func reset_carve_yield() -> void:
+	_total_yield_kg = 0.0
 
 
 func carve_shovel(scoop_pos: Vector3, forward_dir: Vector3, blade_w: float = 0.76, blade_l: float = 0.32, max_cut_m: float = 0.0) -> float:
@@ -556,6 +575,7 @@ func carve_shovel(scoop_pos: Vector3, forward_dir: Vector3, blade_w: float = 0.7
 		# the granular solver relaxes, so it cannot adjudicate a small carve. This counter is an
 		# exact record of what this function HANDED OVER, and it is what a mass test should read.
 		_shovel_yield_kg += kg
+		_total_yield_kg += kg
 		return kg
 	return 0.0
 
@@ -569,7 +589,9 @@ func carve(world_pos: Vector3, radius_meters: float, _depth_cut: float, _push_di
 	_mark_active(local, radius_meters + 0.4)
 	_probe_pos[2] = local
 	if _probe_h[2] > 0.05:
-		return radius_meters * minf(_probe_h[2], 1.0) * 5.0
+		var kg_out := radius_meters * minf(_probe_h[2], 1.0) * 5.0
+		_total_yield_kg += kg_out
+		return kg_out
 	return 0.0
 
 # FREE DUMP (block 1.2): injects mass as loose snow
