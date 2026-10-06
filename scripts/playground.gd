@@ -296,7 +296,7 @@ func _process(delta: float) -> void:
 		_empty_since = _t
 	if _check_mode:
 		while _step_index < _steps.size() and _t >= float(_steps[_step_index][0]):
-			if (_step_index == 1 or _step_index == 4) and (_t - _empty_since < 0.6):
+			if (_step_index == 1 or _step_index == 4) and (_t - _empty_since < 1.2):
 				break
 			var fn: Callable = _steps[_step_index][1]
 			fn.call()
