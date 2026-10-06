@@ -665,6 +665,24 @@ func _build_reticle() -> void:
 	centre.add_child(_reticle_drawer)
 	_reticle_drawer.visible = true
 
+## The reticle state lives on the player, because the player is what decides whether snow is
+## within reach. The HUD used to keep a second copy that nothing ever wrote, so the drawer sat
+## at OFF for ever and was never drawn, and gathering did not consult it either. One state, read
+## from its owner, every frame: the drawer cannot disagree with what pressing interact will do.
+func _sync_reticle_from_player() -> void:
+	if _reticle_drawer == null:
+		return
+	var state := 0
+	for node in get_tree().get_nodes_in_group(SnowBall.IMPACT_GROUP):
+		if node.has_method("get_reticle_state"):
+			state = int(node.get_reticle_state())
+			break
+	if state == _reticle_state:
+		return
+	_reticle_state = state
+	_reticle_drawer.visible = state != 0
+	_reticle_drawer.queue_redraw()
+
 func _on_reticle_draw() -> void:
 	if _reticle_drawer == null or _reticle_state == 0:
 		return
@@ -695,6 +713,7 @@ func _update_reticle() -> void:
 		_reticle_drawer.queue_redraw()
 
 func _process(delta: float) -> void:
+	_sync_reticle_from_player()
 	if not player_ref:
 		return
 	_hint_timer = maxf(_hint_timer - delta, 0.0)
