@@ -1795,7 +1795,10 @@ func _estimate_available_snow_kg(pos: Vector3, harvest_radius: float = PACK_HARV
 ## Forward-only, never searching behind player or under feet on bare ground.
 func _find_pack_target() -> Vector3:
 	_update_reticle_aim()
-	if reticle_aim_pt != Vector3.INF and _estimate_available_snow_kg(reticle_aim_pt) >= pack_min_kg:
+	# reticle_has_hit is the part that was missing. Looking at the sky leaves the aim point falling
+	# somewhere on the ground with snow on it, so the reach test passed and a ball was packed while
+	# the player was looking at nothing. If the ray hit nothing, there is nothing to gather from.
+	if reticle_has_hit and reticle_aim_pt != Vector3.INF and _estimate_available_snow_kg(reticle_aim_pt) >= pack_min_kg:
 		return reticle_aim_pt
 	return Vector3.INF
 
