@@ -44,6 +44,9 @@ var _face_overlay: TextureRect
 var _reticle_drawer: Control
 ## The plain dot. See _build_reticle: this exists because the drawn reticle was wrong three times.
 var _reticle_dot: ColorRect
+## The dark ring behind the dot. A white dot on white snow is invisible, which is exactly what
+## happened: the reticle was there, centred, and could not be seen.
+var _reticle_dot_ring: ColorRect
 var _reticle_state: int = 0
 var _audio_lpf: AudioEffectLowPassFilter = null
 var _audio_bus_idx: int = -1
@@ -669,9 +672,20 @@ func _build_reticle() -> void:
 	# The plainest thing that can work: a small solid square, on its own canvas layer, in pure
 	# screen coordinates, sized by its own minimum and centred by preset. No custom draw, no
 	# container that sizes it, no arithmetic: the three things that broke the drawn reticle.
+	# Dark ring first, white dot on top: the pairing every game uses, because it reads on snow and on
+	# dark objects alike. Position and size are trusted to the preset, not to arithmetic.
+	_reticle_dot_ring = ColorRect.new()
+	_reticle_dot_ring.name = "ReticleDotRing"
+	_reticle_dot_ring.custom_minimum_size = Vector2(11.0, 11.0)
+	_reticle_dot_ring.color = Color(0.04, 0.05, 0.09, 0.85)
+	_reticle_dot_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	reticle_layer.add_child(_reticle_dot_ring)
+	_reticle_dot_ring.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	_reticle_dot_ring.visible = false
+
 	_reticle_dot = ColorRect.new()
 	_reticle_dot.name = "ReticleDot"
-	_reticle_dot.custom_minimum_size = Vector2(6.0, 6.0)
+	_reticle_dot.custom_minimum_size = Vector2(5.0, 5.0)
 	_reticle_dot.color = Color(1.0, 1.0, 1.0, 0.95)
 	_reticle_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	reticle_layer.add_child(_reticle_dot)
@@ -698,6 +712,9 @@ func _sync_reticle_from_player() -> void:
 	_reticle_drawer.queue_redraw()
 	if _reticle_dot != null:
 		_reticle_dot.visible = state != 0
+		if _reticle_dot_ring != null:
+			_reticle_dot_ring.visible = state != 0
+			_reticle_dot_ring.color = Color(0.30, 0.85, 0.95, 0.9) if state == 2 else Color(0.04, 0.05, 0.09, 0.85)
 		# Cyan when a tool can carve, white when a ball can be packed.
 		_reticle_dot.color = Color(0.35, 0.95, 1.0, 0.95) if state == 2 else Color(1.0, 1.0, 1.0, 0.95)
 
