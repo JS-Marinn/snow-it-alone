@@ -7,6 +7,7 @@ extends RefCounted
 
 static var cel_shading_enabled: bool = true
 static var _toon_shader: Shader = preload("res://materials/toon.gdshader")
+static var _outline_shader: Shader = preload("res://materials/outline.gdshader")
 static var _material_cache: Dictionary = {}
 static var _original_materials: Dictionary = {}
 static var _snow_material: ShaderMaterial = null
@@ -16,10 +17,10 @@ static var _orig_glow_bloom: float = 0.12
 static var _orig_ambient_energy: float = 1.1
 
 # Default artistic direction parameters
-static var default_bands: int = 3
-static var default_band_softness: float = 0.05
+static var default_bands: int = 2
+static var default_band_softness: float = 0.18
 static var default_shadow_tint: Color = Color(0.68, 0.74, 0.88)
-static var default_rim_strength: float = 0.75
+static var default_rim_strength: float = 0.65
 static var default_rim_color: Color = Color(1.0, 0.92, 0.80)
 static var default_outline_width: float = 0.006
 static var default_outline_color: Color = Color(0.12, 0.16, 0.28, 1.0)
@@ -134,8 +135,14 @@ static func _get_or_create_toon_material(orig: Material) -> ShaderMaterial:
 	toon_mat.set_shader_parameter("shadow_tint", default_shadow_tint)
 	toon_mat.set_shader_parameter("rim_strength", default_rim_strength)
 	toon_mat.set_shader_parameter("rim_color", default_rim_color)
-	toon_mat.set_shader_parameter("outline_width", default_outline_width)
-	toon_mat.set_shader_parameter("outline_color", default_outline_color)
+
+	# Contorno por casco invertido (next_pass con cull_front): se dibuja estrictamente detrás
+	var outline_mat := ShaderMaterial.new()
+	outline_mat.shader = _outline_shader
+	outline_mat.set_shader_parameter("outline_width", default_outline_width)
+	outline_mat.set_shader_parameter("outline_color", default_outline_color)
+	outline_mat.set_shader_parameter("outline_enabled", cel_shading_enabled and default_outline_width > 0.0)
+	toon_mat.next_pass = outline_mat
 
 	_material_cache[key] = toon_mat
 	return toon_mat
@@ -149,6 +156,8 @@ static func set_cel_shading_enabled(is_on: bool, root_node: Node = null) -> void
 	for mat in _material_cache.values():
 		if mat is ShaderMaterial:
 			mat.set_shader_parameter("toon_enabled", is_on)
+			if mat.next_pass is ShaderMaterial:
+				mat.next_pass.set_shader_parameter("outline_enabled", is_on and default_outline_width > 0.0)
 
 	if root_node != null:
 		_sweep_and_apply(root_node)
@@ -160,13 +169,14 @@ static func configure_bisect(snow_toon: bool, obj_toon: bool, obj_bands: int, ou
 	cel_shading_enabled = obj_toon or snow_toon
 	if _snow_material != null:
 		_snow_material.set_shader_parameter("toon_enabled", snow_toon)
-		_snow_material.set_shader_parameter("outline_width", outline_w)
 
 	for mat in _material_cache.values():
 		if mat is ShaderMaterial:
 			mat.set_shader_parameter("toon_enabled", obj_toon)
 			mat.set_shader_parameter("bands", obj_bands)
-			mat.set_shader_parameter("outline_width", outline_w)
+			if mat.next_pass is ShaderMaterial:
+				mat.next_pass.set_shader_parameter("outline_width", outline_w)
+				mat.next_pass.set_shader_parameter("outline_enabled", obj_toon and outline_w > 0.0)
 
 	if root_node != null:
 		_sweep_and_apply(root_node)

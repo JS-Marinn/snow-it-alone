@@ -122,13 +122,6 @@ void fragment() {
 	vec3 final_color = mix(clean_path, snow, mask);
 	final_color += vec3(sp * sparkle_strength * 0.7);
 
-	// Contorno fino azul oscuro en pendientes pronunciadas / zanjas
-	if (toon_enabled && outline_width > 0.0) {
-		float NdotV = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
-		float edge = smoothstep(outline_width * 45.0, 0.0, NdotV) * smoothstep(0.08, 0.35, slope) * mask;
-		final_color = mix(final_color, outline_color.rgb, edge * outline_color.a * 0.85);
-	}
-
 	ALBEDO = final_color;
 	ROUGHNESS = mix(0.42, 0.70, mask);
 	SPECULAR = mix(0.35, 0.15, mask);
@@ -142,36 +135,22 @@ void fragment() {
 const float INV_PI = 0.318309886;
 
 void light() {
+	float NdotL = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	float lit = clamp(NdotL * ATTENUATION, 0.0, 1.0);
+
 	if (!toon_enabled) {
-		float NdotL = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
-		DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * (NdotL * INV_PI * ATTENUATION);
+		DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * (lit * INV_PI);
 	} else {
-		// 1. Half-Lambert para envolvencia suave sin negros crudos
-		float NdotL = dot(NORMAL, LIGHT);
-		float half_lambert = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0);
-		float lit = clamp(half_lambert * ATTENUATION, 0.0, 1.0);
+		// Sobre blanco sobre blanco: sin bandas escalonadas para no generar manchas en relieve.
+		// La separación de formas la da el tinte de concavidad y la luz de contorno en crestas.
+		vec3 light_ramp = mix(shadow_tint, vec3(1.0), smoothstep(0.02, 0.70, lit));
+		float diffuse_scale = mix(0.30, 1.0, lit) * INV_PI * 1.15;
+		DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * light_ramp * (lit * diffuse_scale);
 
-		// 2. Cuantización multi-banda (2 o 3 bandas) con terminador suave
-		float band_factor = 0.0;
-		if (bands <= 1) {
-			band_factor = smoothstep(0.5 - band_softness, 0.5 + band_softness, lit);
-		} else if (bands == 2) {
-			band_factor = smoothstep(0.50 - band_softness, 0.50 + band_softness, lit);
-		} else {
-			float step1 = smoothstep(0.50 - band_softness, 0.50 + band_softness, lit);
-			float step2 = smoothstep(0.72 - band_softness, 0.72 + band_softness, lit);
-			band_factor = step1 * 0.5 + step2 * 0.5;
-		}
-
-		// 3. Sombras frías (shadow_tint azul hielo) y luz directa cálida normalizada
-		vec3 light_ramp = mix(shadow_tint, vec3(1.0), band_factor);
-		float diffuse_scale = mix(0.18, 1.0, band_factor) * INV_PI * 1.35;
-		DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * light_ramp * diffuse_scale;
-
-		// 4. Luz de contorno cálida (rim light) en crestas esculpidas
+		// Luz de contorno cálida (rim light) en crestas esculpidas
 		float NdotV = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
 		float rim = 1.0 - NdotV;
-		float rim_mask = smoothstep(0.60, 0.90, rim) * smoothstep(0.06, 0.28, v_slope);
+		float rim_mask = smoothstep(0.60, 0.90, rim) * smoothstep(0.08, 0.32, v_slope);
 		float rim_lit = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0);
 		vec3 rim_contrib = rim_color * (rim_mask * rim_strength * rim_lit * INV_PI * 1.1);
 		DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * rim_contrib;

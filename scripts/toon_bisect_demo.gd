@@ -125,6 +125,20 @@ func _physics_process(delta: float) -> void:
 			_frame_count += 1
 			if _frame_count >= 20:
 				_capture("toon_bisect_5.png")
+				_change_state(11)
+
+		11:
+			# State 6: Arreglo aplicado (smooth snow diffuse + rim, smooth irradiance objects, inverted hull outline)
+			print("[TOON-BISECT] State 6: Arreglo aplicado (fix active)...")
+			CelShadingSystem.configure_bisect(true, true, 2, 0.006, root)
+			_frame_count = 0
+			_change_state(12)
+
+		12:
+			# Settle & capture 6
+			_frame_count += 1
+			if _frame_count >= 20:
+				_capture("toon_bisect_6.png")
 				_report()
 
 func _change_state(new_state: int) -> void:
