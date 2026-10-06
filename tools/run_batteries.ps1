@@ -66,6 +66,7 @@ $batteries = @(
     @{ Flag = 'tool-ownership';   Name = 'Tool ownership'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'reticle-act';      Name = 'Reticle and aim'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'reticle-aim';      Name = 'Reticle needs close snow'; Kind = 'result'; Gpu = $true },
+    @{ Flag = 'shovel-modes';     Name = 'Shovel load and push'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'carve-quality';    Name = 'Snow carving'; Kind = 'diagnostic'; Gpu = $true; MinFps = 5 }
 )
 

@@ -506,6 +506,29 @@ func _inside_field(local: Vector2, margin: float = 0.0) -> bool:
 # Shovel: collects and piles snow while conserving mass
 # max_cut_m > 0 caps the thickness cut away: the blade then works like a chisel
 # and can shave thin sheets off a ball or a pile (block 4.3).
+## Cumulative kilograms `carve_shovel` has handed to a blade.
+##
+## WHY THIS EXISTS, and it is measured rather than theoretical: the whole-field integral drifts by
+## several kilograms while the granular solver relaxes -- 23199.15 and then 23202.04 for the same
+## untouched world, a drift an order of magnitude larger than a bucket-sized carve. Subtracting
+## two of those numbers to adjudicate mass gave the shovel battery -0.070 kg of field loss for a
+## 6.300 kg load, and -11.562 kg for a 13.717 kg one. A mass check cannot be built on that.
+##
+## This is an exact record of what the field HANDED OVER, so it needs no integral and cannot
+## drift. Read it with `shovel_yield_kg()`; reset it with `reset_shovel_yield()`.
+var _shovel_yield_kg: float = 0.0
+
+
+## The blade ledger: total kilograms handed to blades since the last reset.
+func shovel_yield_kg() -> float:
+	return _shovel_yield_kg
+
+
+## Clears the blade ledger, so a test can measure a carve from a known zero.
+func reset_shovel_yield() -> void:
+	_shovel_yield_kg = 0.0
+
+
 func carve_shovel(scoop_pos: Vector3, forward_dir: Vector3, blade_w: float = 0.76, blade_l: float = 0.32, max_cut_m: float = 0.0) -> float:
 	var local := _local_xz(scoop_pos)
 	if not _inside_field(local, 1.2):
@@ -528,7 +551,12 @@ func carve_shovel(scoop_pos: Vector3, forward_dir: Vector3, blade_w: float = 0.7
 	# Probe 1 tracks the blade and reports, with latency, whether snow is there
 	_probe_pos[1] = local + fwd * (blade_l * 0.5 + 0.1)
 	if _probe_h[1] > 0.05:
-		return blade_w * minf(_probe_h[1], 1.5) * 3.0
+		var kg := blade_w * minf(_probe_h[1], 1.5) * 3.0
+		# THE LEDGER. See `carve_shovel_yield`: the whole-field integral drifts by kilograms while
+		# the granular solver relaxes, so it cannot adjudicate a small carve. This counter is an
+		# exact record of what this function HANDED OVER, and it is what a mass test should read.
+		_shovel_yield_kg += kg
+		return kg
 	return 0.0
 
 # Radial clearing (turbine / salt spreader)

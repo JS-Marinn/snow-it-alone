@@ -105,6 +105,20 @@ const PACK_REACH_STRICT: float = 1.3
 const PACK_REACH_EXTENDED: float = 2.4
 const PACK_HARVEST_RADIUS: float = 0.22
 const PACK_HARVEST_DEPTH: float = 0.10
+## Shovel behaviour modes. These are plain integers ON PURPOSE, and this file must not import
+## `scripts/shovel_modes.gd`: the module exists to let a caller pick a mode, and if the game
+## itself imported it then the module would no longer be a portable extra -- it would be part of
+## the game's own wiring, which is the opposite of what was asked for.
+##
+## The values match `ShovelModes.Mode`. `set_shovel_mode` refuses anything else.
+const SHOVEL_MODE_LEGACY: int = 0
+const SHOVEL_MODE_LOAD_AND_PUSH: int = 1
+## Fraction of the deliberate load rate the blade picks up while pushing. The authority for this
+## number is `PUSH_RESIDUE_FACTOR` in `scripts/shovel_modes.gd`; it is repeated here so the
+## default build behaves identically whether or not that module is ever loaded.
+const PUSH_RESIDUE_FACTOR: float = 0.25
+## Snow taller than this jams the blade (metres): the height of the shovel's side wall.
+const BLADE_WALL_HEIGHT: float = 0.30
 @export var pack_min_kg: float = PACK_MIN_KG
 @export var carry_distance: float = 1.15
 ## Throw: reference speed for the reference light ball. Speed falls with mass
@@ -293,6 +307,9 @@ var is_tossing: bool = false
 var toss_timer: float = 0.0
 var is_dumping: bool = false
 var is_tamping: bool = false
+## Which shovel behaviour is active. LEGACY by default everywhere, so the main game is unchanged
+## unless something asks for the other one. See `set_shovel_mode`.
+var shovel_mode: int = SHOVEL_MODE_LEGACY
 var tamp_timer: float = 0.0
 var snow_resistance: float = 0.0
 ## Normalized advance drag (0 = free). Drives the shoveling speed.
@@ -1237,7 +1254,12 @@ func _update_hands_throw(delta: float) -> void:
 
 
 func _process_shovel(delta: float, _horiz_speed: float) -> void:
-	_update_shovel_buttons(delta)
+	# LEGACY keeps the pour-and-toss wiring it has always had. LOAD_AND_PUSH does not use it at
+	# all: there the right button RELEASES what the blade is holding, in one go, and there is no
+	# throw. Letting both run is how `_right_hold` came to set `is_dumping` inside the new mode
+	# and the blade poured 60 kg into the field while the battery was measuring a push.
+	if shovel_mode != SHOVEL_MODE_LOAD_AND_PUSH:
+		_update_shovel_buttons(delta)
 	if is_tossing:
 		toss_timer -= delta
 		if toss_timer <= 0.0:
@@ -1253,6 +1275,19 @@ func _process_shovel(delta: float, _horiz_speed: float) -> void:
 		prev_scoop_pos = Vector3.INF
 		_pour_shovel_load(delta)
 		return
+
+	# LOAD_AND_PUSH, the release: the right button empties the blade where it is pointed, all at
+	# once. One press is one release, so this is edge-triggered and not a pour that keeps running.
+	#
+	# A release is NOT a toss. The toss throws the load away from the player in an arc; a release
+	# puts it down in front, which is what a shovel does when you turn it over out of the way.
+	# Both were options and this is the decision: release, because the mode already has a way to
+	# MOVE snow (the push) and does not need a second way to throw it.
+	if shovel_mode == SHOVEL_MODE_LOAD_AND_PUSH:
+		if Input.is_action_just_pressed("shovel_toss") and not is_carrying():
+			_release_blade_load()
+		if is_tossing or is_tamping or is_dumping:
+			return
 
 	var push_pressed = Input.is_action_pressed("shovel_push") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
 	if is_carrying():
@@ -1307,6 +1342,13 @@ func _process_shovel(delta: float, _horiz_speed: float) -> void:
 
 		prev_scoop_pos = scoop_pt
 
+		# In LOAD_AND_PUSH this is the RESIDUE: the snow the blade collects just from being
+		# dragged along the ground, which is a property of pushing and not of loading. It scales
+		# the push feed rather than adding to it, so the two buttons stay different in kind --
+		# pushing trickles, loading bites.
+		if shovel_mode == SHOVEL_MODE_LOAD_AND_PUSH:
+			kg_cut *= _push_residue_fraction()
+
 		if kg_cut > 0.0:
 			if shovel_spray_particles and not shovel_spray_particles.emitting:
 				shovel_spray_particles.emitting = true
@@ -1347,9 +1389,153 @@ func _process_shovel(delta: float, _horiz_speed: float) -> void:
 		if scrape_audio.playing:
 			scrape_audio.stop()
 
-	# Tamping / flattening with the flat face
-	if Input.is_action_just_pressed("shovel_tamp") and not is_carrying():
+	# Tamping / flattening with the flat face.
+	#
+	# NOT AVAILABLE IN LOAD_AND_PUSH. That mode has no flattening verb: pressing the tamp button
+	# must do nothing at all -- no effect on the field, and no message either, because a message
+	# would be the game acknowledging the press. `--shovel-modes` checks both halves of that.
+	if shovel_mode != SHOVEL_MODE_LOAD_AND_PUSH \
+			and Input.is_action_just_pressed("shovel_tamp") and not is_carrying():
 		_perform_tamp()
+
+
+## Switches the shovel to one of the modes above. One line for a caller, which is the point.
+##
+## Returns false and prints why when the value is not a mode, so a typo becomes a visible refusal
+## instead of a shovel that silently behaves as LEGACY.
+func set_shovel_mode(new_mode: int) -> bool:
+	if new_mode != SHOVEL_MODE_LEGACY and new_mode != SHOVEL_MODE_LOAD_AND_PUSH:
+		push_warning("set_shovel_mode(%d) is not a shovel mode; keeping mode %d" % [new_mode, shovel_mode])
+		return false
+	shovel_mode = new_mode
+	print("[SHOVEL] mode set to %s" % shovel_mode_name())
+	return true
+
+
+## The current mode as a readable word, for logs and the HUD.
+func shovel_mode_name() -> String:
+	return "LOAD_AND_PUSH" if shovel_mode == SHOVEL_MODE_LOAD_AND_PUSH else "LEGACY"
+
+
+func is_load_and_push_mode() -> bool:
+	return shovel_mode == SHOVEL_MODE_LOAD_AND_PUSH
+
+
+## How much of the push feed the blade keeps while pushing. See PUSH_RESIDUE_FACTOR.
+func _push_residue_fraction() -> float:
+	return clampf(PUSH_RESIDUE_FACTOR, 0.0, 1.0)
+
+
+## Empties the blade where it is pointed, all at once: the release.
+##
+## WHAT IT DOES WITH THE SNOW. It goes back into the field at the aim point through
+## `dump_snow`, which is the same call the legacy pour uses, so the mass is accounted for by the
+## field and not by this function. A release that simply set the load to zero would be a hole in
+## the world's books: mass would leave the blade and arrive nowhere.
+##
+## AIMING MATTERS. The dump lands where the player is looking, at a sane distance: too close and
+## it goes under their feet, too far and the point is outside the field. The clamps are the ones
+## the legacy pour uses, deliberately, so a release and a pour put snow in the same place.
+##
+## Returns the kilograms released.
+func _release_blade_load() -> float:
+	if snow_field == null or not snow_field.has_method("dump_snow"):
+		return 0.0
+	var kg := shovel_current_load
+	if kg <= 0.05:
+		shovel_current_load = 0.0
+		return 0.0
+	var forward_flat := _forward_flat()
+	var drop_pt := _get_target_ground_pos()
+	var offset := drop_pt - global_position
+	var dist := Vector2(offset.x, offset.z).length()
+	if dist > 2.2 or dist < 0.4:
+		drop_pt = global_position + forward_flat * clampf(dist, 0.6, 2.2)
+	drop_pt.y = get_snow_surface_y(drop_pt)
+	snow_field.dump_snow(drop_pt, kg, 0.26)
+	shovel_current_load = 0.0
+	_update_shovel_snow_visual()
+	print("[SHOVEL] released %.3f kg at %s" % [kg, str(drop_pt)])
+	return kg
+
+
+## The blade picks up RESIDUE at this rate while pushing (kg/s), which is deliberately slower
+## than deliberate loading. Read by the battery, so the declared number has one home.
+func push_residue_rate() -> float:
+	return maxf(fill_rate, 0.0) * _push_residue_fraction()
+
+
+## True when the pile in front of the blade is too tall to carry, which is the jam.
+func blade_is_over_wall() -> bool:
+	return blade_snow_height > BLADE_WALL_HEIGHT
+
+
+## Deliberate loading: bite the snow at the aim point and fill the blade, at the declared rate,
+## and only while the aim point is close enough to reach by hand.
+##
+## ALL OR NOTHING is the rule, and it is enforced by asking the field for the mass it is about to
+## remove and then adding exactly that to the blade. The field is the authority on how much left
+## it; the blade never invents a number of its own. That is what keeps `--hand-pack`'s exact-loss
+## check meaningful here: no holes in the field with nothing in the blade, and no load in the
+## blade that the field never lost.
+##
+## Returns the kilograms that entered the blade this frame.
+func _load_blade_from_aim(delta: float) -> float:
+	if snow_field == null or not snow_field.has_method("carve_shovel"):
+		return 0.0
+	if shovel_current_load >= shovel_capacity_max:
+		return 0.0
+	# LOOKING AT THE SNOW, and close. The reach rule is the same one gathering by hand uses, so a
+	# player looking at the horizon loads nothing, and the reticle and the blade agree.
+	if not _aim_supports_loading():
+		return 0.0
+	var aim: Vector3 = reticle_aim_pt
+	# A pile above the side wall is not carried, it spills: the blade jams and takes nothing.
+	if snow_field.has_method("get_height_at"):
+		blade_snow_height = maxf(float(snow_field.get_height_at(aim)), 0.0)
+	if blade_is_over_wall():
+		is_stuck = true
+		return 0.0
+	is_stuck = false
+	var forward_flat := _forward_flat()
+	# The drill bit: a narrow bite in the direction the blade faces.
+	var want := minf(fill_rate * delta, shovel_capacity_max - shovel_current_load)
+	if want <= 0.0:
+		return 0.0
+	var kg_out: float = float(snow_field.carve_shovel(aim, forward_flat, 0.35, 0.30, want))
+	if kg_out <= 0.0:
+		return 0.0
+	# Exactly what the field gave up, capped by what the blade can still hold.
+	var accepted := minf(kg_out, shovel_capacity_max - shovel_current_load)
+	shovel_current_load += accepted
+	# If the field lost more than the blade could take, the excess goes back: mass is sacred and
+	# a full blade must not eat snow that nothing accounts for.
+	if kg_out > accepted:
+		snow_field.dump_snow(aim, kg_out - accepted, 0.22)
+	_update_shovel_snow_visual()
+	if shovel_spray_particles and not shovel_spray_particles.emitting:
+		shovel_spray_particles.emitting = true
+	return accepted
+
+
+## True when the aim point is on snow and close enough for the blade to bite it.
+##
+## Mirrors the reticle's reach rule: the shovel reaches with the pack reach, because it is held in
+## the same hands. A review of this file found the reticle and the blade disagreeing once before,
+## and the way that was fixed was to share one predicate.
+func _aim_supports_loading() -> bool:
+	if not reticle_has_hit or reticle_aim_pt == Vector3.INF:
+		return false
+	var offset := reticle_aim_pt - global_position
+	var horiz := Vector2(offset.x, offset.z).length()
+	if horiz > PACK_REACH_STRICT:
+		return false
+	if snow_field == null:
+		return false
+	if snow_field.has_method("get_height_at"):
+		if float(snow_field.get_height_at(reticle_aim_pt)) <= 0.015:
+			return false
+	return true
 
 ## Gradual pour: the shovel tilts and snow falls in a continuous stream under
 ## the blade, transferring its mass to the terrain in real time.

@@ -52,6 +52,8 @@ var _t: float = 0.0
 var _steps: Array = []
 var _step_index: int = 0
 var _empty_since: float = 0.0
+## The on-screen line that names the new shovel buttons, when that mode is on.
+var _shovel_hint: String = ""
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -85,6 +87,14 @@ func _ready() -> void:
 		add_child(demo)
 		if demo.has_method("setup"):
 			demo.setup(self, snow_field, player, props)
+		return
+	if OS.get_cmdline_user_args().has("--shovel-modes"):
+		var sm_script = load("res://scripts/shovel_modes_demo.gd")
+		var sm = Node.new()
+		sm.set_script(sm_script)
+		add_child(sm)
+		if sm.has_method("setup"):
+			sm.setup(self, snow_field, player, props)
 		return
 	if OS.get_cmdline_user_args().has("--pg-reticle-probe"):
 		var pgr_script = load("res://scripts/pg_reticle_probe.gd")
@@ -132,6 +142,19 @@ func _wire_player() -> void:
 		player.snow_field = snow_field
 	if player.has_method("set_snow_field"):
 		player.set_snow_field(snow_field)
+	# THE ONE LINE. The test scene is the only place that asks for the load-and-push shovel; the
+	# main game never does, so it keeps the legacy behaviour. The mode value comes from the module
+	# rather than a bare number, so this line stays honest if the enum ever changes.
+	var ShovelModes = load("res://scripts/shovel_modes.gd")
+	if ShovelModes != null and player.has_method("set_shovel_mode"):
+		var mode: int = int(ShovelModes.Mode.LOAD_AND_PUSH)
+		player.set_shovel_mode(mode)
+		print("[PG] shovel mode: %s" % str(ShovelModes.mode_name(mode)))
+		# Say on screen what the buttons do, because this mode reuses two bindings whose meaning
+		# changed. A player who has played the level will otherwise press the right button
+		# expecting a throw and get a release.
+		_shovel_hint = "Shovel (new mode):  LEFT = push and pick up a little   |   RIGHT = release what you are carrying"
+		print("[PG] %s" % _shovel_hint)
 	player.set("current_ground_y", ground)
 	player.set("is_ground_initialized", true)
 	if player.has_method("grant_all_tools"):
@@ -275,6 +298,15 @@ func _build_overlay() -> void:
 	_ledger_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0))
 	_ledger_label.add_theme_constant_override("outline_size", 4)
 	layer.add_child(_ledger_label)
+
+	_hint_label = Label.new()
+	_hint_label.position = Vector2(24.0, 210.0)
+	_hint_label.add_theme_font_size_override("font_size", 15)
+	_hint_label.add_theme_color_override("font_color", Color(0.85, 0.95, 1.0))
+	_hint_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0))
+	_hint_label.add_theme_constant_override("outline_size", 4)
+	_hint_label.text = _shovel_hint
+	layer.add_child(_hint_label)
 
 	_hint_label = Label.new()
 	_hint_label.position = Vector2(24.0, 190.0)
