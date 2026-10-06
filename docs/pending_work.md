@@ -4,7 +4,7 @@ Current state of the project: what is done, what remains genuinely open, and the
 environment rules and method notes. Written down so nothing depends on memory.
 
 Last updated: 2026-10-05.
-Status: **13 batteries registered in `tools/run_batteries.ps1` · 242 checks passing (ALL GREEN)**.
+Status: **13 batteries registered in `tools/run_batteries.ps1` · 244 checks passing (ALL GREEN)**.
 
 ---
 
@@ -106,19 +106,19 @@ Status: **13 batteries registered in `tools/run_batteries.ps1` · 242 checks pas
   verifies (a) walking into a resting large ball for 2.0s does NOT burst the ball and does NOT knock down the player, and
   (b) a large ball thrown at the player DOES burst and DOES knock down the player.
 
-### Hand packing mass conservation & all-or-nothing packing
-- **Problem**: When attempting to pack a snowball by hand in an area with little or scarce snow, snow was removed from the terrain without creating a snowball, causing permanent mass loss in violation of the game's $\pm 0.05\%$ physical conservation guarantee.
+### Hand packing mass conservation & clean refusal (no mounds / no ghost harvesting)
+- **Problem**: When attempting to pack a snowball by hand in an area with little or scarce snow, snow was removed from the terrain without creating a snowball, causing permanent mass loss in violation of the game's $\pm 0.05\%$ physical conservation guarantee. Furthermore, a naive fallback returning snow with `dump_snow()` caused a localized mound/bump where there was flat or scarce ground.
 - **Measured Cause**:
-  1. `scripts/player_controller.gd` previously had an arbitrary cutoff `pack_min_kg = 0.4 kg` in `_on_op_volume_ready`, rejecting yields $< 0.4$ kg without returning the harvested snow to the terrain via `dump_snow()`.
+  1. `scripts/player_controller.gd` previously had an arbitrary cutoff `pack_min_kg = 0.4 kg` in `_on_op_volume_ready`, rejecting yields $< 0.4$ kg.
   2. The physical minimum snowball mass corresponding to `MIN_RADIUS = 0.07 m` in `scripts/snowball.gd` is $(4/3)\pi (0.07)^3 \times 300 = 0.43498 \approx 0.435$ kg.
-  3. `player_controller.gd` previously clamped the packed radius to `clampf(r, 0.08, 0.22)`. At $r=0.08$, mass is $0.643$ kg, artificially synthesizing mass out of thin air if harvested $kg$ was between $0.40$ and $0.64$ kg.
-  4. In `scripts/snow_field.gd`, `carve()` failed to call `_mark_active()`, and `_on_stats_ready()` skipped emitting `op_volume_ready` when `fixed <= 0.0`, leaving `_pending_pack` stuck indefinitely whenever an empty harvest occurred.
+  3. A safety net calling `dump_snow(_pack_harvest_pt, kg, PACK_HARVEST_RADIUS)` on rejected yields preserved total field mass, but deposited a radial conical mound, visibly altering the terrain geometry on refused attempts.
+  4. Global mass verification in tests ($\sum \Delta m = 0$) was blind to this spatial redistribution.
 - **Fix**:
-  1. **Strict pre-check**: `player_controller.gd::_find_pack_target()` inspects available snow within reach (`PACK_REACH_STRICT = 1.3 m`, extending up to `PACK_REACH_EXTENDED = 2.4 m`). If insufficient snow is within reach, no harvest op is queued, `status_message` displays `tr("STATUS_NOT_ENOUGH_SNOW")`, and terrain mass is 100% untouched.
-  2. **Mathematical radius inversion**: Added `SnowBall.radius_for_packed_mass(kg)`, which inverts `mass_for_radius(r)` via 24-step bisection to $< 10^{-6}$ kg machine precision.
-  3. **Structural return guarantee**: If `op_volume_ready` returns $kg < \text{pack\_min\_kg}$ ($0.435$ kg) or ball instancing fails, `snow_field.dump_snow(_pack_harvest_pt, kg, PACK_HARVEST_RADIUS)` returns the harvested mass back to the terrain.
-  4. **Simulation integrity**: In `snow_field.gd`, `carve()` calls `_mark_active()`, `is_coarse_ready()` ensures valid mirror readiness, and `op_volume_ready` emits for named roles even at 0 kg so requesters never hang. Added `_pending_pack_time` safety timeout in `player_controller.gd`.
-- **Evidence**: Added `--hand-pack` acceptance battery (`scripts/hand_pack_demo.gd`), registered in `tools/run_batteries.ps1` (`Gpu = $true`, 10/10 OK). Total test gate passes all 13 batteries (242/242 checks, 100% ALL GREEN).
+  1. **Strict pre-check authority**: `player_controller.gd::_estimate_available_snow_kg()` and `_find_pack_target()` act as the sole authority. It checks minimum snow depth ($h_0 > 0.045$, sample points $> 0.015$) and effective cut volume. If insufficient snow is within reach, no harvest op is queued, `status_message` displays `tr("STATUS_NOT_ENOUGH_SNOW")`, and the snow field is never touched.
+  2. **Elimination of `dump_snow` fallback**: Removed all calls to `dump_snow()` on refusal. If the probe rejects, zero requests are sent to the simulation; no snow is removed, and no mounds are dumped.
+  3. **Mathematical radius inversion**: `SnowBall.radius_for_packed_mass(kg)` inverts `mass_for_radius(r)` via 24-step bisection to $< 10^{-6}$ kg machine precision.
+  4. **Local height invariance assertions**: Added probe height delta assertions ($\Delta h < 0.001$ m) in both cleared ground and scarce snow phases of `--hand-pack`.
+- **Evidence**: Extended `--hand-pack` acceptance battery (`scripts/hand_pack_demo.gd`), registered in `tools/run_batteries.ps1` (`Gpu = $true`, 12/12 OK). Total test gate passes all 13 batteries (244/244 checks, 100% ALL GREEN).
 
 ---
 
@@ -156,3 +156,6 @@ Status: **13 batteries registered in `tools/run_batteries.ps1` · 242 checks pas
 11. **Never kill the user's Godot editor**: Match processes strictly by command line and terminate only the child instances you launched.
 12. **Tooling note**: The `godot_ai` MCP addon registers a capture helper, but named pipes are blocked in this environment.
    Running with diagnostic flags, reading stdout/err logs, and inspecting saved PNGs is the reliable workflow.
+13. **The safety net trap (untested side-effects and measurement blind spots)**:
+   Al especificar una red de seguridad, hay que decir qué medición la delataría. Aquí se escribió «devuélvelo al campo» sin exigir una prueba de dónde vuelve, y la prueba que se pidió —masa total— era justo la que no lo iba a ver. Restaurar masa con `dump_snow()` conservaba la masa global ($\sum \Delta m = 0$) pero depositaba un montículo radial que distorsionaba la superficie donde había suelo raso. La regla de diseño correcta es la autoridad previa absoluta: no tocar el terreno si no hay suficiente nieve, y verificar la invarianza de altura local ($\Delta h_{\text{local}} = 0$) en la batería de pruebas.
+

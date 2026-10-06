@@ -24,12 +24,17 @@ var _finished: bool = false
 # Metrics saved across states
 var _p1_mass_before: float = 0.0
 var _p1_balls_before: int = 0
+var _p1_probe_pt: Vector3 = Vector3.ZERO
+var _p1_h_before: float = 0.0
 
 var _p2_mass_before: float = 0.0
 
 var _p4_mass_before: float = 0.0
 var _p4_balls_before: int = 0
 var _p4_press_count: int = 0
+var _p4_dump_h_before: float = 0.0
+var _p4_probe_pt: Vector3 = Vector3.ZERO
+var _p4_probe_h_before: float = 0.0
 
 func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -> void:
 	root = scene_root
@@ -83,7 +88,9 @@ func _physics_process(delta: float) -> void:
 				player.status_message = ""
 				_p1_balls_before = _count_balls()
 				_p1_mass_before = float(snow_field.measure_total_mass())
-				print("[PACK] Phase 1 start: player on cleared ground, field mass = %.2f kg" % _p1_mass_before)
+				_p1_probe_pt = player._get_target_ground_pos()
+				_p1_h_before = float(snow_field.get_height_at(_p1_probe_pt))
+				print("[PACK] Phase 1 start: player on cleared ground, field mass = %.2f kg, probe_h = %.4f" % [_p1_mass_before, _p1_h_before])
 				player._pack_snowball()
 				_change_state(2)
 
@@ -96,11 +103,14 @@ func _physics_process(delta: float) -> void:
 				var carrying: bool = player.is_carrying()
 				var msg: String = player.status_message
 				var notice_ok: bool = (msg == tr("STATUS_NOT_ENOUGH_SNOW"))
-				print("[PACK] Phase 1 eval: balls=%d (was %d) carrying=%s mass_diff=%.4f notice=%s" % [
-					balls_now, _p1_balls_before, str(carrying), mass_diff, msg])
+				var p1_h_now: float = float(snow_field.get_height_at(_p1_probe_pt))
+				var p1_h_diff: float = absf(p1_h_now - _p1_h_before)
+				print("[PACK] Phase 1 eval: balls=%d (was %d) carrying=%s mass_diff=%.4f probe_h_diff=%.4f notice=%s" % [
+					balls_now, _p1_balls_before, str(carrying), mass_diff, p1_h_diff, msg])
 
 				_check("cleared ground: no ball created", balls_now == _p1_balls_before and not carrying)
 				_check("cleared ground: field mass untouched", mass_diff < 0.001)
+				_check("cleared ground: probe height untouched", p1_h_diff < 0.001)
 				_check("cleared ground: notice displayed", notice_ok)
 
 				# Prepare Phase 2: Normal snow at (0.0, 0.0, -3.5)
@@ -198,8 +208,12 @@ func _physics_process(delta: float) -> void:
 				player.status_message = ""
 				_p4_balls_before = _count_balls()
 				_p4_mass_before = float(snow_field.measure_total_mass())
+				_p4_dump_h_before = float(snow_field.get_height_at(Vector3(0.0, 0.0, 2.5)))
+				_p4_probe_pt = player._get_target_ground_pos()
+				_p4_probe_h_before = float(snow_field.get_height_at(_p4_probe_pt))
 				_p4_press_count = 0
-				print("[PACK] Phase 4 start: scarce snow (0.12 kg), initial field mass = %.2f kg" % _p4_mass_before)
+				print("[PACK] Phase 4 start: scarce snow (0.12 kg), initial field mass = %.2f kg, dump_h=%.4f probe_h=%.4f" % [
+					_p4_mass_before, _p4_dump_h_before, _p4_probe_h_before])
 				_change_state(9)
 
 		9:
@@ -219,11 +233,16 @@ func _physics_process(delta: float) -> void:
 				var carrying: bool = player.is_carrying()
 				var msg: String = player.status_message
 				var notice_ok: bool = (msg == tr("STATUS_NOT_ENOUGH_SNOW"))
-				print("[PACK] Phase 4 eval: presses=%d balls=%d carrying=%s mass_before=%.4f mass_now=%.4f notice=%s" % [
-					_p4_press_count, balls_now, str(carrying), _p4_mass_before, mass_now, msg])
+				var p4_dump_h_now: float = float(snow_field.get_height_at(Vector3(0.0, 0.0, 2.5)))
+				var p4_probe_h_now: float = float(snow_field.get_height_at(_p4_probe_pt))
+				var p4_dump_h_diff: float = absf(p4_dump_h_now - _p4_dump_h_before)
+				var p4_probe_h_diff: float = absf(p4_probe_h_now - _p4_probe_h_before)
+				print("[PACK] Phase 4 eval: presses=%d balls=%d carrying=%s mass_before=%.4f mass_now=%.4f dump_h_diff=%.4f probe_h_diff=%.4f notice=%s" % [
+					_p4_press_count, balls_now, str(carrying), _p4_mass_before, mass_now, p4_dump_h_diff, p4_probe_h_diff, msg])
 
 				_check("scarce snow: repeated presses do not create balls", balls_now == _p4_balls_before and not carrying)
 				_check("scarce snow: repeated presses do not reduce field mass", mass_now >= _p4_mass_before - 0.005)
+				_check("scarce snow: repeated presses do not change local height", p4_dump_h_diff < 0.001 and p4_probe_h_diff < 0.001)
 				_check("scarce snow: notice displayed", notice_ok)
 
 				_report()

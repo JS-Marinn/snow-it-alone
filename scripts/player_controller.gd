@@ -1314,26 +1314,31 @@ func _estimate_available_snow_kg(pos: Vector3, harvest_radius: float = PACK_HARV
 	if snow_field == null or not snow_field.has_method("get_height_at"):
 		return 0.0
 	var h0: float = snow_field.get_height_at(pos)
-	if h0 <= 0.005:
+	if h0 <= 0.045:
 		return 0.0
-	var r_sample := harvest_radius * 0.5
+	var r_sample := harvest_radius * 0.6
 	var h1: float = snow_field.get_height_at(pos + Vector3(r_sample, 0.0, 0.0))
 	var h2: float = snow_field.get_height_at(pos - Vector3(r_sample, 0.0, 0.0))
 	var h3: float = snow_field.get_height_at(pos + Vector3(0.0, 0.0, r_sample))
 	var h4: float = snow_field.get_height_at(pos - Vector3(0.0, 0.0, r_sample))
-	var h_avg: float = (h0 * 2.0 + h1 + h2 + h3 + h4) / 6.0
-	if h_avg <= 0.01:
+	var h_min: float = minf(h0, minf(minf(h1, h2), minf(h3, h4)))
+	if h_min <= 0.015:
 		return 0.0
-	var cut_h: float = minf(h_avg, PACK_HARVEST_DEPTH)
+	var cut_avg: float = (minf(h0, PACK_HARVEST_DEPTH) * 2.0 + minf(h1, PACK_HARVEST_DEPTH) + minf(h2, PACK_HARVEST_DEPTH) + minf(h3, PACK_HARVEST_DEPTH) + minf(h4, PACK_HARVEST_DEPTH)) / 6.0
+	var max_depth := minf(PACK_HARVEST_DEPTH, h0 * 0.8)
+	var effective_cut := minf(cut_avg, max_depth)
 	# Harvest mode in snow_sim.glsl has smoothstep falloff with effective area ~1.5 * R^2
 	var eff_area: float = 1.50 * harvest_radius * harvest_radius
 	var density: float = float(snow_field.get("snow_density")) if snow_field.get("snow_density") != null else 150.0
-	return cut_h * eff_area * density
+	return effective_cut * eff_area * density
 
 ## Finds the closest ground position with enough snow to pack a ball (Scenario A & B).
 ## Checks strict aim point first, then searches concentric rings up to PACK_REACH_EXTENDED.
 func _find_pack_target() -> Vector3:
 	var fwd := _forward_flat()
+	if fwd.length_squared() < 0.01:
+		fwd = -global_transform.basis.z
+		fwd.y = 0.0
 	if fwd.length_squared() < 0.01:
 		fwd = Vector3.FORWARD
 	fwd = fwd.normalized()
@@ -1382,24 +1387,17 @@ func _on_op_volume_ready(role: String, owner: int, kg: float) -> void:
 		return
 	_pending_pack = false
 	last_pack_harvest_kg = kg
-	if kg < pack_min_kg:
-		# Structural guarantee: return harvested snow to the field so mass is never lost
-		if snow_field != null and snow_field.has_method("dump_snow"):
-			snow_field.dump_snow(_pack_harvest_pt, kg, PACK_HARVEST_RADIUS)
+	if kg <= 0.001:
 		status_message = tr("STATUS_NOT_ENOUGH_SNOW")
 		return
 	var r := SnowBall.radius_for_packed_mass(kg)
 	if props_system == null or not props_system.has_method("spawn_snowball"):
-		if snow_field != null and snow_field.has_method("dump_snow"):
-			snow_field.dump_snow(_pack_harvest_pt, kg, PACK_HARVEST_RADIUS)
 		return
 	# The packed snow is born ALREADY IN THE HANDS: it is instanced at the grip
 	# point and put in carry mode instead of being dropped on the ground.
 	var anchor := _carry_anchor(r)
 	var ball = props_system.spawn_snowball(anchor, r)
 	if ball == null:
-		if snow_field != null and snow_field.has_method("dump_snow"):
-			snow_field.dump_snow(_pack_harvest_pt, kg, PACK_HARVEST_RADIUS)
 		return
 	if is_carrying():
 		# Already carrying something (rare case): the ball drops at your feet instead of being lost
