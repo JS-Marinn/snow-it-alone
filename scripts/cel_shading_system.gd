@@ -27,6 +27,10 @@ static var default_outline_color: Color = Color(0.12, 0.16, 0.28, 1.0)
 
 ## Traverses root_node and applies cel shading across all MeshInstance3Ds.
 static func apply_cel_shading(root_node: Node) -> void:
+	# Disabled by the owner: the toon look was tried and not liked. This early return is the
+	# single cut-off, so every caller goes quiet without losing a line of the implementation.
+	# The shaders and a copy of this system live in materials/_future/. Delete this block to restore.
+	return
 	if root_node == null:
 		return
 	_find_world_environment(root_node)
