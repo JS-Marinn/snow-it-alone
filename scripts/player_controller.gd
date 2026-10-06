@@ -813,7 +813,15 @@ func _physics_process(delta: float) -> void:
 			ToolType.SALT:
 				_process_salt(delta)
 			ToolType.HANDS:
-				pass
+				# Throwing a carried ball is not a shovel action.
+				#
+				# This used to be `pass`, so the only place that listened for the throw button was
+				# `_update_shovel_buttons`, which only runs with a shovel equipped. A player
+				# carrying a snowball with bare hands could not throw it at all -- the ball could
+				# be packed and carried and then there was no way to let go of it forwards. The
+				# throwing itself is unchanged; this only gives the bare hands somewhere to
+				# listen for the button.
+				_update_hands_throw(delta)
 
 	_process_interaction(delta)
 	_update_carried(delta)
@@ -1204,9 +1212,32 @@ func _update_shovel_buttons(delta: float) -> void:
 		is_dumping = false
 		_thrown_this_press = false
 
+
+## Throwing what the bare hands are carrying.
+##
+## The shovel path could always throw, because `_update_shovel_buttons` is where the throw button
+## was read and it only runs with a shovel equipped. Bare hands had `pass` in the tool dispatch,
+## so a player who packed a ball by hand and picked it up had no way to throw it: the button did
+## nothing. This reads the same input the shovel path reads and calls the same `_throw_carried`,
+## so a ball leaves the hands at exactly the speed and angle it does from a shovel.
+##
+## The shovel's tap-to-toss and hold-to-pour are deliberately NOT here: those act on a loaded
+## shovel, and with bare hands there is no shovel to toss from. A tap puts a carried ball down
+## (that is `_process_interaction`), and this is the throw.
+func _update_hands_throw(delta: float) -> void:
+	var right_down := Input.is_action_pressed("shovel_toss") or Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+	if right_down:
+		_right_hold += delta
+		if is_carrying() and not _thrown_this_press:
+			_thrown_this_press = true
+			_throw_carried()
+	else:
+		_right_hold = 0.0
+		_thrown_this_press = false
+
+
 func _process_shovel(delta: float, _horiz_speed: float) -> void:
 	_update_shovel_buttons(delta)
-
 	if is_tossing:
 		toss_timer -= delta
 		if toss_timer <= 0.0:

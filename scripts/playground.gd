@@ -63,6 +63,7 @@ func _ready() -> void:
 	_build_ramps()
 	_place_disposal_machine()
 	_place_containers()
+	_init_hud()
 	_build_overlay()
 	_build_free_camera()
 
@@ -84,6 +85,14 @@ func _ready() -> void:
 		add_child(demo)
 		if demo.has_method("setup"):
 			demo.setup(self, snow_field, player, props)
+		return
+	if OS.get_cmdline_user_args().has("--pg-reticle-probe"):
+		var pgr_script = load("res://scripts/pg_reticle_probe.gd")
+		var pgr = Node.new()
+		pgr.set_script(pgr_script)
+		add_child(pgr)
+		if pgr.has_method("setup"):
+			pgr.setup(self, snow_field, player, props)
 		return
 	if OS.get_cmdline_user_args().has("--aim-probe"):
 		# Measuring instrument, not a battery: it asserts nothing and only prints what the
@@ -229,6 +238,30 @@ func _build_ramps() -> void:
 		ramp.position = Vector3(-6.5 - float(i) * 3.0, 1.2, 4.0 + float(i) * 8.0)
 		ramp.rotation = Vector3(radians, 0.0, 0.0)
 		add_child(ramp)
+
+## Initialises the HUD, which this scene declares as a node (`scenes/playground.tscn`).
+##
+## WHY THIS EXISTS: the reticle is drawn by the HUD, and this scene had none -- `_build_overlay`
+## builds a debug ledger and nothing else. So the reticle could not appear here at all, and the
+## owner reported exactly that: snow works, the reticle is missing.
+##
+## The HUD is DECLARED IN THE SCENE and not built here on purpose. `hud.gd` reaches for a dozen
+## child nodes by path in its `@onready` block (title, progress bar, coin label, tool label...),
+## so a bare `CanvasLayer` with that script attached fails on every one of them. The level
+## declares the node in `main.tscn` and so does this scene now, which keeps the two in step: if
+## the HUD grows a node, the scene file that is missing it says so at load.
+func _init_hud() -> void:
+	if player == null or snow_field == null:
+		return
+	var hud := get_node_or_null("HUD")
+	if hud == null:
+		push_warning("The Playground has no HUD node; the reticle will not draw.")
+		return
+	if hud.has_method("init_hud"):
+		hud.init_hud(player, snow_field)
+	else:
+		push_warning("The Playground's HUD has no init_hud; the reticle will not draw.")
+
 
 func _build_overlay() -> void:
 	var layer := CanvasLayer.new()
