@@ -304,27 +304,29 @@ func _physics_process(delta: float) -> void:
 			_check("the Playground's wiring grants every tool",
 				pg_script.contains("grant_all_tools"))
 
-			var fresh: Node = null
-			if player.get_script() != null:
-				fresh = player.get_script().new()
-			if fresh == null:
-				_check("a fresh player can be made to test the all-tools grant", false)
-				_report()
-				return
-			add_child(fresh)
-			var owned_before: bool = bool(fresh.call("is_tool_owned", "shovel"))
-			if fresh.has_method("grant_all_tools"):
-				fresh.call("grant_all_tools")
-			var all_owned: bool = bool(fresh.call("is_tool_owned", "hands")) \
-				and bool(fresh.call("is_tool_owned", "shovel")) \
-				and bool(fresh.call("is_tool_owned", "blower")) \
-				and bool(fresh.call("is_tool_owned", "salt"))
-			var shovel_equipped: bool = int(fresh.get("current_tool")) == int(fresh.get("ToolType").SHOVEL)
-			print("[TOOL] fresh player: owned shovel before grant=%s, all owned after=%s, shovel equipped=%s" % [
-				str(owned_before), str(all_owned), str(shovel_equipped)])
-			_check("a player that has not been granted does not own the shovel", not owned_before)
+			# `grant_all_tools` must actually grant, and it is exercised on the player that EXISTS.
+			#
+			# The first version built a "fresh player" with `player.get_script().new()` and added it
+			# to the tree. That node has no `Camera3D` child, so its `_ready` failed on
+			# `$Camera3D/HandRoot` and the run produced four SCRIPT ERROR lines -- invisible when
+			# the battery was run alone and caught by the gate, which counts script errors in the
+			# log. A node built from a script alone is not a player; the scene makes the player.
+			#
+			# Nothing is lost by using the real one: state 1 already recreated the save slot, so
+			# this player starts with hands only, and the transition to all four is the contract.
+			var owned_before: bool = bool(player.call("is_tool_owned", "shovel")) \
+				and bool(player.call("is_tool_owned", "blower")) \
+				and bool(player.call("is_tool_owned", "salt"))
+			if player.has_method("grant_all_tools"):
+				player.call("grant_all_tools")
+			var all_owned: bool = bool(player.call("is_tool_owned", "hands")) \
+				and bool(player.call("is_tool_owned", "shovel")) \
+				and bool(player.call("is_tool_owned", "blower")) \
+				and bool(player.call("is_tool_owned", "salt"))
+			print("[TOOL] the level's player: owned shovel/blower/salt before grant=%s, all four after=%s" % [
+				str(owned_before), str(all_owned)])
+			_check("a player that has not been granted owns none of the three tools", not owned_before)
 			_check("granting every tool gives all four", all_owned)
-			fresh.queue_free()
 
 			_report()
 

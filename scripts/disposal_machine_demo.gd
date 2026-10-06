@@ -170,6 +170,7 @@ func _ph_chunk(tick: int) -> void:
 	if not _take_action():
 		return
 	_coins_before = _coins()
+	_delivered_before = _delivered_kg
 	_accepted_before = float(_machine.get("accepted_kg"))
 	_deliveries_before = int(_machine.get("deliveries"))
 	_chunk_kg = CHUNK_KG
@@ -202,7 +203,8 @@ func _ph_ball(tick: int) -> void:
 	_check("a chunk swallowed by the machine is gone from the scene", true)
 	var chunk_earned := _coins() - _coins_before
 	var chunk_accepted := float(_machine.get("accepted_kg")) - _accepted_before
-	var chunk_expected := int(ceil(_chunk_kg * DisposalMachineScript.PAYOUT_PER_KG))
+	var chunk_expected := _owed_for(_chunk_kg)
+	_delivered_kg += _chunk_kg
 	print("[DISP] chunk: %.3f kg in, accepted %.3f kg, coins %d -> %d (expected +%d) after %.2f s" % [
 		_chunk_kg, chunk_accepted, _coins_before, _coins(), chunk_expected, _phase_t])
 	_check("a chunk entering the machine is paid for", chunk_earned == chunk_expected and chunk_expected > 0)
@@ -211,6 +213,7 @@ func _ph_ball(tick: int) -> void:
 	_check("the delivery count rose by one", int(_machine.get("deliveries")) == _deliveries_before + 1)
 
 	_coins_before = _coins()
+	_delivered_before = _delivered_kg
 	_accepted_before = float(_machine.get("accepted_kg"))
 	_ball = _spawn_ball(BALL_RADIUS, _reception_point())
 	if _ball == null:
@@ -227,7 +230,8 @@ func _ph_container_touch(tick: int) -> void:
 		return
 	var ball_earned := _coins() - _coins_before
 	var ball_accepted := float(_machine.get("accepted_kg")) - _accepted_before
-	var ball_expected := int(ceil(_ball_kg * DisposalMachineScript.PAYOUT_PER_KG))
+	var ball_expected := _owed_for(_ball_kg)
+	_delivered_kg += _ball_kg
 	print("[DISP] ball: %.3f kg in, accepted %.3f kg, coins %d -> %d (expected +%d)" % [
 		_ball_kg, ball_accepted, _coins_before, _coins(), ball_expected])
 	_check("a ball entering the machine is paid for", ball_earned == ball_expected and ball_expected > 0)
@@ -237,6 +241,7 @@ func _ph_container_touch(tick: int) -> void:
 	# The container: a body that holds snow and declares its own free space. Resting in the
 	# mouth is the case that must do NOTHING.
 	_coins_before = _coins()
+	_delivered_before = _delivered_kg
 	_accepted_before = float(_machine.get("accepted_kg"))
 	_container = _spawn_container(_reception_point())
 	if _container == null:
@@ -267,6 +272,7 @@ func _ph_container_tip(tick: int) -> void:
 	# phase that reads the result runs later and must not be reading a baseline that the next
 	# check has already moved on. (It was, for one revision.)
 	_tip_coins_before = _coins()
+	_delivered_before = _delivered_kg
 	var at: Vector3 = (_container as Node3D).global_position
 	var taken := float(_container.call("empty_all"))
 	var accepted := float(_machine.call("accept", taken, at))
@@ -291,7 +297,8 @@ func _ph_player(tick: int) -> void:
 	if not _take_action():
 		return
 	var tipped_coins := _coins() - _tip_coins_before
-	var tipped_expected := int(ceil(_tipped_kg * DisposalMachineScript.PAYOUT_PER_KG))
+	var tipped_expected := _owed_for(_tipped_kg)
+	_delivered_kg += _tipped_kg
 	print("[DISP] explicit tip paid: coins %d -> %d (expected +%d)" % [
 		_tip_coins_before, _coins(), tipped_expected])
 	_check("an explicit tip pays", tipped_coins == tipped_expected and tipped_expected > 0)
@@ -300,6 +307,7 @@ func _ph_player(tick: int) -> void:
 		and float(_container.get("contents_kg")) < 0.0001)
 
 	_coins_before = _coins()
+	_delivered_before = _delivered_kg
 	_accepted_before = float(_machine.get("accepted_kg"))
 	# The player is put INSIDE the reception zone, which is the strongest form of this test:
 	# not walking into the box, but standing in the mouth.
@@ -432,6 +440,20 @@ func _ph_payout(tick: int) -> void:
 
 var _pending_packed: float = 0.0
 var _pending_expected: int = 0
+## The battery's own copy of the payout ledger, because the game now pays on the RUNNING TOTAL.
+##
+## The machine emits once per body it swallows and a thrown ball can break into many, so the payout
+## is `ceil(total_kg * rate) - already_paid` rather than `ceil(kg * rate)` per delivery. Measured:
+## a 3.70 kg chunk pays 10, then a 5.394 kg ball takes the total to 9.094 kg and pays 13 (23 in
+## all), where rounding each delivery separately would pay 14 and overpay by one.
+var _delivered_kg: float = 0.0
+var _delivered_before: float = 0.0
+
+## What the declared formula owes for one delivery, given everything delivered so far.
+func _owed_for(kg: float) -> int:
+	var before := int(ceil(_delivered_before * DisposalMachineScript.PAYOUT_PER_KG))
+	var after := int(ceil((_delivered_before + kg) * DisposalMachineScript.PAYOUT_PER_KG))
+	return after - before
 
 
 ## 9: the verdict.
@@ -456,13 +478,17 @@ func _ph_report(tick: int) -> void:
 	if not _take_action():
 		return
 	var accepted := float(_machine.get("accepted_kg")) - _accepted_before
-	print("[DISP] anti-soft-lock: packed %.3f kg, the machine took %.3f kg, coins moved %d (exact would be %d)" % [
-		_pending_packed, accepted, earned, _pending_expected])
+	# What the declared formula owes for THIS delivery, on the running total -- the same arithmetic
+	# the game now uses. `ceil(accepted * rate)` on its own is not it: rounding once per delivery
+	# and rounding once on the total differ by up to a coin, and the game rounds on the total so
+	# that a shattered ball cannot earn a whole coin per fragment.
+	var owed := _owed_for(accepted)
+	print("[DISP] anti-soft-lock: packed %.3f kg, the machine took %.3f kg, coins moved %d (declared owes %d)" % [
+		_pending_packed, accepted, earned, owed])
 	_check("anti-soft-lock: with hands only, carrying a ball to the machine raises the balance",
 		earned > 0)
-	_check("the payout is the declared one for what the machine took: ceil(%.3f * %.2f) == %d" % [
-		accepted, DisposalMachineScript.PAYOUT_PER_KG, int(ceil(accepted * DisposalMachineScript.PAYOUT_PER_KG))],
-		earned == int(ceil(accepted * DisposalMachineScript.PAYOUT_PER_KG)))
+	_check("the payout is the declared one for this delivery, on the running total (%d)" % owed,
+		earned == owed)
 	var lost := absf(accepted - _pending_packed)
 	print("[DISP]   mass: ball was %.3f kg, machine took %.3f kg, %.4f kg out (%.1f%% off)" % [
 		_pending_packed, accepted, lost, 100.0 * lost / maxf(_pending_packed, 0.001)])

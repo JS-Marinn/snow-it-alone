@@ -11,6 +11,10 @@ const DISPOSAL_SCENE: String = "res://scenes/disposal_machine.tscn"
 
 var _session_time: float = 0.0
 var _save_timer: float = 0.0
+## Everything the machine has taken, and what has been paid for it. The payout is computed on
+## this running total so that a shattered ball cannot earn a coin per fragment.
+var _sent_kg: float = 0.0
+var _paid_coins: int = 0
 
 func _ready() -> void:
 	BuildStampScript.announce()
@@ -163,12 +167,31 @@ func _place_disposal_machine() -> void:
 
 
 ## A delivery arrived at the machine. Same purse, same signal shape as the bank's was.
+##
+## PAID ON THE RUNNING TOTAL, not on the delivery. The machine emits once per body it swallows, and
+## a thrown ball that breaks on arrival is many small bodies: the payout was `ceil(kg * 2.5)` per
+## emission, and `ceil` gives every emission at least one coin, so a 0.068 kg fragment paid a whole
+## coin. Measured: **8 coins for 0.546 kg**, where the declared formula says 2 -- four times the
+## rate, and the more a ball shattered the more it was worth.
+##
+## Rounding once, on everything the machine has taken so far, keeps the declared arithmetic exact
+## and removes the floor: 8 fragments totalling 0.546 kg pay 2 coins between them, the same as one
+## 0.546 kg lump would. The rate is unchanged and the per-delivery floor is gone, which is what a
+## price per kilogram is supposed to mean.
 func _on_snow_sent(kg: float, world_pos: Vector3) -> void:
 	if player == null:
 		return
-	var coins := int(ceil(kg * DisposalMachineScript.PAYOUT_PER_KG))
+	_sent_kg += kg
+	var owed := int(ceil(_sent_kg * DisposalMachineScript.PAYOUT_PER_KG))
+	var coins := owed - _paid_coins
+	if coins <= 0:
+		print("[DISP] %.2f kg sent at %s (%.3f kg total), no coins due yet (paid %d of %d)" % [
+			kg, str(world_pos), _sent_kg, _paid_coins, owed])
+		return
+	_paid_coins = owed
 	player.add_coins(coins)
-	print("[DISP] %.2f kg sent at %s, paid %d coins" % [kg, str(world_pos), coins])
+	print("[DISP] %.2f kg sent at %s, paid %d coins (%.3f kg total, %d coins in all)" % [
+		kg, str(world_pos), coins, _sent_kg, _paid_coins])
 
 
 func _setup_props_system() -> void:

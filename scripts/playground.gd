@@ -44,6 +44,10 @@ var _measured_before: float = 0.0
 var _measured_after: float = 0.0
 ## Mass this scene created out of nothing, which the balance check subtracts again.
 var _free_injected: float = 0.0
+## Everything the machine has taken, and what has been paid for it. The payout is computed on
+## this running total so that a shattered ball cannot earn a coin per fragment.
+var _sent_kg: float = 0.0
+var _paid_coins: int = 0
 var _spawned_ball: Node = null
 var _checks_ok: int = 0
 var _checks_fail: int = 0
@@ -206,10 +210,20 @@ func _place_disposal_machine() -> void:
 ## The Playground has no HUD, but the player still holds the purse, so a battery can read the
 ## balance. The fallback pays nobody and says so rather than failing silently.
 func _on_snow_sent(kg: float, world_pos: Vector3) -> void:
-	var coins := int(ceil(kg * DisposalMachineScript.PAYOUT_PER_KG))
+	# Paid on the RUNNING TOTAL, for the reason spelled out in `main.gd`: `ceil` per emission gives
+	# every fragment of a shattered ball a whole coin, which measured 8 coins for 0.546 kg against
+	# a declared 2. Rounding once on the total keeps the rate and removes the floor.
+	_sent_kg += kg
+	var owed := int(ceil(_sent_kg * DisposalMachineScript.PAYOUT_PER_KG))
+	var coins := owed - _paid_coins
+	if coins <= 0:
+		print("[DISP] %.2f kg sent at %s (%.3f kg total), no coins due yet" % [kg, str(world_pos), _sent_kg])
+		return
+	_paid_coins = owed
 	if player != null:
 		player.add_coins(coins)
-	print("[DISP] %.2f kg sent at %s, paid %d coins" % [kg, str(world_pos), coins])
+	print("[DISP] %.2f kg sent at %s, paid %d coins (%.3f kg total, %d in all)" % [
+		kg, str(world_pos), coins, _sent_kg, _paid_coins])
 
 
 ## Places the bucket and the wheelbarrow in the playground near player spawn.
