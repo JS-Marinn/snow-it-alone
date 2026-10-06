@@ -157,7 +157,7 @@ Commit: `docs: mark the finished milestones and fold the solved sections`
    patterns and build symbols from their code points (`[char]0x2192`).
 7. **Never kill the user's Godot editor.** Match processes by command line and kill only the
    ones you started.
-8. **No MCP tools reach you** (the addon exists; named pipes are blocked). The practical
+8. **If you have MCP tools for Godot, use them.** The bundled `addons/godot_ai` addon exists to serve a client like yours, and asking the running editor what is actually in the scene beats reading a log. **If you do not have them, the fallback is the log plus `read_image`** on the PNGs the diagnostics save. Do not assume either way: say which one you used.
    equivalent is the log plus `read_image` on the PNGs the diagnostics save.
 9. **Diagnostic output stays English** and is never translated. These are developer strings.
 10. **No emojis in code or documentation.** The docs use status marks and those stay.

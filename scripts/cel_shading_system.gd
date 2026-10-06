@@ -155,6 +155,24 @@ static func set_cel_shading_enabled(is_on: bool, root_node: Node = null) -> void
 
 	_update_environment()
 
+## Configures specific parameters for bisection / diagnostics.
+static func configure_bisect(snow_toon: bool, obj_toon: bool, obj_bands: int, outline_w: float, root_node: Node = null) -> void:
+	cel_shading_enabled = obj_toon or snow_toon
+	if _snow_material != null:
+		_snow_material.set_shader_parameter("toon_enabled", snow_toon)
+		_snow_material.set_shader_parameter("outline_width", outline_w)
+
+	for mat in _material_cache.values():
+		if mat is ShaderMaterial:
+			mat.set_shader_parameter("toon_enabled", obj_toon)
+			mat.set_shader_parameter("bands", obj_bands)
+			mat.set_shader_parameter("outline_width", outline_w)
+
+	if root_node != null:
+		_sweep_and_apply(root_node)
+
+	_update_environment()
+
 static func _find_world_environment(root: Node) -> void:
 	if _world_env != null and is_instance_valid(_world_env):
 		return

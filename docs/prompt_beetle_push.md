@@ -117,7 +117,7 @@ Commit as: `feat: pushing a ball rolls it and grows it instead of launching it`
    patterns; build symbols as `[char]0x2192`.
 7. **Never kill the user's Godot editor.** Kill only processes you started, matched by command
    line.
-8. **No MCP tools reach you.** Use the log and `read_image` on the PNGs diagnostics save.
+8. **If you have MCP tools for Godot, use them.** The bundled `addons/godot_ai` addon exists to serve a client like yours, and asking the running editor what is actually in the scene beats reading a log. **If you do not have them, the fallback is the log plus `read_image`** on the PNGs the diagnostics save. Do not assume either way: say which one you used.
 
 ## Things to decide while doing it, and say which you chose
 

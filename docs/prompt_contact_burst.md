@@ -126,7 +126,7 @@ obstacle — decide whether the change is wrong or the check is, and say so in t
 6. **Non-ASCII is mangled when the console reads your command**, so an anchor with an arrow
    never matches. Use ASCII-only anchors and `[char]0x2192` for symbols.
 7. **Never kill the user's Godot editor.** Kill only what you started, matched by command line.
-8. **No MCP tools reach you.** Use the log and `read_image`.
+8. **If you have MCP tools for Godot, use them.** The bundled `addons/godot_ai` addon exists to serve a client like yours, and asking the running editor what is actually in the scene beats reading a log. **If you do not have them, the fallback is the log plus `read_image`** on the PNGs the diagnostics save. Do not assume either way: say which one you used.
 
 ## Definition of done
 

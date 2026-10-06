@@ -38,9 +38,9 @@ func _ready() -> void:
 	var is_scripted := is_demo or is_phys_demo or args.has("--carve-quality") \
 		or args.has("--ball-shape") or args.has("--movement-lab") or args.has("--impact-lab") \
 		or args.has("--impact-matrix") or args.has("--contact-burst") or args.has("--hand-pack") \
-		or args.has("--toon-shot")
+		or args.has("--toon-shot") or args.has("--toon-bisect")
 	# Screenshots belong to diagnostics only; a normal session must not write files.
-	if is_scripted and not args.has("--toon-shot"):
+	if is_scripted and not args.has("--toon-shot") and not args.has("--toon-bisect"):
 		get_tree().create_timer(9.5 if is_demo else 1.8).timeout.connect(capture_screenshot)
 	if is_demo:
 		get_tree().create_timer(11.0).timeout.connect(get_tree().quit)
@@ -64,6 +64,8 @@ func _ready() -> void:
 		_start_demo_script("res://scripts/hand_pack_demo.gd")
 	if args.has("--toon-shot"):
 		_start_demo_script("res://scripts/toon_demo.gd")
+	if args.has("--toon-bisect"):
+		_start_demo_script("res://scripts/toon_bisect_demo.gd")
 
 ## Picks up the session started from the main menu: restores the money counter and
 ## starts tracking playtime for the save slot.
