@@ -111,6 +111,10 @@ static func _process_mesh_instance(mesh_inst: MeshInstance3D) -> void:
 
 ## Helper to apply cel shading to a single node and descendants (e.g. dynamic snowballs).
 static func apply_to_node(node: Node) -> void:
+	# Object path disabled too: this is the one the snowball and the snow chunks call
+	# when they are created, and it is why the toon effect was still visible on them after the
+	# global calls were commented out.
+	return
 	if node == null:
 		return
 	_sweep_and_apply(node)
