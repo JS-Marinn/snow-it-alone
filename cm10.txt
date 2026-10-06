@@ -1,0 +1,60 @@
+fix: a thrown ball is no longer deflected by the thrower's own body
+
+THE CAUSE, after several rounds of looking in the wrong places. A carried ball is held INSIDE the
+thrower's collision capsule: measured from the hold point, the ball's centre sits about 0.39 m from
+the centre of the capsule's top sphere, which has a 0.4 m radius, so it overlaps its own thrower by
+roughly 0.16 m before it is ever released. `begin_carry` freezes it, so nothing happens while it is
+held -- and `end_carry` unfreezes it, sets `linear_velocity` to the launch impulse, and on the very
+next physics step the character body ejects it.
+
+## The measurement that settled it
+
+`--throw-probe`, reading the velocity IN THE SAME FRAME as the throw and then on the following
+steps:
+
+    same frame: 9.000 m/s ( 0.18, -1.65, -8.85)   aimed straight at the machine
+    next step:  4.500 m/s (-3.18, -1.29, -2.91)   half the speed, thrown sideways
+
+Exactly half, with the direction rotated towards +X. That is not gravity, not drag and not aim, and
+no amount of aiming could have fixed it: the throw was always correct and something hit the ball in
+its first centimetres. A thrown ball therefore never reached the disposal machine from any distance,
+which made the game's only income unreachable by throwing -- and the fault was investigated as an
+aiming problem, then as a machine problem, and was neither.
+
+## The fix
+
+`end_carry` now adds a collision exception between the ball and the thrower, and the collision is
+restored when the EXISTING `throw_grace_timer` expires. That timer already existed to stop a ball
+bursting on its own thrower; this is the same window doing the same job for the collision that
+carries the impulse, rather than a second timer that could disagree with the first. One field
+(`_thrower_body`) records who the exception was added for, and `_release_thrower_collision` is the
+only place that removes it -- an exception left behind would let a ball pass through its thrower for
+ever.
+
+Measured after, same probe, same throw:
+
+    frame  0: 9.01 m/s (0.18, -1.81, -8.83)   2.31 m from the mouth
+    frame  8: 8.62 m/s (0.17,  0.57, -8.60)   1.18 m from the mouth
+    frame 14: the ball no longer exists -- machine ledger 0.5460 kg over 8 deliveries
+
+The ball now travels straight, keeps 8.6 m/s across the whole flight, rises to 1.24 m and descends
+into the mouth. It registers.
+
+## A real economy imbalance, exposed by the fix
+
+With the ball arriving, `--tool-ownership` earns **8 coins for 0.546 kg**, where the declared
+`ceil(kg * 2.5)` says 2. The cause is rounding PER FRAGMENT: the ball breaks on arrival and each
+fragment is paid `ceil` on its own, so a 0.068 kg piece pays a whole coin. Eight fragments, eight
+coins -- **four times the declared rate**. The payout is a placeholder, but `ceil` treats every
+delivery as at least a coin, which is right for a bucket and wrong for a crumb, and the machine
+pays per body rather than per kilogram.
+
+Not fixed here: it is a design decision (pay per delivery with a floor, or accumulate fragments
+before paying, or make the ball survive arrival) and every option changes what a delivery is worth.
+Recorded with its number: 8 coins for 0.546 kg against a declared 2.
+
+## State
+
+The gate goes from 5 red to **3**: --physics 34/2, --tool-ownership 36/1 (the fragment rounding),
+--shovel-modes 16/1 (the push's ledger window). --disposal-machine now passes inside the gate at
+**22 OK / 0 FAIL**, where it was 21/1 before the throat and the collision fix together.

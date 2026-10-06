@@ -15,6 +15,13 @@ extends Node
 # velocity tells you whether it was ever thrown.
 
 const MACHINE_NAME: String = "DisposalMachine"
+## Height to aim at, in world Y at the machine's XZ.
+##
+## A KNOB, not a guess. The throw is aimed FROM THE CAMERA THROUGH THE BALL, which sits lower in
+## the hand, so the line already points downwards before gravity is added -- aiming at the mouth
+## (y = 1.05) sends the ball into the floor. This value is bisected by RUNNING the probe, which is
+## what the probe exists for.
+const AIM_Y: float = 2.30
 
 var root: Node3D
 var snow_field: Node3D
@@ -100,8 +107,19 @@ func _ph_throw() -> void:
 			_ball.global_position.z - _machine.global_position.z).length()])
 	if player.camera != null:
 		# Aim where the machine's own battery aims: at the mouth, with its measured lift.
-		player.camera.look_at(Vector3(_machine.global_position.x, 1.05 + 0.30, _machine.global_position.z), Vector3.UP)
+		player.camera.look_at(Vector3(_machine.global_position.x, AIM_Y, _machine.global_position.z), Vector3.UP)
 	player.call("_throw_carried")
+	# READ THE VELOCITY IN THE SAME FRAME AS THE THROW.
+	#
+	# The frames below are read from `_physics_process`, which runs after the step, so they show
+	# the ball after gravity has already been added. If the launch impulse is set to 9 m/s and this
+	# reads 4.5, the difference is either the impulse being reduced or this reading being late, and
+	# only a same-frame read can tell them apart. `[THROWDBG]` says "9.00 m/s" and `end_carry` sets
+	# `linear_velocity = impulse_velocity` with no scaling, so if this says 9.00 the announce is
+	# honest and the frames below are simply post-step.
+	var v0: Vector3 = _ball.get("linear_velocity") if _ball != null and is_instance_valid(_ball) else Vector3.ZERO
+	print("[THROWPROBE] SAME FRAME AS THE THROW: vel %.3f m/s (%.2f, %.2f, %.2f)" % [
+		v0.length(), v0.x, v0.y, v0.z])
 	_next()
 
 

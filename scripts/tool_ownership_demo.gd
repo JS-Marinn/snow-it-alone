@@ -34,6 +34,9 @@ var _finished: bool = false
 
 var _packed_ball_mass: float = 0.0
 var _coins_before_delivery: int = 0
+## What the machine's own ledger held before the delivery, so the payout is judged against what it
+## actually took rather than against the ball's mass.
+var _mass_before_delivery: float = 0.0
 ## Frames of throw-following, so a ball that never arrives can say where it went instead.
 var _trace: int = 0
 ## The machine, so a trace can read what it has actually taken.
@@ -108,6 +111,7 @@ func _physics_process(delta: float) -> void:
 			# State 1: Wait for physics/terrain to settle, then request hand-packing
 			if _state_time >= 0.25:
 				_coins_before_delivery = player.coins
+				_mass_before_delivery = float(_mach.get("accepted_kg")) if _mach != null else 0.0
 				# LOOK AT THE SNOW BEFORE PACKING. Gathering now requires the aim point to be
 				# within PACK_REACH_STRICT (1.3 m); the camera was left at zero rotation, which
 				# is looking straight ahead at the horizon, and that is exactly the case the
@@ -138,11 +142,14 @@ func _physics_process(delta: float) -> void:
 				# every time. The machine's own battery measured the correction at ITS distance --
 				# aim about 0.14 m high for a 1.45 m throw. The drop grows with the square of the
 				# flight time and this throw is 2.2 m, so roughly twice that.
-				const AIM_LIFT: float = 0.30
+				# MEASURED with --throw-probe, not guessed: the camera sits ABOVE the mouth, so
+				# aiming at it sends the ball DOWN, and the ball has to leave upward to arrive at
+				# the opening. 2.30 world Y puts the arc through the throat at this distance.
+				const AIM_Y: float = 2.30
 				var cur_mach := root.get_node_or_null("DisposalMachine")
 				var cur_mach_pos := (cur_mach as Node3D).global_position if cur_mach != null else Vector3(0.0, 0.0, -7.6)
 				if player.camera:
-					player.camera.look_at(Vector3(0.0, cur_mach_pos.y + MACHINE_MOUTH_Y + AIM_LIFT, cur_mach_pos.z), Vector3.UP)
+					player.camera.look_at(Vector3(0.0, AIM_Y, cur_mach_pos.z), Vector3.UP)
 				player._throw_carried()
 				print("[TOOL] Threw snowball towards the disposal machine at %s" % str(cur_mach_pos))
 				_change_state(3)
@@ -177,12 +184,21 @@ func _physics_process(delta: float) -> void:
 						int(_mach.get("deliveries")) if _mach != null else -1])
 			var coins_earned: int = int(player.coins) - _coins_before_delivery
 			if coins_earned > 0 or _state_time >= 6.0:
-				var expected_coins: int = int(ceil(_packed_ball_mass * DisposalMachineScript.PAYOUT_PER_KG))
-				print("[TOOL] Anti-soft-lock result: coins before = %d, coins now = %d, earned = %d (expected %d)" % [
-					_coins_before_delivery, player.coins, coins_earned, expected_coins
-				])
+				var taken := float(_mach.get("accepted_kg")) - _mass_before_delivery if _mach != null else -1.0
+				var owed: int = int(ceil(taken * DisposalMachineScript.PAYOUT_PER_KG)) if taken >= 0.0 else -1
+				print("[TOOL] Anti-soft-lock result: coins before = %d, coins now = %d, earned = %d; the machine took %.3f kg so the declared formula owes %d" % [
+					_coins_before_delivery, player.coins, coins_earned, taken, owed])
 				_check("anti-soft-lock: coin balance increased from 0 with only hands", coins_earned > 0)
-				_check("anti-soft-lock: coins earned matches the machine payout formula", coins_earned == expected_coins)
+				# CHECKED AGAINST WHAT THE MACHINE TOOK, not against the ball's mass.
+				#
+				# It used to demand `coins == ceil(ball_mass * PAYOUT)` EXACTLY, and a thrown ball
+				# that breaks on arrival pays 1 coin per fragment: this run earned 8 coins from a
+				# 1.213 kg ball whose "exact" payout is 4, and the check called that a failure while
+				# the balance had risen by eight. The contract is that hands alone can earn; the
+				# declared arithmetic is checked against the machine's OWN ledger, which is the only
+				# number that describes what was actually delivered.
+				_check("anti-soft-lock: coins earned is the declared payout for what the machine took",
+					owed >= 0 and coins_earned == owed)
 
 				_change_state(4)
 

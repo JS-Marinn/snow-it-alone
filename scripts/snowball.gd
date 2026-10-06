@@ -104,6 +104,8 @@ var _flight_max_speed: float = 0.0
 const THROW_GRACE_DURATION: float = 0.35
 var thrower: Node = null
 var throw_grace_timer: float = 0.0
+## The body the collision exception was added for, so it can be removed exactly once.
+var _thrower_body: Node = null
 ## Pusher grace: a ball being rolled along the ground ignores its pusher so it cannot burst against them.
 var pusher: Node = null
 var push_grace_timer: float = 0.0
@@ -529,6 +531,10 @@ func _physics_process(delta: float) -> void:
 	if throw_grace_timer > 0.0:
 		throw_grace_timer = maxf(throw_grace_timer - delta, 0.0)
 		if throw_grace_timer <= 0.0:
+			# The grace covers the thrower's COLLISION as well as its hits, so both end together.
+			# See `end_carry`: without this the ball is ejected by its own thrower on the first
+			# step after release, because it is held inside the thrower's capsule.
+			_release_thrower_collision()
 			thrower = null
 	if push_grace_timer > 0.0:
 		push_grace_timer = maxf(push_grace_timer - delta, 0.0)
@@ -551,6 +557,16 @@ func _physics_process(delta: float) -> void:
 	# A hard impact breaks the packed snow joint
 	if _weld_joint != null and linear_velocity.length() > 1.8:
 		_break_weld()
+
+## Ends the collision exception that `end_carry` added, once the throw grace is over.
+##
+## Named and separate because it must be the ONLY place the exception is removed: one left behind
+## would let a ball pass through the player who threw it for ever.
+func _release_thrower_collision() -> void:
+	if _thrower_body != null and is_instance_valid(_thrower_body):
+		remove_collision_exception_with(_thrower_body)
+	_thrower_body = null
+
 
 ## Fastest speed seen in the last few frames: see `_speed_history`.
 func arrival_speed() -> float:
@@ -793,6 +809,26 @@ func end_carry(impulse_velocity: Vector3 = Vector3.ZERO, by_node: Node = null) -
 	if by_node != null:
 		thrower = by_node
 		throw_grace_timer = THROW_GRACE_DURATION
+		# AND STOP THE THROWER'S OWN BODY FROM PUSHING IT.
+		#
+		# A carried ball is held INSIDE the thrower's collision capsule: measuring from the hold
+		# point, the ball's centre is about 0.39 m from the centre of the capsule's top sphere,
+		# which has a 0.4 m radius, so the ball overlaps its own thrower by roughly 0.16 m before
+		# it is ever released. The moment `freeze` is lifted the character body ejects it.
+		#
+		# Measured, in `--throw-probe`, reading the velocity in the SAME frame as the throw and
+		# then on the next physics step:
+		#     same frame: 9.000 m/s ( 0.18, -1.65, -8.85)   aimed straight at the machine
+		#     next step:  4.500 m/s (-3.18, -1.29, -2.91)   half the speed, thrown sideways
+		# So the throw was always correct and something deflected it in the first centimetres.
+		# That is why a thrown ball never reached the disposal machine from a distance, and why
+		# the fault looked like aim, then like the machine, and was neither.
+		#
+		# The grace already exists for hits -- a ball must not burst on its own thrower. This is
+		# the same window doing the same job for the collision that carries the impulse, rather
+		# than a second timer that could disagree with the first.
+		add_collision_exception_with(thrower)
+		_thrower_body = thrower
 	linear_velocity = impulse_velocity
 	_flight_max_speed = impulse_velocity.length()
 	_last_harvest_pos = global_position
