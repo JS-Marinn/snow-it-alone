@@ -172,3 +172,60 @@ Status: **14 batteries registered in `tools/run_batteries.ps1` Â· 250 checks pas
 14. **The Godot 4 shader light() trap & energy scaling**:
    In Godot 4.x spatial shaders, `return;` is illegal inside processor functions like `void light()`; branching must use `if / else`. Furthermore, Godot's built-in `diffuse_burley` scales diffuse light by $1/\pi \approx 0.318309886$; when writing a custom `DIFFUSE_LIGHT += ...` in `light()`, failing to scale by `INV_PI` injects $\sim 3.14\times$ excessive energy into the forward clustered pipeline, blowing out highlights into white bloom. In addition, flat horizontal terrain viewed at shallow angles has $N \cdot V \approx 0$; without slope or curvature masking (`v_slope`), grazing-angle rim light illuminates the entire ground plane across the screen. Finally, to ensure dark silhouettes don't get erased by grazing rim light, attenuate diffuse and rim at the extreme grazing boundary using an edge mask.
 
+
+---
+
+## 13. Working rule: when the plan stalls, leave the plan
+
+Written on the owner's instruction, after watching this go wrong repeatedly:
+
+> "You are very focused on what was discussed before. If I ask for a change and you cannot
+> achieve it with the planned approach, look for alternatives that were not discussed before."
+
+### The failure mode
+
+Fixes here kept being refinements **inside** a frame that was already failing. Worse, the
+prompts written to unblock work became the fence around it: once an approach was written down
+as the prescribed route, the next attempt followed it and the one after that refined it. Three
+examples from one session:
+
+- **Cel shading.** The prescribed route was a toon shader per material plus banding inside the
+  snow shader. It looked bad. The next two attempts bisected *that* route instead of asking
+  whether shading was the right tool at all.
+- **A thrown ball curving in flight.** Every attempt assumed the push logic was at fault and
+  adjusted it. No one asked whether a thrown ball should be reachable by player input at all.
+- **A large resting ball breaking on contact.** Attempts moved the speed threshold and added
+  direction tests. The alternative nobody tried is simply that a ball at rest has no reactions.
+
+**Rule:** if a fix fails twice, stop refining it. Produce **at least three alternatives from
+different frames** — a cheaper one, a design change, and a do-nothing — and say which you would
+pick and why. Refining a failing approach a third time is not persistence, it is anchoring.
+
+### Un-discussed alternatives, for the problems currently open
+
+**A stylised look without shaders at all.** Cel shading is one way to a drawn look, not the
+only one. Flat, untextured materials with a limited palette, `Environment` fog and tone
+mapping, and strong silhouette lighting get most of the way with zero shader risk. Or a
+post-process only. Or abandon toon entirely and go for *soft stylised* with bright rim light.
+Any of these can be tried in an afternoon and thrown away if it does not please.
+
+**A thrown ball that simply cannot be steered.** Instead of tuning the push until it stops
+interfering: make it a hard rule that a ball not touching the ground ignores every player
+influence, and mark it as thrown for a short lifetime. Or remove the push-while-holding
+interaction altogether and keep only "push a resting ball". Or gate it by speed rather than by
+contact.
+
+**Counting snow that is not the banks.** The bank deposit is one answer to "where does the snow
+go". Others: score **time to clear** a lane; score **path width** cleared; a customer who
+contracts for a cleared area; a melting furnace or a river as a physical sink that genuinely
+destroys the snow; or no removal metric at all, with coins paid for smooth rolling and the
+surface percentage used only as the level goal. The current tension exists because mass is
+conserved — a heat source is a legitimate, physically honest way to break that conservation,
+and it was never on the table.
+
+**A resting ball with no reactions.** Rather than thresholds: only a ball that has been thrown
+can hit anyone. Resting balls get no reactions at all, ever, and the whole class of bug
+disappears.
+
+**The small-ball wobble.** If hand sway is the cause, the alternative is no sway at all while
+carrying, or sway only above a walking speed.
