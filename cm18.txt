@@ -1,0 +1,64 @@
+fix: the HUD was hiding itself, which is why pausing showed no menu
+
+The owner reported: "when I pause I no longer see the menu, the game just stops." The cause was not
+the pause menu at all.
+
+## What was measured
+
+The project already has a pause diagnostic that photographs the paused frame and checks the tree
+really stopped. It reported, before this fix:
+
+    [HUD] at _ready: self.visible=false
+    [PAUSE] hud visible=false layer=1 mode=3
+    [PAUSE]   pauseMenu    rect [P: (0.0, 0.0), S: (260.0, 0.0)]
+    [PAUSE]   title        rect [P: (0.0, 0.0), S: (1.0, 30.0)]
+    [PAUSE] panel centre (130.0, 0.0) vs viewport centre (640.0, 360.0): off by (-510, -360) px
+
+The pause menu was `visible=true` and being drawn INTO A HIDDEN LAYER. The screenshot of that same
+frame showed no HUD at all -- no title, no progress bar, no money line -- which is the detail that
+identified it: the menu was not misplaced, the whole HUD was off.
+
+`hud.gd` never writes `visible`, and `scenes/hud.tscn` does not set it on its root. The flag was
+being cleared from outside this file's reach, and the search for the writer did not find one.
+
+## The fix, and why this shape
+
+`_ready` now sets `visible = true` explicitly. A HUD that hides itself at startup is not a HUD, and
+this script is the only thing that knows the HUD is meant to be on screen -- so the node's
+visibility should have been its business all along. If a future feature needs to hide the HUD it
+should call a named method here rather than flip the property from somewhere else.
+
+Measured after:
+
+    [PAUSE] hud visible=true layer=1 mode=3
+    [PAUSE]   pauseMenu    rect [P: (510.0, 229.0), S: (260.0, 261.0)]
+    [PAUSE]   title        rect [P: (30.0, 20.0), S: (1220.0, 30.0)]
+    [PAUSE] panel centre (640.0, 359.5) vs viewport centre (640.0, 360.0): off by (0, -1) px
+
+The menu is centred to ONE PIXEL, and `title` went from 1 px wide to 1220. **Read the PNG**: the
+world, the full HUD (title, progress bar, `Money: $0`, `Snow sent: 0.0 kg`, `Tool: Bare Hands`) and
+the pause panel with Paused / Resume / Restart level / Settings / Quit to menu, centred. The
+screenshot is `pause_menu.png`.
+
+## Also: `set_anchors_preset` does not size a Control
+
+Six sites used `set_anchors_preset(Control.PRESET_FULL_RECT)`, which sets the ANCHORS and leaves the
+OFFSETS alone: a Control freshly added to a CanvasLayer stays zero by zero. All six now use
+`set_anchors_and_offsets_preset`. Four were in `hud.gd` (pause, settings, controls, and one more)
+and two in `main_menu.gd` -- including `main_menu.gd`'s background and centre container, the
+screen the game opens on. Verified by regenerating `main_menu.png`, `settings_menu.png` and
+`controls_menu.png`.
+
+This may or may not have been the same root cause as the visibility flag; the two were changed
+together, and the honest statement is that the menu is now measured correct and I did not isolate
+which of the two changes the visibility flag came from.
+
+## The GPU pause is NOT enough, and this run says so
+
+The previous commit added a 1200 ms pause between batteries as a mitigation for measured
+`Vulkan device was lost` failures. This gate still lost the device, in `--phys-demo`, reported as
+"no verdict printed (crashed?)". **So the pause helps but does not fix it**, and the note written
+where the pause lives -- that if the loss survives it the next step is reducing the GPU work one
+battery queues, not lengthening the pause -- is now the live instruction rather than a caveat.
+
+Gate state: 17 of 18 green, --phys-demo lost to the device fault.

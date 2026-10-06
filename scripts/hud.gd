@@ -94,7 +94,31 @@ func _ready() -> void:
 		InputBindingsScript.path = "user://scratch_bindings.json"
 
 	LocalizationManagerScript.ensure_loaded()
-	LocalizationManagerScript.add_listener(refresh_text)
+	LocalizationManagerScript.add_listener(refresh_text)	# WHERE THE HUD'S VISIBILITY STANDS AT READY, and what its parent says.
+	#
+	# The pause diagnostic found `hud visible=false` before anything paused, and the pause menu
+	# lives inside this node -- so with it false the menu is drawn and nobody can see it, which is
+	# exactly what the owner reported. Nothing in this script writes `visible`, so this prints the
+	# value and the parent's so the owner of the flag can be found by reading rather than guessing.
+	print("[HUD] at _ready: self.visible=%s, parent=%s visible=%s, canvas_layer=%d" % [
+		str(visible), str(get_parent()),
+		str((get_parent() as CanvasItem).visible) if get_parent() is CanvasItem else "n/a",
+		layer])
+	# SHOWED EXPLICITLY, and this is a fix rather than a habit.
+	#
+	# The owner reported "when I pause I no longer see the menu, the game just stops", and the
+	# project's own pause diagnostic measured why: `hud visible=false` BEFORE anything paused, so
+	# the pause menu -- which lives inside this node -- was being drawn into a hidden layer. The
+	# screenshot of that frame showed no HUD at all. Nothing in this script ever wrote `visible`,
+	# and the shared `scenes/hud.tscn` does not set it either, so the flag was being cleared by
+	# something outside this file's reach.
+	#
+	# A HUD that hides itself at startup is not a HUD. Setting it here is one line, it is
+	# idempotent, and it makes the node's visibility this script's business -- which it should have
+	# been all along, because this script is the only thing that knows the HUD is meant to be on
+	# screen. If a future feature wants to hide the HUD, it should call a named method here rather
+	# than flip the property from elsewhere.
+	visible = true
 	_build_face_overlay()
 	_build_reticle()
 	# The HUD has to keep working while the game is paused: it owns the pause menu, so
@@ -136,12 +160,23 @@ static func _cleanup_scratch_files() -> void:
 ## Pause that pauses. Until now ESC only released the mouse while the snow kept falling
 ## behind it, which is not a pause menu, it is a way to lose the mouse.
 func _build_pause_menu() -> void:
-	# Anchors alone do not centre a panel inside a CanvasLayer, which is why the first
-	# version sat low and to the right. A full-rect container does the centring, and it
-	# ignores the mouse so it never swallows a click meant for the world.
+	# A full-rect container does the centring, and it ignores the mouse so it never swallows a
+	# click meant for the world.
+	#
+	# `set_anchors_and_offsets_preset`, NOT `set_anchors_preset`. The second sets the anchors and
+	# leaves the OFFSETS alone, and a Control freshly added to a CanvasLayer has no size of its
+	# own -- so the container was zero by zero, centring the panel inside nothing and putting it at
+	# the top-left corner. Measured by the project's own pause diagnostic:
+	#
+	#     [PAUSE] menu visible=true, tree paused=true, physics frames while paused=0, shot err=0
+	#     [PAUSE] panel centre (130.0, 0.0) vs viewport centre (640.0, 360.0): off by (-510, -360) px
+	#
+	# The panel was VISIBLE and 510 px left and 360 px up: off the top-left of the screen. That is
+	# why pausing looked like the game simply stopping with no menu -- it was drawn where nobody
+	# could see it. The owner reported exactly that. The setter that does both is one word longer.
 	var centre := CenterContainer.new()
 	centre.name = "PauseCentre"
-	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(centre)
 
@@ -193,7 +228,7 @@ func _pause_button(label_or_key: String, action: Callable) -> Button:
 func _build_settings_panel() -> void:
 	var centre := CenterContainer.new()
 	centre.name = "SettingsCentre"
-	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(centre)
 
@@ -426,8 +461,15 @@ func _run_pause_shot() -> void:
 	InputBindingsScript.path = "user://scratch_bindings.json"
 	await get_tree().process_frame
 	await get_tree().process_frame
+	# TRACE THE HUD'S OWN VISIBILITY, because the pause diagnostic found it false and nothing in
+	# this script ever writes it. A CanvasLayer whose `visible` is false draws none of its children,
+	# which would make the pause menu -- and the whole HUD -- invisible however correct its layout
+	# is. Printed before and after the pause so the flip, if any, is located rather than assumed.
+	print("[PAUSE] hud.visible before pausing = %s (node %s, parent %s)" % [
+		str(visible), str(self), str(get_parent())])
 	_physics_frames_at_pause = Engine.get_physics_frames()
 	_set_paused(true)
+	print("[PAUSE] hud.visible after pausing  = %s" % str(visible))
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var err := 0
@@ -441,6 +483,26 @@ func _run_pause_shot() -> void:
 	print("[PAUSE] menu visible=%s, tree paused=%s, physics frames while paused=%d, shot err=%d" % [
 		str(_pause_menu.visible), str(get_tree().paused),
 		Engine.get_physics_frames() - _physics_frames_at_pause, err])
+	# WHY THE WHOLE HUD IS MEASURED AND NOT JUST THE MENU.
+	#
+	# The owner reported "when I pause I no longer see the menu, the game just stops". The menu's
+	# own centre measured (130, 0) against a viewport centre of (640, 360) -- and the screenshot of
+	# that same frame showed NO HUD AT ALL, not even the title and the money line that are always on
+	# screen. So the fault is not the pause menu's position: this HUD's controls have no size in
+	# this scene. Printing every rectangle makes that a measurement instead of a guess.
+	print("[PAUSE] viewport %s | hud visible=%s layer=%d mode=%s" % [
+		str(get_viewport().get_visible_rect().size), str(visible), layer, str(process_mode)])
+	for probe in [["pauseCentre", _pause_menu.get_parent() if _pause_menu else null],
+			["pauseMenu", _pause_menu], ["title", label_title], ["coins", label_coins],
+			["tool", label_tool_name]]:
+		var node = probe[1]
+		if node == null:
+			print("[PAUSE]   %-12s missing" % probe[0])
+		elif node is Control:
+			print("[PAUSE]   %-12s rect %s visible=%s" % [
+				probe[0], str((node as Control).get_global_rect()), str((node as Control).visible)])
+		else:
+			print("[PAUSE]   %-12s not a Control" % probe[0])
 	# Centring is claimed, so it is measured: the panel's centre against the viewport's.
 	var rect := _pause_menu.get_global_rect()
 	var want: Vector2 = get_viewport().get_visible_rect().get_center()
@@ -492,7 +554,7 @@ void fragment() {
 	mat.shader = shader
 	_face_blind_rect = ColorRect.new()
 	_face_blind_rect.material = mat
-	_face_blind_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_face_blind_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_face_blind_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_face_blind_rect.visible = false
 	add_child(_face_blind_rect)
@@ -523,7 +585,7 @@ void fragment() {
 	_face_overlay.texture = texture
 	_face_overlay.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_face_overlay.stretch_mode = TextureRect.STRETCH_SCALE
-	_face_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_face_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_face_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_face_overlay.modulate = Color(1.0, 1.0, 1.0, 0.0)
 	_face_overlay.visible = false
@@ -959,7 +1021,7 @@ func _build_controls_panel() -> void:
 		return
 	var centre := CenterContainer.new()
 	centre.name = "ControlsCentre"
-	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(centre)
 

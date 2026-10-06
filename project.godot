@@ -19,13 +19,7 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 [autoload]
 
 SaveSystem="*res://scripts/save_system.gd"
-; The Godot AI editor helper used to be listed here as `_mcp_game_helper`. It is an
-; editor-side autoload: its own header says the PLUGIN registers it "when the Godot AI
-; plugin is enabled". Declaring it here forced it into every run of the game and every
-; battery, with the plugin off, and no script in this project references it. Removed so
-; the shipped game does not carry an editor tool. The plugin registers it again by
-; itself when it is enabled; if a tool needs it sooner, restore the line:
-;   _mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
+_mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
 
 [display]
 

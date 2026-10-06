@@ -164,12 +164,12 @@ func _process(delta: float) -> void:
 func _build_ui() -> void:
 	var background := ColorRect.new()
 	background.color = Color(0.09, 0.12, 0.18)
-	background.set_anchors_preset(Control.PRESET_FULL_RECT)
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(background)
 
 	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(center)
 
 	var column := VBoxContainer.new()
