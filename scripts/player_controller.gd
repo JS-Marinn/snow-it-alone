@@ -10,6 +10,7 @@ const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 const SnowBallScript = preload("res://scripts/snowball.gd")
 const PinPropScript = preload("res://scripts/pin_prop.gd")
 const DisposalMachineScript = preload("res://scripts/disposal_machine.gd")
+const ContainerInteractionScript = preload("res://scripts/container_interaction.gd")
 
 @export var mouse_sensitivity: float = 0.0025
 @export var walk_speed: float = 4.2
@@ -364,6 +365,9 @@ var status_message: String = ""
 ## Diagnostic traces for the shovel cycle.
 var debug_shovel: bool = false
 var _pour_ops: int = 0
+## Fills and empties the snow containers. Built in `_connect_snow_field`, once the field is
+## known, and null until then.
+var container_interaction: Node = null
 
 var blower_audio: AudioStreamPlayer3D
 var scrape_audio: AudioStreamPlayer3D
@@ -403,6 +407,18 @@ func _connect_snow_field() -> void:
 	if snow_field and snow_field.has_signal("snow_tossed_in_bank"):
 		if not snow_field.snow_tossed_in_bank.is_connected(_on_snow_bank_hit):
 			snow_field.snow_tossed_in_bank.connect(_on_snow_bank_hit)
+	# The bucket and the wheelbarrow are filled and emptied through one shared piece of
+	# gameplay code, which needs the field to measure what a fill actually removed and to
+	# pay for what is tipped into a bank or machine. It lives as a child of this node so it goes away
+	# with the player and never outlives the field it points at.
+	if snow_field and container_interaction == null:
+		var tracker := Node.new()
+		tracker.name = "ContainerInteraction"
+		tracker.set_script(ContainerInteractionScript)
+		add_child(tracker)
+		container_interaction = tracker
+		if tracker.has_method("setup"):
+			tracker.setup(snow_field)
 
 ## The bank used to pay for snow thrown into it, and this is where that money arrived.
 ##
@@ -1450,7 +1466,7 @@ func _find_interactable_ahead() -> CollisionObject3D:
 	var hit := _raycast_interactable()
 	if not hit.is_empty():
 		var col = hit.get("collider")
-		if col != null and (col is SnowBall or col is PinProp) and (col.has_method("begin_carry") or col.has_method("push")):
+		if col != null and (col is SnowBall or col is PinProp or col.has_method("push")) and (col.has_method("begin_carry") or col.has_method("push")):
 			return col
 	# Fallback for anything close in front of the player (at the feet or in front of the body)
 	var sphere := SphereShape3D.new()
@@ -1464,13 +1480,32 @@ func _find_interactable_ahead() -> CollisionObject3D:
 	params.transform = Transform3D(Basis(), global_position + fwd_flat * 1.0 + Vector3.UP * 0.3)
 	for result in get_world_3d().direct_space_state.intersect_shape(params, 8):
 		var body = result.get("collider")
-		if body != null and (body is SnowBall or body is PinProp) and (body.has_method("begin_carry") or body.has_method("push")):
+		if body != null and (body is SnowBall or body is PinProp or body.has_method("push")) and (body.has_method("begin_carry") or body.has_method("push")):
 			return body
 	return null
 
 ## Is there a pickable ball or prop right in front?
 func _has_interactable_ahead() -> bool:
 	return _find_interactable_ahead() != null
+
+## The snow container the player is AIMING at, or null.
+##
+## Aiming decides between the two things [E] can mean at a container: looking at one fills or
+## tips it, while standing behind one and holding [E] pushes it along. The raycast is used
+## rather than the feet area on purpose, so a barrow the player is merely standing next to
+## never swallows the tap that was meant to pack snow.
+func _find_aimed_container() -> Node:
+	var hit := _raycast_interactable()
+	if hit.is_empty():
+		return null
+	var col = hit.get("collider")
+	if col == null or not is_instance_valid(col):
+		return null
+	if col == carried:
+		return null
+	if col.is_in_group("snow_containers") and col.has_method("free_space_kg"):
+		return col
+	return null
 
 ## Continuous push with held [E]: the ball rolls on the ground in front of the
 ## player and is never lifted (it stays a dynamic body resting on the
@@ -1524,8 +1559,18 @@ func _ground_push() -> bool:
 	return true
 
 func _try_pickup_or_pack() -> void:
+	# A container the player is looking at answers first: filling a bucket and packing yet
+	# another snowball are different intentions, and the aim is what tells them apart.
+	var container := _find_aimed_container()
+	if container != null and container_interaction != null and container_interaction.has_method("container_action"):
+		if container_interaction.container_action(self, container) == true:
+			return
 	var obj := _find_interactable_ahead()
 	if obj != null:
+		# A wheelbarrow is aimed at, not lifted: it refuses to be carried and the tap goes
+		# to the container branch above, which loads or tips it.
+		if obj.has_method("can_be_carried") and obj.can_be_carried() != true:
+			return
 		if obj is PinProp and obj.is_pinned:
 			obj.try_extract()
 			if obj.has_method("begin_carry"):
@@ -1708,28 +1753,43 @@ func _update_carried(delta: float) -> void:
 	carried_velocity = carried_velocity.lerp(instant, clampf(delta * 12.0, 0.0, 1.0))
 	_carried_prev_pos = carried.global_position
 
-## Estimates available snow mass (kg) at a world position using the GPU coarse mirror.
+## Samples average snow depth around a point over an area.
+func _sample_area_snow_height(pos: Vector3, sample_radius: float = PACK_HARVEST_RADIUS) -> float:
+	if snow_field == null or not snow_field.has_method("get_height_at"):
+		return 0.0
+	var h0: float = maxf(float(snow_field.get_height_at(pos)), 0.0)
+	var sum := h0 * 2.0
+	var count := 2.0
+	var r := sample_radius * 0.7
+	for i in range(8):
+		var angle := float(i) * TAU / 8.0
+		var offset := Vector3(cos(angle) * r, 0.0, sin(angle) * r)
+		var h: float = maxf(float(snow_field.get_height_at(pos + offset)), 0.0)
+		sum += h
+		count += 1.0
+	return sum / count
+
+## Returns the harvest radius for a given snow depth, slightly widening in shallow snow
+## (2-4 cm) so enough mass can be gathered to form a snowball (>= 0.435 kg).
+func _harvest_radius_for_depth(depth: float) -> float:
+	if depth <= 0.0 or depth >= 0.06:
+		return PACK_HARVEST_RADIUS
+	# In shallow snow (2-4 cm), expand harvest radius (up to 0.31m)
+	return clampf(sqrt(0.48 / (150.0 * 1.76 * maxf(depth, 0.018))), PACK_HARVEST_RADIUS, 0.31)
+
+## Estimates available snow mass (kg) at a world position using area sampling.
 func _estimate_available_snow_kg(pos: Vector3, harvest_radius: float = PACK_HARVEST_RADIUS) -> float:
 	if snow_field == null or not snow_field.has_method("get_height_at"):
 		return 0.0
-	var h0: float = snow_field.get_height_at(pos)
-	if h0 <= 0.045:
+	var h_avg := _sample_area_snow_height(pos, harvest_radius)
+	# Bare ground / residual dust threshold (below 1.8 cm is bare ground)
+	if h_avg < 0.018:
 		return 0.0
-	var r_sample := harvest_radius * 0.6
-	var h1: float = snow_field.get_height_at(pos + Vector3(r_sample, 0.0, 0.0))
-	var h2: float = snow_field.get_height_at(pos - Vector3(r_sample, 0.0, 0.0))
-	var h3: float = snow_field.get_height_at(pos + Vector3(0.0, 0.0, r_sample))
-	var h4: float = snow_field.get_height_at(pos - Vector3(0.0, 0.0, r_sample))
-	var h_min: float = minf(h0, minf(minf(h1, h2), minf(h3, h4)))
-	if h_min <= 0.015:
-		return 0.0
-	var cut_avg: float = (minf(h0, PACK_HARVEST_DEPTH) * 2.0 + minf(h1, PACK_HARVEST_DEPTH) + minf(h2, PACK_HARVEST_DEPTH) + minf(h3, PACK_HARVEST_DEPTH) + minf(h4, PACK_HARVEST_DEPTH)) / 6.0
-	var max_depth := minf(PACK_HARVEST_DEPTH, h0 * 0.8)
-	var effective_cut := minf(cut_avg, max_depth)
-	# Harvest mode in snow_sim.glsl has smoothstep falloff with effective area ~1.5 * R^2
-	var eff_area: float = 1.50 * harvest_radius * harvest_radius
+	var r_harvest := _harvest_radius_for_depth(h_avg)
+	var cut_depth := minf(PACK_HARVEST_DEPTH, maxf(h_avg, 0.02))
+	var eff_area: float = 1.76 * r_harvest * r_harvest
 	var density: float = float(snow_field.get("snow_density")) if snow_field.get("snow_density") != null else 150.0
-	return effective_cut * eff_area * density
+	return cut_depth * eff_area * density
 
 ## Finds the ground position to pack a snowball, strictly at the reticle aim point.
 ## Forward-only, never searching behind player or under feet on bare ground.
@@ -1751,9 +1811,10 @@ func _pack_snowball() -> void:
 	_pack_harvest_pt = pt
 	_pending_pack = true
 	_pending_pack_time = 0.0
-	var h: float = snow_field.get_height_at(pt) if snow_field.has_method("get_height_at") else 0.10
-	var depth := minf(PACK_HARVEST_DEPTH, maxf(h * 0.8, 0.04))
-	snow_field.request_harvest(_player_owner, pt, pt + Vector3(0.02, 0.0, 0.02), PACK_HARVEST_RADIUS, depth)
+	var h: float = _sample_area_snow_height(pt)
+	var r_harvest := _harvest_radius_for_depth(h)
+	var depth := minf(PACK_HARVEST_DEPTH, maxf(h, 0.02))
+	snow_field.request_harvest(_player_owner, pt, pt + Vector3(0.02, 0.0, 0.02), r_harvest, depth)
 	status_message = tr("STATUS_PACKING_SNOW")
 
 func _on_op_volume_ready(role: String, owner: int, kg: float) -> void:
