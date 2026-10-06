@@ -38,7 +38,7 @@ uniform float sparkle_strength : hint_range(0.0, 2.0) = 0.75;
 //  Cel Shading / Toon Lighting Parameters
 // ============================================================================
 group_uniforms CelShading;
-uniform bool toon_enabled = false;
+uniform bool toon_enabled = true;
 uniform int bands : hint_range(1, 5) = 3;
 uniform float band_softness : hint_range(0.001, 0.3) = 0.05;
 uniform vec3 shadow_tint : source_color = vec3(0.68, 0.74, 0.88);
