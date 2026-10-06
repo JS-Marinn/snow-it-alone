@@ -34,7 +34,23 @@ uniform vec3 stone_pattern_color : source_color = vec3(0.33, 0.35, 0.40);
 
 uniform float sparkle_strength : hint_range(0.0, 2.0) = 0.75;
 
+// ============================================================================
+//  Cel Shading / Toon Lighting Parameters
+// ============================================================================
+group_uniforms CelShading;
+uniform bool toon_enabled = true;
+uniform int bands : hint_range(1, 5) = 3;
+uniform float band_softness : hint_range(0.001, 0.3) = 0.05;
+uniform vec3 shadow_tint : source_color = vec3(0.68, 0.74, 0.88);
+uniform float rim_strength : hint_range(0.0, 2.0) = 0.75;
+uniform vec3 rim_color : source_color = vec3(1.0, 0.92, 0.80);
+
+group_uniforms Outline;
+uniform float outline_width : hint_range(0.0, 0.05) = 0.006;
+uniform vec4 outline_color : source_color = vec4(0.12, 0.16, 0.28, 1.0);
+
 varying vec3 v_world_pos;
+varying float v_slope;
 
 float hash(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -97,6 +113,7 @@ void fragment() {
 	float loose = texture(snow_heightmap, UV).g;
 	snow = mix(snow, powder_color, smoothstep(0.03, 0.30, loose));
 	float slope = 1.0 - clamp(world_n.y, 0.0, 1.0);
+	v_slope = slope;
 	snow = mix(snow, hollow_tint, slope * 0.30);
 
 	// Destellos sutiles de escarcha
@@ -104,6 +121,13 @@ void fragment() {
 
 	vec3 final_color = mix(clean_path, snow, mask);
 	final_color += vec3(sp * sparkle_strength * 0.7);
+
+	// Contorno fino azul oscuro en pendientes pronunciadas / zanjas
+	if (toon_enabled && outline_width > 0.0) {
+		float NdotV = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
+		float edge = smoothstep(outline_width * 45.0, 0.0, NdotV) * smoothstep(0.08, 0.35, slope) * mask;
+		final_color = mix(final_color, outline_color.rgb, edge * outline_color.a * 0.85);
+	}
 
 	ALBEDO = final_color;
 	ROUGHNESS = mix(0.42, 0.70, mask);
@@ -114,3 +138,43 @@ void fragment() {
 	RIM = mask * smoothstep(0.4, 0.9, world_n.y) * 0.40;
 	RIM_TINT = 0.35;
 }
+
+const float INV_PI = 0.318309886;
+
+void light() {
+	if (!toon_enabled) {
+		float NdotL = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+		DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * (NdotL * INV_PI * ATTENUATION);
+	} else {
+		// 1. Half-Lambert para envolvencia suave sin negros crudos
+		float NdotL = dot(NORMAL, LIGHT);
+		float half_lambert = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0);
+		float lit = clamp(half_lambert * ATTENUATION, 0.0, 1.0);
+
+		// 2. Cuantización multi-banda (2 o 3 bandas) con terminador suave
+		float band_factor = 0.0;
+		if (bands <= 1) {
+			band_factor = smoothstep(0.5 - band_softness, 0.5 + band_softness, lit);
+		} else if (bands == 2) {
+			band_factor = smoothstep(0.50 - band_softness, 0.50 + band_softness, lit);
+		} else {
+			float step1 = smoothstep(0.50 - band_softness, 0.50 + band_softness, lit);
+			float step2 = smoothstep(0.72 - band_softness, 0.72 + band_softness, lit);
+			band_factor = step1 * 0.5 + step2 * 0.5;
+		}
+
+		// 3. Sombras frías (shadow_tint azul hielo) y luz directa cálida normalizada
+		vec3 light_ramp = mix(shadow_tint, vec3(1.0), band_factor);
+		float diffuse_scale = mix(0.18, 1.0, band_factor) * INV_PI * 1.35;
+		DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * light_ramp * diffuse_scale;
+
+		// 4. Luz de contorno cálida (rim light) en crestas esculpidas
+		float NdotV = clamp(dot(NORMAL, VIEW), 0.0, 1.0);
+		float rim = 1.0 - NdotV;
+		float rim_mask = smoothstep(0.60, 0.90, rim) * smoothstep(0.06, 0.28, v_slope);
+		float rim_lit = clamp(NdotL * 0.5 + 0.5, 0.0, 1.0);
+		vec3 rim_contrib = rim_color * (rim_mask * rim_strength * rim_lit * INV_PI * 1.1);
+		DIFFUSE_LIGHT += ALBEDO * LIGHT_COLOR * rim_contrib;
+	}
+}
+

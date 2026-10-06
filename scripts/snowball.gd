@@ -159,6 +159,9 @@ func _ready() -> void:
 	_mesh_instance.material_override = _ball_material
 	add_child(_mesh_instance)
 
+	const CelShadingSystem = preload("res://scripts/cel_shading_system.gd")
+	CelShadingSystem.apply_to_node(_mesh_instance)
+
 	_shape = SphereShape3D.new()
 	_shape.radius = radius
 	_collision = CollisionShape3D.new()

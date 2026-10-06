@@ -44,6 +44,9 @@ func _ready() -> void:
 	mesh_inst.material_override = snow_mat
 	add_child(mesh_inst)
 
+	const CelShadingSystem = preload("res://scripts/cel_shading_system.gd")
+	CelShadingSystem.apply_to_node(mesh_inst)
+
 	var col = CollisionShape3D.new()
 	var shape = SphereShape3D.new()
 	shape.radius = sphere.radius

@@ -4,7 +4,7 @@ Current state of the project: what is done, what remains genuinely open, and the
 environment rules and method notes. Written down so nothing depends on memory.
 
 Last updated: 2026-10-05.
-Status: **13 batteries registered in `tools/run_batteries.ps1` · 244 checks passing (ALL GREEN)**.
+Status: **14 batteries registered in `tools/run_batteries.ps1` · 250 checks passing (ALL GREEN)**.
 
 ---
 
@@ -120,6 +120,17 @@ Status: **13 batteries registered in `tools/run_batteries.ps1` · 244 checks pas
   4. **Local height invariance assertions**: Added probe height delta assertions ($\Delta h < 0.001$ m) in both cleared ground and scarce snow phases of `--hand-pack`.
 - **Evidence**: Extended `--hand-pack` acceptance battery (`scripts/hand_pack_demo.gd`), registered in `tools/run_batteries.ps1` (`Gpu = $true`, 12/12 OK). Total test gate passes all 13 batteries (244/244 checks, 100% ALL GREEN).
 
+### Full-game cel shading & snow deformation integration
+- **Goal**: Apply cohesive cel shading across the entire game (imported Kenney GLBs, procedural meshes, snowballs, chunks, and the dynamic heightmap snow field).
+- **Architecture (Route A)**:
+  1. **Dual shader approach**: Built `materials/toon.gdshader` for standard meshes and added a custom `light()` model inside `materials/snow_deform.gdshader` for the snow ground, preserving 100% of heightmap vertex displacement, footprint filtering, slope calculations, and mass conservation.
+  2. **Art direction & parameterization**: 2–3 quantized light bands with smooth transitions (`band_softness = 0.05`), cool shadows (`shadow_tint`, icy pastel blue), warm rim lighting (`rim_strength = 0.35`, `rim_color = Color(1.0, 0.95, 0.85)`), fine dark-blue contours (`outline_width = 0.015`, `outline_color = Color(0.12, 0.16, 0.28, 1.0)`).
+  3. **Lighting normalization**: Scaled diffuse light by `INV_PI = 0.318309886` to match Godot's built-in Burley diffuse energy convention, preventing blown-out highlights.
+  4. **Slope-aware terrain rim & silhouette masking**: Masked rim lighting and contours on the snow field by `v_slope` and curvature so horizontal ground planes viewed at shallow angles do not produce blinding white bloom.
+  5. **Material preservation**: `scripts/cel_shading_system.gd` traverses the scene tree, caches original materials, copies albedo textures (`colormap.png`), albedo colors, roughness, metallic, and emission. Skips particle billboards (`SnowParticles`, `StandardMaterial3D_flake`) to avoid flickering. Dynamically spawned snowballs and snow chunks are styled on instantiation.
+- **Evidence**: Added `--toon-shot` battery (`scripts/toon_demo.gd`), registered in `tools/run_batteries.ps1` (`Gpu = $true`, 6/6 OK):
+  verifies identical camera capture (`toon_off.png` vs `toon_on.png`), exact snow height invariance ($\Delta h = 0.000000$ m), performance delta within the 15% budget, 0 missing/corrupted textures across 48 texture nodes, 0 color mismatches across 116 meshes, and clean enable/disable toggling.
+
 ---
 
 ## 3. Environment traps & method notes (paid for in lost time)
@@ -158,4 +169,6 @@ Status: **13 batteries registered in `tools/run_batteries.ps1` · 244 checks pas
    Running with diagnostic flags, reading stdout/err logs, and inspecting saved PNGs is the reliable workflow.
 13. **The safety net trap (untested side-effects and measurement blind spots)**:
    Al especificar una red de seguridad, hay que decir qué medición la delataría. Aquí se escribió «devuélvelo al campo» sin exigir una prueba de dónde vuelve, y la prueba que se pidió —masa total— era justo la que no lo iba a ver. Restaurar masa con `dump_snow()` conservaba la masa global ($\sum \Delta m = 0$) pero depositaba un montículo radial que distorsionaba la superficie donde había suelo raso. La regla de diseño correcta es la autoridad previa absoluta: no tocar el terreno si no hay suficiente nieve, y verificar la invarianza de altura local ($\Delta h_{\text{local}} = 0$) en la batería de pruebas.
+14. **The Godot 4 shader light() trap & energy scaling**:
+   In Godot 4.x spatial shaders, `return;` is illegal inside processor functions like `void light()`; branching must use `if / else`. Furthermore, Godot's built-in `diffuse_burley` scales diffuse light by $1/\pi \approx 0.318309886$; when writing a custom `DIFFUSE_LIGHT += ...` in `light()`, failing to scale by `INV_PI` injects $\sim 3.14\times$ excessive energy into the forward clustered pipeline, blowing out highlights into white bloom. In addition, flat horizontal terrain viewed at shallow angles has $N \cdot V \approx 0$; without slope or curvature masking (`v_slope`), grazing-angle rim light illuminates the entire ground plane across the screen. Finally, to ensure dark silhouettes don't get erased by grazing rim light, attenuate diffuse and rim at the extreme grazing boundary using an edge mask.
 

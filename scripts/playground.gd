@@ -59,6 +59,9 @@ func _ready() -> void:
 	_build_ramps()
 	_build_overlay()
 	_build_free_camera()
+
+	const CelShadingSystem = preload("res://scripts/cel_shading_system.gd")
+	CelShadingSystem.apply_cel_shading(self)
 	# The lanes need the simulation alive, but they must not wait for a signal that
 	# only fires once an operation has already happened: polling the flag is honest and
 	# immediate. Operations are then drained a few per frame, because the simulation's
