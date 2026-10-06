@@ -702,11 +702,6 @@ func _physics_process(delta: float) -> void:
 		var wobble := sin(_stagger_phase * 2.6) * 0.11 * stagger
 		wobble += sin(_time * 31.0) * 0.06 * _hit_shake * SettingsSystemScript.screen_shake
 		camera.rotation.z = lerpf(camera.rotation.z, wobble, delta * 6.0)
-	else:
-		# The roll is a smoothed value, so it has to be driven even when nothing is swaying.
-		# Inside the condition it kept whatever it held when the hit or the carry ended, and the
-		# player walked around permanently tilted after being hit once.
-		camera.rotation.z = lerpf(camera.rotation.z, 0.0, delta * 6.0)
 
 	# Physical support height at the player position
 	var target_snow_h = 0.0
