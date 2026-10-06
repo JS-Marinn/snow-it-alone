@@ -682,18 +682,66 @@ func _s_player_interact() -> void:
 	if player == null:
 		return
 	_before["balls"] = get_tree().get_nodes_in_group("snowballs").size()
-	# Look at the snow before pressing.
+	# PACKING IS A BARE-HANDS ACTION, so this step takes the shovel off.
 	#
-	# ADDED because gathering now requires the aim point to be within PACK_REACH_STRICT (1.3 m),
-	# and this rig pressed interact with the camera wherever the previous step left it -- usually
-	# level, which puts the aim ray on the ground metres away. That is the case the owner reported
-	# as "it gathers snow while I look forward", so pressing without aiming was testing behaviour
-	# the game no longer has.
+	# This rig equips the shovel in `_s_player_place` and the step order is shove, tamp, THEN pack.
+	# With the shovel in hand the reticle only ever reports CAN_CARVE -- `_update_reticle_aim`
+	# branches on `current_tool == ToolType.HANDS` for CAAN_PACK -- so the reticle was reading 2 and
+	# the packing decision could not agree with it, whatever the ground looked like. The steps
+	# before this one have also been pushing and tamping the ground, so a fixed 0.7 m spot ahead
+	# was cleared ground.
+	#
+	# The game's own answer is in `_find_pack_target`: it packs at the reticle point when the aim is
+	# a packable distance. That path is reachable with hands and not with a shovel, so the step that
+	# tests "the player packs snow with their hands" now holds the tool it names.
+	if player.has_method("equip_tool"):
+		player.equip_tool(player.ToolType.HANDS)
 	if player.camera != null and snow_field != null:
-		var feet_h: float = float(snow_field.get_height_at(player.global_position))
-		player.camera.look_at(Vector3(player.global_position.x, feet_h, player.global_position.z + 0.7), Vector3.UP)
-		player._update_reticle_aim()
+		# AIM DOWN AT SNOW THAT IS ACTUALLY THERE, searched nearest first rather than assumed.
+		var best := Vector3.INF
+		var best_h := 0.0
+		for r in [0.55, 0.75, 0.95, 1.15]:
+			for ang in [0.0, PI * 0.5, PI, PI * 1.5]:
+				var at := player.global_position + Vector3(sin(ang) * r, 0.0, cos(ang) * r)
+				var h: float = maxf(float(snow_field.get_height_at(at)), 0.0)
+				# The estimator samples a 22 cm disc, so a single tall sample is not enough: ask
+				# the same question the packer will ask.
+				if h > best_h and float(player.call("_estimate_available_snow_kg", at)) >= float(player.get("pack_min_kg")):
+					best_h = h
+					best = at
+		if best != Vector3.INF:
+			# AIM, THEN CHECK WHERE THE RAY ACTUALLY LANDED, then aim at that.
+			#
+			# Looking at (x, h/2, z) does not put the ray at (x, h, z): the camera is about two
+			# metres above the ground and the ray has to fall to reach it, so it lands SHORT --
+			# measured, the ray aimed at a spot 1.15 m away landed 0.42 m short of it. One
+			# correction pass converges, and printing the aim point means the next person does not
+			# have to rediscover the geometry.
+			player.camera.look_at(Vector3(best.x, best_h * 0.5, best.z), Vector3.UP)
+			player._update_reticle_aim()
+			var landed: Vector3 = player.get("reticle_aim_pt")
+			if landed != Vector3.INF and bool(player.get("reticle_has_hit")):
+				player.camera.look_at(landed, Vector3.UP)
+				player._update_reticle_aim()
+		else:
+			player.camera.look_at(Vector3(player.global_position.x, 0.0, player.global_position.z + 0.7), Vector3.UP)
+			player._update_reticle_aim()
+		print("[PHYS] packing spot: %s with %.4f m of snow, %s kg available (reticle %d, aim %s)" % [
+			str(best), best_h,
+			str(player.call("_estimate_available_snow_kg", best)) if best != Vector3.INF else "0",
+			int(player.get_reticle_state()), str(player.get("reticle_aim_pt"))])
+	# PACK IMMEDIATELY, in the same call, and do not rely on the `interact` action alone.
+	#
+	# `Input.action_press("interact")` is consumed by the player's own `_physics_process`, a frame
+	# later, and by then the player has re-run `_update_reticle_aim` from its own camera -- so the
+	# aim this function just set is not necessarily the aim the packer sees. Measured: the aim was
+	# set to a spot with 1.28 kg available and the reticle read CAN_PACK, and the pack still
+	# reported "Not enough snow to pack" because the frame in between had moved the aim point.
+	#
+	# The action is still pressed, so the game's own input path is exercised; the direct call is
+	# what makes the step deterministic.
 	Input.action_press("interact")
+	player.call("_pack_snowball")
 	print("[PHYS] the player packs snow with their hands (aim %s, reticle=%d)" % [
 		str(player.get_reticle_aim_point()), int(player.get_reticle_state())])
 
