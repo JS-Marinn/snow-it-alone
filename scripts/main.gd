@@ -47,7 +47,7 @@ func _ready() -> void:
 		or args.has("--ball-shape") or args.has("--movement-lab") or args.has("--impact-lab") \
 		or args.has("--impact-matrix") or args.has("--contact-burst") or args.has("--hand-pack") \
 		or args.has("--toon-shot") or args.has("--toon-bisect") or args.has("--curve-flight") \
-		or args.has("--tool-ownership") or args.has("--reticle-act") or args.has("--reticle-aim") or args.has("--disposal-shot") or args.has("--pack-probe")
+		or args.has("--tool-ownership") or args.has("--reticle-act") or args.has("--reticle-aim") or args.has("--disposal-shot") or args.has("--pack-probe") or args.has("--throw-probe")
 	# Screenshots belong to diagnostics only; a normal session must not write files.
 	if is_scripted and not args.has("--toon-shot") and not args.has("--toon-bisect") and not args.has("--curve-flight") and not args.has("--tool-ownership") and not args.has("--reticle-act") and not args.has("--reticle-aim") and not args.has("--disposal-shot") and not args.has("--pack-probe"):
 		get_tree().create_timer(9.5 if is_demo else 1.8).timeout.connect(capture_screenshot)
@@ -85,6 +85,8 @@ func _ready() -> void:
 		_start_demo_script("res://scripts/reticle_aim_demo.gd")
 	if args.has("--disposal-shot"):
 		_start_demo_script("res://scripts/disposal_shot_demo.gd")
+	if args.has("--throw-probe"):
+		_start_demo_script("res://scripts/throw_probe.gd")
 	if args.has("--pack-probe"):
 		_start_demo_script("res://scripts/pack_probe_demo.gd")
 

@@ -64,7 +64,7 @@ func _ready() -> void:
 		"--impact-lab", "--impact-matrix", "--plow-demo", "--save-roundtrip",
 		"--pause-shot", "--settings-shot", "--rebind-shot", "--face-snow-shot", "--i18n-check",
 		"--diagnostics-harmless", "--contact-burst", "--hand-pack", "--toon-shot", "--toon-bisect",
-		"--curve-flight", "--tool-ownership", "--reticle-act", "--reticle-aim", "--disposal-shot", "--pack-probe",
+		"--curve-flight", "--tool-ownership", "--reticle-act", "--reticle-aim", "--disposal-shot", "--pack-probe", "--throw-probe",
 	]
 	for flag in demo_flags:
 		if OS.get_cmdline_user_args().has(flag):
