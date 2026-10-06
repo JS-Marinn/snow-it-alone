@@ -61,6 +61,7 @@ $batteries = @(
     @{ Flag = 'beetle-roll';      Name = 'Dung beetle roll'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'contact-burst';    Name = 'Contact burst'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'hand-pack';        Name = 'Hand packing'; Kind = 'result'; Gpu = $true },
+    @{ Flag = 'disposal-machine'; Name = 'Disposal machine'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'toon-shot';        Name = 'Cel shading';  Kind = 'result'; Gpu = $true },
     @{ Flag = 'tool-ownership';   Name = 'Tool ownership'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'reticle-act';      Name = 'Reticle and aim'; Kind = 'result'; Gpu = $true },

@@ -45,6 +45,7 @@ var straight_run_peak: float = 0.0
 var strafe_run_peak: float = 0.0
 var packed_walk_peak: float = 0.0
 var chain_count: int = 0
+var _peak_chain: int = 0
 var profile_virgin: String = ""
 var profile_packed: String = ""
 ## Surface speed multipliers, which is what the surface model actually promises.
@@ -131,6 +132,7 @@ func _sample(delta: float) -> void:
 	var speed := _speed()
 	_samples.append(speed)
 	_peak = maxf(_peak, speed)
+	_peak_chain = maxi(_peak_chain, int(_prop("jump_chain", 0.0)))
 
 func _watch_stop() -> void:
 	if not _stop_watching or player == null:
@@ -189,6 +191,7 @@ func _stop_input() -> void:
 func _start_sampling() -> void:
 	_samples.clear()
 	_peak = 0.0
+	_peak_chain = 0
 	_sample_t = SAMPLE_INTERVAL
 	_sampling = true
 
@@ -285,7 +288,7 @@ func _s_strafe_hop_engage() -> void:
 
 func _s_strafe_hop_stop() -> void:
 	strafe_hop_peak = _peak
-	chain_count = int(_prop("jump_chain", 0.0))
+	chain_count = maxi(int(_prop("jump_chain", 0.0)), _peak_chain)
 	print("[MOVE] strafe hop: peak %.2f m/s, %d chained jumps" % [strafe_hop_peak, chain_count])
 	_stop_input()
 	player.set("auto_bhop", false)

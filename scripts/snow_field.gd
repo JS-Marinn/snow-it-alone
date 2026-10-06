@@ -706,14 +706,28 @@ func stamp_footprint(world_pos: Vector3, radius_m: float = 0.20, depth_dent: flo
 		return
 	_queue_op(Vector4(local.x, local.y, 0.0, -1.0), Vector4(2.0, radius_m, depth_dent, 0.0), "footprint")
 
+## The snow bank used to pay for snow thrown into it. IT DOES NOT ANY MORE.
+##
+## The disposal machine is the real sink now: it is the only thing in the game that destroys
+## snow, and paying for both meant two places paid for the same job while only one of them
+## finished it. The bank is scenery.
+##
+## The code is kept, not deleted, behind this flag. The bank's payment can be switched back on
+## by setting it to true, and everything downstream of it (the signal, the chunk that reports
+## a landing, the HUD and the player controller that listen for it) is intact and still wired.
+## Deleting it would have thrown away a mechanic somebody may want back.
+const BANK_PAYS: bool = false
+
 func check_snowbank_hit(world_pos: Vector3, kg_tossed: float) -> bool:
-	if field_length > 25.0:
-		return false
 	var local = to_local(world_pos)
 	var half_w = field_width * 0.5
 	var half_l = field_length * 0.5
 
 	if absf(local.x) > half_w and absf(local.x) < half_w + 6.0 and absf(local.z) <= half_l + 3.0:
+		# Still reports the hit: the bank is a real place and snow landing in it is still a
+		# fact. What it no longer does is PAY.
+		if not BANK_PAYS:
+			return true
 		var bonus = int(ceil(kg_tossed * 1.5))
 		snow_tossed_in_bank.emit(bonus, world_pos)
 		return true

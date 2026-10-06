@@ -1,6 +1,8 @@
 extends Node3D
 
 const AUTOSAVE_INTERVAL: float = 60.0
+const DisposalMachineScript = preload("res://scripts/disposal_machine.gd")
+const DISPOSAL_SCENE: String = "res://scenes/disposal_machine.tscn"
 
 @onready var snow_field: Node3D = $SnowField
 @onready var player: CharacterBody3D = $Player
@@ -24,6 +26,7 @@ func _ready() -> void:
 		hud.init_hud(player, snow_field)
 
 	_setup_props_system()
+	_place_disposal_machine()
 	_build_cozy_environment()
 	_spawn_training_dummy()
 	_print_tree_recursive(self)
@@ -42,9 +45,9 @@ func _ready() -> void:
 		or args.has("--ball-shape") or args.has("--movement-lab") or args.has("--impact-lab") \
 		or args.has("--impact-matrix") or args.has("--contact-burst") or args.has("--hand-pack") \
 		or args.has("--toon-shot") or args.has("--toon-bisect") or args.has("--curve-flight") \
-		or args.has("--tool-ownership") or args.has("--reticle-act")
+		or args.has("--tool-ownership") or args.has("--reticle-act") or args.has("--disposal-shot")
 	# Screenshots belong to diagnostics only; a normal session must not write files.
-	if is_scripted and not args.has("--toon-shot") and not args.has("--toon-bisect") and not args.has("--curve-flight") and not args.has("--tool-ownership") and not args.has("--reticle-act"):
+	if is_scripted and not args.has("--toon-shot") and not args.has("--toon-bisect") and not args.has("--curve-flight") and not args.has("--tool-ownership") and not args.has("--reticle-act") and not args.has("--disposal-shot"):
 		get_tree().create_timer(9.5 if is_demo else 1.8).timeout.connect(capture_screenshot)
 	if is_demo:
 		get_tree().create_timer(11.0).timeout.connect(get_tree().quit)
@@ -76,6 +79,8 @@ func _ready() -> void:
 		_start_demo_script("res://scripts/tool_ownership_demo.gd")
 	if args.has("--reticle-act"):
 		_start_demo_script("res://scripts/reticle_act_demo.gd")
+	if args.has("--disposal-shot"):
+		_start_demo_script("res://scripts/disposal_shot_demo.gd")
 
 ## Picks up the session started from the main menu: restores the money counter and
 ## starts tracking playtime for the save slot.
@@ -118,6 +123,45 @@ func _flush_save() -> void:
 	SaveSystem.add_playtime(_session_time)
 	_session_time = 0.0
 	SaveSystem.save_current()
+
+## The snow disposal machine: the first place snow actually leaves the world.
+##
+## PLACEHOLDER PLACEMENT. It stands past the end of the field on the far side from the cottage,
+## which is the only spot at this end that is both walkable and clear: the snow banks run the
+## whole length of both sides and their collision boxes are solid out to x = 8.5, so "beyond
+## the banks" to the side would bury the machine in one. Past the end of the field is still
+## past the banks, and it is somewhere the player has to walk to with the snow, which is the
+## point of the machine.
+##
+## The wiring is also the whole coin path: the machine emits the delivery and the PLAYER is
+## paid, exactly as the player was paid for the bank. There is no second currency and the
+## machine knows nothing about coins.
+func _place_disposal_machine() -> void:
+	var scene := load(DISPOSAL_SCENE)
+	if scene == null:
+		push_warning("Disposal machine scene missing; the level will have no place to send snow.")
+		return
+	var machine: Node = scene.instantiate()
+	machine.name = "DisposalMachine"
+	var length := 12.0
+	if snow_field and "field_length" in snow_field:
+		length = float(snow_field.field_length)
+	machine.position = Vector3(0.0, 0.0, -length * 0.5 - 1.6)
+	add_child(machine)
+	if machine.has_signal("snow_received") and player != null:
+		machine.snow_received.connect(_on_snow_sent)
+	print("[DISP] disposal machine placed at %s (placeholder placement, past the end of the field)" % [
+		str(machine.position)])
+
+
+## A delivery arrived at the machine. Same purse, same signal shape as the bank's was.
+func _on_snow_sent(kg: float, world_pos: Vector3) -> void:
+	if player == null:
+		return
+	var coins := int(ceil(kg * DisposalMachineScript.PAYOUT_PER_KG))
+	player.add_coins(coins)
+	print("[DISP] %.2f kg sent at %s, paid %d coins" % [kg, str(world_pos), coins])
+
 
 func _setup_props_system() -> void:
 	var props := Node3D.new()

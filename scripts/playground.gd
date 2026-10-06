@@ -20,6 +20,8 @@ extends Node3D
 # --playground-check, which performs a scripted sequence and reports a verdict.
 
 const DummyScript = preload("res://scripts/training_dummy.gd")
+const DisposalMachineScript = preload("res://scripts/disposal_machine.gd")
+const DISPOSAL_SCENE: String = "res://scenes/disposal_machine.tscn"
 
 const LANE_X: Array[float] = [-3.75, -1.25, 1.25, 3.75]
 const LANE_NAMES: Array[String] = ["virgin", "packed", "shovelled", "deep"]
@@ -57,6 +59,7 @@ func _ready() -> void:
 	_build_props()
 	_build_dummies()
 	_build_ramps()
+	_place_disposal_machine()
 	_build_overlay()
 	_build_free_camera()
 
@@ -78,6 +81,16 @@ func _ready() -> void:
 		add_child(demo)
 		if demo.has_method("setup"):
 			demo.setup(self, snow_field, player, props)
+		return
+	if OS.get_cmdline_user_args().has("--disposal-machine"):
+		# The disposal machine battery lives here for the same reason the rest do: this is the
+		# measuring bench, and the machine is placed here first.
+		var script = load("res://scripts/disposal_machine_demo.gd")
+		var lab = Node.new()
+		lab.set_script(script)
+		add_child(lab)
+		if lab.has_method("setup"):
+			lab.setup(self, snow_field, player, props)
 		return
 	if _check_mode:
 		_start_check()
@@ -119,8 +132,39 @@ func _build_dummies() -> void:
 		var dummy := Node3D.new()
 		dummy.name = "TrainingDummy%d" % i
 		dummy.set_script(DummyScript)
-		dummy.position = Vector3(0.0, 0.0, 2.0 + float(i) * 8.0)
+		dummy.position = Vector3(2.5, 0.0, 2.0 + float(i) * 6.5)
 		add_child(dummy)
+
+
+## The snow disposal machine: the first place snow actually leaves the world. It lives here
+## first because this is the measuring bench, and everything is tried here before the level.
+##
+## PLACEHOLDER PLACEMENT: near the end of the runway (z = 17 is within simulated snow), so
+## chunks, balls and containers have simulated terrain under them and a clear path in front.
+func _place_disposal_machine() -> void:
+	var scene := load(DISPOSAL_SCENE)
+	if scene == null:
+		push_warning("Disposal machine scene missing; the Playground will have no sink.")
+		return
+	var machine: Node = scene.instantiate()
+	machine.name = "DisposalMachine"
+	machine.position = Vector3(0.0, 0.0, RUN_END - 1.0)
+	add_child(machine)
+	if machine.has_signal("snow_received") and player != null:
+		machine.snow_received.connect(_on_snow_sent)
+	print("[PG] disposal machine placed at %s (placeholder placement, near the end of the runway)" % [
+		str(machine.position)])
+
+
+## A delivery arrived at the machine: the player is paid, exactly as the bank used to pay.
+##
+## The Playground has no HUD, but the player still holds the purse, so a battery can read the
+## balance. The fallback pays nobody and says so rather than failing silently.
+func _on_snow_sent(kg: float, world_pos: Vector3) -> void:
+	var coins := int(ceil(kg * DisposalMachineScript.PAYOUT_PER_KG))
+	if player != null:
+		player.add_coins(coins)
+	print("[DISP] %.2f kg sent at %s, paid %d coins" % [kg, str(world_pos), coins])
 
 ## Ramps are geometry only. Simulated snow needs a field, and a field is a horizontal
 ## plane, so giving a slope real snow means a rotated field instance: that is H4 work.

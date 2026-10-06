@@ -18,9 +18,11 @@ unit and carries the word `placeholder`.
 
 | Fact | Value | Source |
 |---|---|---|
-| The only confirmed income | Snow thrown into the side banks | `snow_field.gd:690` |
-| Payout | `ceil(kg * 1.5)` coins per chunk | `snow_field.gd:696` |
-| Worked example | A 25 kg shovel load yields 38 coins | Derived |
+| The snow disposal machine (first real sink) | Payout for snow destroyed by the machine | `scripts/disposal_machine.gd` |
+| Disposal machine payout | `ceil(kg * 2.5)` coins per delivery (`PAYOUT_PER_KG = 2.5`) | `disposal_machine.gd:16` |
+| Rationale for 2.5 coins/kg | Higher than bank's legacy 1.5 coins/kg because carrying snow across the field to the machine requires more time and effort than tossing it to adjacent side banks | Design specification |
+| Legacy bank income | **Disabled** (`BANK_PAYS: bool = false`) | `scripts/snow_field.gd:719` |
+| Worked example (machine) | A 25 kg delivery yields 63 coins (was 38 coins at legacy bank rate) | Derived |
 | Income per minute | **Unknown** | This is the missing number |
 
 ## Placeholder prices
@@ -67,8 +69,8 @@ per minute. About an hour of work, and it turns invented prices into arithmetic.
 
 | Fact | Consequence |
 |---|---|
-| The banks appear to be the only income | The economy forces the player into the bank loop |
-| Rolling balls and shovelling give progress but no money | The upgrade ladder becomes a silent tutorial for that loop |
-| Unverified | There may be other sources of income that have not been found |
+| The disposal machine is the only income and sink | The economy channels the player into delivering snow to the machine |
+| Carrying/transporting snow gives progress and payout | Shovels, blowers, and rolling balls are all loaders feeding the machine |
+| The banks are preserved scenery | Snow can still be piled against banks, but bank deposit no longer pays |
 
-That may be good or bad, but it should be a decision rather than a side effect.
+That establishes a clear, unified game loop where the disposal machine is the single destination for removed snow.

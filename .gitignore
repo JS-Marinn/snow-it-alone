@@ -17,6 +17,13 @@ addons/.godot_ai_update/
 # Staging area for downloaded asset packs
 /scratch_assets/
 
+# Work in progress that is not ready to be a commit, kept out of the tree on purpose.
+# `containers-wip.patch` plus its file list is the unfinished bucket-and-wheelbarrow work:
+# the accounting half is committed at 56ef373 and this is everything after it. Restore with
+#   git apply scratch_wip/containers-wip.patch
+# and copy the files named in containers-wip-untracked.txt back out of scratch_wip/.
+/scratch_wip/
+
 # OS junk
 .DS_Store
 Thumbs.db

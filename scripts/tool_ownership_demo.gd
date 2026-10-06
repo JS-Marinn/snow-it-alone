@@ -12,7 +12,12 @@ extends Node
 # 7. In Playground, all tools are owned from the start.
 
 const SnowBallScript = preload("res://scripts/snowball.gd")
+const DisposalMachineScript = preload("res://scripts/disposal_machine.gd")
 const SCRATCH_SLOT: int = 97
+## Where the Playground puts its disposal machine, and how high its mouth is. Kept here so the
+## throw is aimed at the mouth: `Playground.RUN_END - 1.0` is 17.0.
+const MACHINE_Z: float = 17.0
+const MACHINE_MOUTH_Y: float = 1.15
 
 var root: Node3D
 var snow_field: Node3D
@@ -62,12 +67,19 @@ func _physics_process(delta: float) -> void:
 			_check("player reports shovel unowned", not player.is_tool_owned("shovel"))
 			_check("player initial coins are 0", player.coins == 0)
 
-			# Position player on virgin snow near the bank for check 2 (anti-soft-lock)
-			# Snow field is 8m wide (-4 to +4). Bank is at x > 4.0.
-			# Player stands at x=2.8 facing +X directly towards the snow bank.
-			player.global_position = Vector3(2.8, 0.15, 0.0)
+			var mach := root.get_node_or_null("DisposalMachine")
+			var mach_pos := (mach as Node3D).global_position if mach != null else Vector3(0.0, 0.0, -7.6)
+			var to_mach_z := -1.0 if mach_pos.z < 0.0 else 1.0
+			var ply_z := mach_pos.z - to_mach_z * 3.6
+			var ground_y: float = 0.32
+			if snow_field and snow_field.has_method("get_support_snow_height"):
+				ground_y = maxf(float(snow_field.get_support_snow_height(Vector3(0.0, 0.0, ply_z))), 0.15)
+
+			player.global_position = Vector3(0.0, ground_y, ply_z)
+			player.set("current_ground_y", ground_y)
+			player.set("is_ground_initialized", true)
 			player.rotation = Vector3.ZERO
-			player.rotation.y = -PI * 0.5  # Face +X
+			player.rotation.y = 0.0 if to_mach_z < 0.0 else PI
 			if player.camera:
 				player.camera.rotation = Vector3.ZERO
 
@@ -92,27 +104,29 @@ func _physics_process(delta: float) -> void:
 				print("[TOOL] Ball packed in hands: mass = %.3f kg" % _packed_ball_mass)
 				_check("player packed and is carrying snowball", player.is_carrying() and ball != null)
 
-				# Throw the snowball into the snow bank along +X
-				# Aim camera slightly upward towards the bank
+				# Throw the snowball into the machine's mouth. Aimed a little above the
+				# mouth so the arc drops into it rather than short of it.
+				var cur_mach := root.get_node_or_null("DisposalMachine")
+				var cur_mach_pos := (cur_mach as Node3D).global_position if cur_mach != null else Vector3(0.0, 0.0, -7.6)
 				if player.camera:
-					player.camera.look_at(player.global_position + Vector3(3.0, 0.5, 0.0), Vector3.UP)
+					player.camera.look_at(Vector3(0.0, cur_mach_pos.y + MACHINE_MOUTH_Y + 0.35, cur_mach_pos.z), Vector3.UP)
 				player._throw_carried()
-				print("[TOOL] Threw snowball towards snowbank (+X)")
+				print("[TOOL] Threw snowball towards the disposal machine at %s" % str(cur_mach_pos))
 				_change_state(3)
 			elif _state_time > 2.5:
 				_check("player packed and is carrying snowball", false)
 				_change_state(3)
 
 		3:
-			# State 3: Wait for the snowball to enter snowbank and deposit coins
+			# State 3: Wait for the ball to reach the machine and for the balance to move
 			var coins_earned: int = int(player.coins) - _coins_before_delivery
-			if coins_earned > 0 or _state_time >= 2.0:
-				var expected_coins: int = int(ceil(_packed_ball_mass * 1.5))
+			if coins_earned > 0 or _state_time >= 4.0:
+				var expected_coins: int = int(ceil(_packed_ball_mass * DisposalMachineScript.PAYOUT_PER_KG))
 				print("[TOOL] Anti-soft-lock result: coins before = %d, coins now = %d, earned = %d (expected %d)" % [
 					_coins_before_delivery, player.coins, coins_earned, expected_coins
 				])
 				_check("anti-soft-lock: coin balance increased from 0 with only hands", coins_earned > 0)
-				_check("anti-soft-lock: coins earned matches bank payout formula", coins_earned == expected_coins)
+				_check("anti-soft-lock: coins earned matches the machine payout formula", coins_earned == expected_coins)
 
 				_change_state(4)
 

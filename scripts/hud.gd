@@ -4,6 +4,7 @@ const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 const SettingsSystemScript = preload("res://scripts/settings_system.gd")
 const InputBindingsScript = preload("res://scripts/input_bindings.gd")
 const LocalizationManagerScript = preload("res://scripts/localization_manager.gd")
+const DisposalMachineScript = preload("res://scripts/disposal_machine.gd")
 
 ## Emitted once when the level reaches the clear target, so the save file can be
 ## updated without the HUD knowing anything about persistence.
@@ -25,6 +26,12 @@ signal level_completed(cleared_pct: float)
 @onready var label_controls: Label = $PanelControls/Margin/LabelControls
 
 var coins: int = 0
+## Snow that has left the world through the disposal machine, in kg. The number that proves
+## the work went somewhere instead of being rearranged.
+var snow_sent_kg: float = 0.0
+## The label for it, built in `init_hud` next to the money line: this HUD is assembled in code
+## as much as in the scene, and the counter is one line of it.
+var label_sent: Label = null
 var has_won: bool = false
 var player_ref: CharacterBody3D
 var _hint_timer: float = 0.0
@@ -565,13 +572,67 @@ func init_hud(player: CharacterBody3D, snow_field: Node3D) -> void:
 		set_coins(player_ref.coins)
 	if snow_field and snow_field.has_signal("progress_updated"):
 		snow_field.progress_updated.connect(_on_progress_updated)
+		# The bank's payment is off (see `BANK_PAYS` in snow_field.gd) but the line is kept:
+		# switching the bank's payment back on restores it with no change here.
 		snow_field.snow_tossed_in_bank.connect(_on_snow_tossed)
+	_build_sent_counter()
+	# The machines pay whoever holds the purse; the HUD listens only for the counter and the
+	# sound, and never adds coins itself while a player is present: that would pay twice.
+	#
+	# Connected deferred and by group, because the count is not known at `_ready` time: the
+	# level places its machine during its own `_ready`, which may be before or after this one.
+	_connect_machines.call_deferred()
+
+
+func _connect_machines() -> void:
+	if not is_inside_tree():
+		return
+	for node in get_tree().get_nodes_in_group(DisposalMachineScript.GROUP):
+		if node.has_signal("snow_received") and not node.snow_received.is_connected(receive_snow):
+			node.snow_received.connect(receive_snow)
+
+
+## The "snow sent" line, built next to the money counter. Built in code rather than added to
+## the scene so that a missing scene node cannot silently remove the number: this counter is
+## the only proof the player has that the machine did something with what they carried.
+func _build_sent_counter() -> void:
+	if label_sent != null and is_instance_valid(label_sent):
+		return
+	var host := label_coins.get_parent() if label_coins else null
+	if host == null:
+		return
+	label_sent = Label.new()
+	label_sent.name = "LabelSent"
+	label_sent.add_theme_font_size_override("font_size", 15)
+	label_sent.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	host.add_child(label_sent)
+	_refresh_sent_label()
+
+
+## A delivery arrived at a machine. The counter and the sound are the HUD's business; the
+## coins are not (the player has already been paid by whoever owns the machine).
+func receive_snow(kg: float, _world_pos: Vector3) -> void:
+	snow_sent_kg += kg
+	_refresh_sent_label()
+	var sfx := AudioStreamPlayer.new()
+	sfx.stream = SoundEffectsScript.get_sound("coin")
+	add_child(sfx)
+	sfx.play()
+	sfx.finished.connect(sfx.queue_free)
+
+
+func _refresh_sent_label() -> void:
+	if label_sent != null and is_instance_valid(label_sent):
+		label_sent.text = "   |   " + (tr("HUD_SNOW_SENT") % snow_sent_kg)
 
 ## Restores the money counter from the loaded save slot.
 func set_coins(value: int) -> void:
 	coins = value
 	if label_coins:
 		label_coins.text = tr("HUD_MONEY") % coins
+	# The sent counter is a translated string too: it has to be rebuilt on a language change,
+	# exactly like the money line above it.
+	_refresh_sent_label()
 
 ## Center Reticle: OFF (hidden) / CAN_PACK (white dot & ring) / CAN_CARVE (cyan notch crosshair)
 func _build_reticle() -> void:
@@ -868,6 +929,7 @@ func refresh_text() -> void:
 		label_kg.text = tr("HUD_SNOW_REMOVED") % _last_kg
 	if label_coins:
 		label_coins.text = tr("HUD_MONEY") % coins
+	_refresh_sent_label()
 	if label_controls:
 		label_controls.text = tr("HELP_CONTROLS")
 	if victory_title:

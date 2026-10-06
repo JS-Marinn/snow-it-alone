@@ -16,6 +16,8 @@ var is_toss: bool = false
 static var snow_mat: StandardMaterial3D
 
 func _ready() -> void:
+	collision_layer = 4
+	collision_mask = 1 | 4
 	contact_monitor = true
 	max_contacts_reported = 4
 	body_entered.connect(_on_body_entered)

@@ -9,6 +9,7 @@ const SnowChunkScript = preload("res://scripts/snow_chunk.gd")
 const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 const SnowBallScript = preload("res://scripts/snowball.gd")
 const PinPropScript = preload("res://scripts/pin_prop.gd")
+const DisposalMachineScript = preload("res://scripts/disposal_machine.gd")
 
 @export var mouse_sensitivity: float = 0.0025
 @export var walk_speed: float = 4.2
@@ -173,10 +174,16 @@ var coins: int:
 			return int(SaveSystem.data.get("coins", 0))
 		return _coins
 	set(value):
-		_coins = value
+		# The save is written FIRST and the local field second, which is the other way round
+		# from how this used to read. Both are still kept in step, so the balance is the same
+		# number whichever side of the branch in the getter answers -- which is what makes it
+		# readable from a battery running in the Playground, where there is no save slot and
+		# `_coins` is the only copy. With the order reversed, a setter that returned early on a
+		# save error would have left `_coins` ahead of the file it had just refused to write.
 		if SaveSystem.current_slot >= 0:
 			SaveSystem.data["coins"] = value
 			SaveSystem.save_current()
+		_coins = value
 		coins_changed.emit(_coins)
 
 var _coins: int = 0
@@ -397,6 +404,12 @@ func _connect_snow_field() -> void:
 		if not snow_field.snow_tossed_in_bank.is_connected(_on_snow_bank_hit):
 			snow_field.snow_tossed_in_bank.connect(_on_snow_bank_hit)
 
+## The bank used to pay for snow thrown into it, and this is where that money arrived.
+##
+## The disposal machine is the sink now (see `scripts/disposal_machine.gd`), so the bank is
+## scenery: `snow_field.gd` reports bank hits but no longer emits the payment. The connection
+## is deliberately LEFT IN PLACE -- set `BANK_PAYS` back to true there and the bank pays again,
+## with nothing to re-wire here.
 func _on_snow_bank_hit(bonus: int, _world_pos: Vector3) -> void:
 	add_coins(bonus)
 
@@ -1519,8 +1532,40 @@ func _try_pickup_or_pack() -> void:
 		if obj.has_method("begin_carry"):
 			_begin_carry(obj)
 			return
+	# A disposal machine is not something to pick up: a tap on it is the player asking how it
+	# works, and it answers. Checked before the pack fallback so a tap in front of the machine
+	# is not silently spent on yet another snowball.
+	var machine := _find_disposal_machine()
+	if machine != null and machine.has_method("interact"):
+		machine.interact(self, _get_target_ground_pos())
+		return
 	# With nothing to pick up, snow is packed by hand
 	_pack_snowball()
+
+
+## The disposal machine the player is aiming at or standing in front of, or null.
+##
+## Found by group rather than by type so this file does not need to know what a machine is
+## made of, and searched by both the aim and the feet for the same reason a ball is.
+func _find_disposal_machine() -> Node:
+	var hit := _raycast_interactable()
+	if not hit.is_empty():
+		var col = hit.get("collider")
+		if col != null and is_instance_valid(col) and col.is_in_group(DisposalMachineScript.GROUP):
+			return col
+	var sphere := SphereShape3D.new()
+	sphere.radius = 1.6
+	var params := PhysicsShapeQueryParameters3D.new()
+	params.shape = sphere
+	params.collide_with_areas = false
+	params.collision_mask = 1
+	params.exclude = [get_rid()]
+	params.transform = Transform3D(Basis(), global_position + _forward_flat() * 1.4 + Vector3.UP * 0.4)
+	for result in get_world_3d().direct_space_state.intersect_shape(params, 8):
+		var body = result.get("collider")
+		if body != null and is_instance_valid(body) and body.is_in_group(DisposalMachineScript.GROUP):
+			return body
+	return null
 
 func _raycast_interactable() -> Dictionary:
 	if camera == null:

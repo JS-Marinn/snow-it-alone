@@ -48,7 +48,7 @@ func _ready() -> void:
 
 	# Diagnostics never go through the menu, they boot straight into the level. The
 	# Playground has a scene of its own, so it is the one flag that goes elsewhere.
-	var playground_flags := ["--playground", "--playground-check", "--beetle-roll"]
+	var playground_flags := ["--playground", "--playground-check", "--beetle-roll", "--disposal-machine"]
 	for flag in playground_flags:
 		if OS.get_cmdline_user_args().has(flag):
 			# Deferred: swapping the scene from inside _ready() while the menu is still
@@ -60,7 +60,7 @@ func _ready() -> void:
 		"--impact-lab", "--impact-matrix", "--plow-demo", "--save-roundtrip",
 		"--pause-shot", "--settings-shot", "--rebind-shot", "--face-snow-shot", "--i18n-check",
 		"--diagnostics-harmless", "--contact-burst", "--hand-pack", "--toon-shot", "--toon-bisect",
-		"--curve-flight", "--tool-ownership", "--reticle-act",
+		"--curve-flight", "--tool-ownership", "--reticle-act", "--disposal-shot",
 	]
 	for flag in demo_flags:
 		if OS.get_cmdline_user_args().has(flag):
