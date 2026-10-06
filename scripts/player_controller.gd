@@ -1809,7 +1809,11 @@ func _pack_snowball() -> void:
 		status_message = tr("STATUS_NOT_ENOUGH_SNOW")
 		return
 	_pack_harvest_pt = pt
-	_pending_pack = true
+	# Only pack when the reticle says snow is within reach. The dot the player sees and this
+	# decision read the same state, so they cannot disagree: OFF means nothing is touched at all,
+	# no ball, no hole and no little mound.
+	if reticle_state == ReticleState.CAN_PACK:
+		_pending_pack = true
 	_pending_pack_time = 0.0
 	var h: float = _sample_area_snow_height(pt)
 	var r_harvest := _harvest_radius_for_depth(h)
