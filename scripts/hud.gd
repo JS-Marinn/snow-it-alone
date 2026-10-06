@@ -582,9 +582,13 @@ func _build_reticle() -> void:
 	if legacy_ch2:
 		legacy_ch2.visible = false
 
-	var centre := CenterContainer.new()
+	# A plain Control, not a CenterContainer: a Container overrides its children's rects, so any
+	# anchoring set on the reticle below would be ignored. That is what put the dot off centre.
+	var centre := Control.new()
 	centre.name = "ReticleCentre"
-	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# Anchors AND offsets: set_anchors_preset leaves the offsets alone, so a HUD that does not
+	# start at (0,0) drags the whole reticle with it.
+	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(centre)
 
@@ -594,12 +598,16 @@ func _build_reticle() -> void:
 	_reticle_drawer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_reticle_drawer.draw.connect(_on_reticle_draw)
 	centre.add_child(_reticle_drawer)
+	# Centre the drawer on its own parent, by half of its own size, instead of trusting layout.
+	_reticle_drawer.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_reticle_drawer.visible = false
 
 func _on_reticle_draw() -> void:
 	if _reticle_drawer == null:
 		return
-	var c := Vector2(16.0, 16.0)
+	# The centre of its own rect, whatever size that turns out to be. A hardcoded 16 assumed a
+	# 32x32 box that layout was free to change.
+	var c := _reticle_drawer.size * 0.5
 	match _reticle_state:
 		1: # CAN_PACK (clean white dot & ring for packing snow by hand)
 			_reticle_drawer.draw_circle(c, 3.2, Color(1.0, 1.0, 1.0, 0.95))
