@@ -52,6 +52,8 @@ func _test_new_game() -> void:
 	_check("new_game starts at level 0 with 0 coins",
 		int(SaveSystem.data.get("level_index", -1)) == 0 and int(SaveSystem.data.get("coins", -1)) == 0)
 	_check("the schema is versioned", int(SaveSystem.data.get("version", 0)) == SaveSystem.SAVE_VERSION)
+	_check("new_game owns only hands", SaveSystem.is_tool_owned("hands") and not SaveSystem.is_tool_owned("shovel") and not SaveSystem.is_tool_owned("blower") and not SaveSystem.is_tool_owned("salt"))
+	_check("new_game owned_tools array is exactly ['hands']", SaveSystem.data.get("owned_tools") == ["hands"])
 
 func _test_recording() -> void:
 	SaveSystem.record_result(45.0, 30)
@@ -64,14 +66,29 @@ func _test_recording() -> void:
 	_check("coins accumulate across runs", int(info["coins"]) == 55)
 	_check("only a finished level counts as done", int(SaveSystem.data.get("levels_done", -1)) == 0)
 
+	# Purchase API checks against active slot
+	_check("can afford shovel with 55 coins", SaveSystem.can_afford("shovel"))
+	_check("cannot afford blower (200 coins) with 55 coins", not SaveSystem.can_afford("blower"))
+	var bought_blower := SaveSystem.purchase("blower")
+	_check("purchasing unaffordable blower fails", not bought_blower)
+	_check("failed purchase leaves coins untouched (55)", int(SaveSystem.data.get("coins", -1)) == 55)
+	_check("failed purchase does not grant blower", not SaveSystem.is_tool_owned("blower"))
+	var bought_shovel := SaveSystem.purchase("shovel")
+	_check("purchasing affordable shovel succeeds", bought_shovel)
+	_check("purchase deducts exactly price (55 - 50 = 5)", int(SaveSystem.data.get("coins", -1)) == 5)
+	_check("purchase grants shovel", SaveSystem.is_tool_owned("shovel"))
+
 func _test_reload_from_disk() -> void:
 	SaveSystem.data = {}
 	SaveSystem.current_slot = -1
 	var loaded := SaveSystem.load_slot(SCRATCH)
 	_check("the slot loads again from disk", loaded)
-	_check("reloaded coins match", int(SaveSystem.data.get("coins", -1)) == 55)
+	_check("reloaded coins match", int(SaveSystem.data.get("coins", -1)) == 5)
 	_check("reloaded best percent is per level",
 		absf(float(SaveSystem.data.get("best_pct", {}).get("0", 0.0)) - 80.0) < 0.01)
+	_check("reloaded tool ownership persists (shovel owned)", SaveSystem.is_tool_owned("shovel"))
+	_check("reloaded tool ownership persists (blower unowned)", not SaveSystem.is_tool_owned("blower"))
+	_check("reloaded tool ownership persists (hands owned)", SaveSystem.is_tool_owned("hands"))
 
 func _test_label() -> void:
 	var label := SaveSystem.slot_label(SCRATCH)
@@ -79,7 +96,7 @@ func _test_label() -> void:
 	print("[SAVE] label: '%s'" % label)
 	print("[SAVE] empty label: '%s'" % empty_label)
 	_check("an occupied slot labels with its progress",
-		label.contains("Slot 100") and label.contains("80%") and label.contains("$55"))
+		label.contains("Slot 100") and label.contains("80%") and label.contains("$5"))
 	_check("an empty slot labels as empty", empty_label.ends_with("Empty"))
 
 func _test_corrupt_file() -> void:

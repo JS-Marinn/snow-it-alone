@@ -707,6 +707,8 @@ func stamp_footprint(world_pos: Vector3, radius_m: float = 0.20, depth_dent: flo
 	_queue_op(Vector4(local.x, local.y, 0.0, -1.0), Vector4(2.0, radius_m, depth_dent, 0.0), "footprint")
 
 func check_snowbank_hit(world_pos: Vector3, kg_tossed: float) -> bool:
+	if field_length > 25.0:
+		return false
 	var local = to_local(world_pos)
 	var half_w = field_width * 0.5
 	var half_l = field_length * 0.5

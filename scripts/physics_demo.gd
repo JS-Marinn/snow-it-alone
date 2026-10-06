@@ -584,6 +584,11 @@ func _s_player_place() -> void:
 		cam.rotation.x = deg_to_rad(-34.0)
 	if "debug_shovel" in player:
 		player.debug_shovel = true
+	if player:
+		if player.has_method("grant_tool"):
+			player.grant_tool("shovel")
+		if player.has_method("equip_tool"):
+			player.equip_tool("shovel")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_pin_player_facing = true
 	print("[PHYS] player placed looking at the ground to shovel")

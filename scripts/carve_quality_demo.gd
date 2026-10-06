@@ -23,6 +23,10 @@ func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -
 	# Move the player aside to clear the diagnostic camera framing
 	if ply:
 		ply.global_position = Vector3(0.0, 0.32, 9.5)
+		if ply.has_method("grant_tool"):
+			ply.grant_tool("shovel")
+		if ply.has_method("equip_tool"):
+			ply.equip_tool("shovel")
 	_setup_camera()
 	_steps = [
 		[0.8, _s_report_initial],

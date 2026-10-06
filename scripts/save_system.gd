@@ -9,6 +9,14 @@ const SLOT_COUNT: int = 3
 const SAVE_DIR: String = "user://saves"
 const SAVE_VERSION: int = 1
 
+## Placeholder prices for owning each tool (in coins):
+const TOOL_PRICES: Dictionary = {
+	"hands": 0,
+	"shovel": 50, # placeholder
+	"blower": 200, # placeholder
+	"salt": 500, # placeholder
+}
+
 signal slot_changed(slot: int)
 
 ## Slot currently in play, or -1 when we are not in a session (demos, tests).
@@ -17,6 +25,56 @@ var data: Dictionary = {}
 
 func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(SAVE_DIR))
+
+static func normalize_tool_name(tool) -> String:
+	if tool is int:
+		match tool:
+			0: return "shovel"
+			1: return "blower"
+			2: return "salt"
+			3: return "hands"
+			_: return "hands"
+	return str(tool).to_lower().strip_edges()
+
+func price(tool) -> int:
+	var tname := normalize_tool_name(tool)
+	return int(TOOL_PRICES.get(tname, 0))
+
+func is_tool_owned(tool) -> bool:
+	var tname := normalize_tool_name(tool)
+	if tname == "hands":
+		return true
+	var owned: Array = data.get("owned_tools", ["hands"])
+	return owned.has(tname)
+
+func can_afford(tool) -> bool:
+	var p := price(tool)
+	var current_coins: int = int(data.get("coins", 0))
+	return current_coins >= p
+
+func grant_tool(tool) -> void:
+	var tname := normalize_tool_name(tool)
+	var owned: Array = data.get("owned_tools", ["hands"]).duplicate()
+	if not owned.has(tname):
+		owned.append(tname)
+		data["owned_tools"] = owned
+		save_current()
+
+func purchase(tool) -> bool:
+	var tname := normalize_tool_name(tool)
+	if is_tool_owned(tname):
+		return true
+	var p := price(tool)
+	var current_coins: int = int(data.get("coins", 0))
+	if current_coins < p:
+		return false
+	data["coins"] = current_coins - p
+	var owned: Array = data.get("owned_tools", ["hands"]).duplicate()
+	if not owned.has(tname):
+		owned.append(tname)
+		data["owned_tools"] = owned
+	save_current()
+	return true
 
 func slot_path(slot: int) -> String:
 	return "%s/slot_%d.json" % [SAVE_DIR, slot]
@@ -34,6 +92,7 @@ func slot_info(slot: int) -> Dictionary:
 		"coins": 0,
 		"playtime": 0.0,
 		"updated": 0,
+		"owned_tools": ["hands"],
 	}
 	if not slot_exists(slot):
 		return info
@@ -41,7 +100,7 @@ func slot_info(slot: int) -> Dictionary:
 	if raw.is_empty():
 		return info
 	info["exists"] = true
-	for key in ["level_index", "cleared_pct", "coins", "playtime", "updated"]:
+	for key in ["level_index", "cleared_pct", "coins", "playtime", "updated", "owned_tools"]:
 		if raw.has(key):
 			info[key] = raw[key]
 	return info
@@ -59,6 +118,7 @@ func new_game(slot: int) -> void:
 		"coins": 0,
 		"playtime": 0.0,
 		"levels_done": 0,
+		"owned_tools": ["hands"],
 	}
 	current_slot = slot
 	save_current()
@@ -74,6 +134,8 @@ func load_slot(slot: int) -> bool:
 	data = raw
 	if int(data.get("version", 1)) != SAVE_VERSION:
 		data = _migrate(raw)
+	if not data.has("owned_tools") or not (data["owned_tools"] is Array):
+		data["owned_tools"] = ["hands"]
 	current_slot = slot
 	slot_changed.emit(slot)
 	return true
@@ -158,6 +220,8 @@ func _migrate(raw: Dictionary) -> Dictionary:
 		migrated["best_pct"] = {}
 	if not migrated.has("playtime"):
 		migrated["playtime"] = 0.0
+	if not migrated.has("owned_tools"):
+		migrated["owned_tools"] = ["hands"]
 	return migrated
 
 ## Formats a slot header for the menu.

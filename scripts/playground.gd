@@ -95,8 +95,14 @@ func _wire_player() -> void:
 	player.global_position = Vector3(0.0, ground, RUN_START)
 	if "snow_field" in player:
 		player.snow_field = snow_field
+	if player.has_method("set_snow_field"):
+		player.set_snow_field(snow_field)
 	player.set("current_ground_y", ground)
 	player.set("is_ground_initialized", true)
+	if player.has_method("grant_all_tools"):
+		player.grant_all_tools()
+	if player.has_method("equip_tool"):
+		player.equip_tool("shovel")
 
 func _build_props() -> void:
 	props = Node3D.new()

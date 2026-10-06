@@ -555,6 +555,11 @@ func _run_face_snow_shot() -> void:
 
 func init_hud(player: CharacterBody3D, snow_field: Node3D) -> void:
 	player_ref = player
+	if player_ref and player_ref.has_signal("coins_changed"):
+		if not player_ref.coins_changed.is_connected(set_coins):
+			player_ref.coins_changed.connect(set_coins)
+	if player_ref and "coins" in player_ref:
+		set_coins(player_ref.coins)
 	if snow_field and snow_field.has_signal("progress_updated"):
 		snow_field.progress_updated.connect(_on_progress_updated)
 		snow_field.snow_tossed_in_bank.connect(_on_snow_tossed)
@@ -576,7 +581,7 @@ func _process(delta: float) -> void:
 func _update_tool_label() -> void:
 	if not label_tool_name:
 		return
-	var tool_id: int = 0
+	var tool_id: int = 3
 	if player_ref and "current_tool" in player_ref:
 		tool_id = player_ref.current_tool
 	match tool_id:
@@ -593,6 +598,10 @@ func _update_tool_label() -> void:
 				shovel_bar.visible = false
 		2: # SALT
 			label_tool_name.text = tr("HUD_TOOL_SALT")
+			if shovel_bar:
+				shovel_bar.visible = false
+		3: # HANDS
+			label_tool_name.text = tr("HUD_TOOL_HANDS")
 			if shovel_bar:
 				shovel_bar.visible = false
 
@@ -667,7 +676,8 @@ func _on_progress_updated(pct: float, kg_cleared: float, _kg_total: float) -> vo
 		level_completed.emit(pct)
 
 func _on_snow_tossed(bonus: int, _pos: Vector3) -> void:
-	set_coins(coins + bonus)
+	if not player_ref:
+		set_coins(coins + bonus)
 
 	var sfx = AudioStreamPlayer.new()
 	sfx.stream = SoundEffectsScript.get_sound("coin")

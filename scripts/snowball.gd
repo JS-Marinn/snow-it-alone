@@ -320,6 +320,8 @@ func _try_harvest(_delta: float) -> void:
 func _integrate_forces(state: PhysicsDirectBodyState3D) -> void:
 	if is_carried or snow_field == null or _shattered:
 		return
+	if _check_snowbank_deposit():
+		return
 
 	var pos := state.transform.origin
 	var height := -1.0
@@ -570,8 +572,35 @@ func _target_direction(target: Node) -> Vector3:
 	var diff: Vector3 = target_center - global_position
 	return diff.normalized() if diff.length_squared() > 1e-4 else Vector3.ZERO
 
+## Checks if the ball has landed in or rolled into a snowbank. If so, deposits
+## its snow mass into the bank, pays out coins, and absorbs the ball.
+func _check_snowbank_deposit() -> bool:
+	if is_carried or _shattered or pusher != null or push_grace_timer > 0.0:
+		return false
+	if snow_field and snow_field.has_method("check_snowbank_hit"):
+		var local: Vector3 = snow_field.to_local(global_position)
+		if local.y <= 1.5:
+			if snow_field.check_snowbank_hit(global_position, mass):
+				print("[SNOWBALL] Deposited into snowbank! mass=%.2f kg at %s" % [mass, str(global_position)])
+				_shattered = true
+				_break_weld()
+				var sfx := AudioStreamPlayer3D.new()
+				sfx.stream = SoundEffectsScript.get_snow_thud()
+				sfx.pitch_scale = randf_range(0.85, 1.15)
+				sfx.volume_db = -1.0
+				sfx.unit_size = 12.0
+				get_parent().add_child(sfx)
+				sfx.global_position = global_position
+				sfx.play()
+				sfx.finished.connect(sfx.queue_free)
+				queue_free()
+				return true
+	return false
+
 func _on_body_entered(body: Node) -> void:
-	if _shattered or _hit_applied:
+	if _shattered or _hit_applied or is_carried:
+		return
+	if _check_snowbank_deposit():
 		return
 	# A ball in someone's hands cannot smash against them. Without this the rule below,
 	# that a ball landing on a person always bursts, destroys a carried ball the moment

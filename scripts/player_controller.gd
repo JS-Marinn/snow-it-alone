@@ -143,11 +143,125 @@ const PUSH_ACCEL: float = 9.0
 @onready var blower_node: Node3D = $Camera3D/HandRoot/SnowBlower
 @onready var salt_node: Node3D = $Camera3D/HandRoot/SaltShaker
 
-var snow_field: Node3D
+var snow_field: Node3D:
+	set(value):
+		snow_field = value
+		_connect_snow_field()
 var props_system: Node3D
 
-enum ToolType { SHOVEL = 0, BLOWER = 1, SALT = 2 }
-var current_tool: ToolType = ToolType.SHOVEL
+enum ToolType { SHOVEL = 0, BLOWER = 1, SALT = 2, HANDS = 3 }
+var current_tool: ToolType = ToolType.HANDS
+
+var _owned_tools: Array[String] = ["hands"]
+
+signal coins_changed(new_coins: int)
+
+var coins: int:
+	get:
+		if SaveSystem.current_slot >= 0:
+			return int(SaveSystem.data.get("coins", 0))
+		return _coins
+	set(value):
+		_coins = value
+		if SaveSystem.current_slot >= 0:
+			SaveSystem.data["coins"] = value
+			SaveSystem.save_current()
+		coins_changed.emit(_coins)
+
+var _coins: int = 0
+
+func add_coins(amount: int) -> void:
+	coins = coins + amount
+
+func is_tool_owned(tool) -> bool:
+	var tname := SaveSystem.normalize_tool_name(tool)
+	if tname == "hands":
+		return true
+	if SaveSystem.current_slot >= 0:
+		return SaveSystem.is_tool_owned(tool)
+	return _owned_tools.has(tname)
+
+func grant_tool(tool) -> void:
+	var tname := SaveSystem.normalize_tool_name(tool)
+	if not _owned_tools.has(tname):
+		_owned_tools.append(tname)
+	if SaveSystem.current_slot >= 0:
+		SaveSystem.grant_tool(tool)
+
+func grant_all_tools() -> void:
+	grant_tool(ToolType.HANDS)
+	grant_tool(ToolType.SHOVEL)
+	grant_tool(ToolType.BLOWER)
+	grant_tool(ToolType.SALT)
+
+func can_afford(tool) -> bool:
+	return SaveSystem.can_afford(tool)
+
+func price(tool) -> int:
+	return SaveSystem.price(tool)
+
+func purchase(tool) -> bool:
+	var tname := SaveSystem.normalize_tool_name(tool)
+	if is_tool_owned(tname):
+		return true
+	var ok := SaveSystem.purchase(tool)
+	if ok:
+		if not _owned_tools.has(tname):
+			_owned_tools.append(tname)
+	return ok
+
+func equip_tool(tool) -> bool:
+	var t: ToolType = ToolType.HANDS
+	if tool is int:
+		t = tool as ToolType
+	else:
+		match str(tool).to_lower().strip_edges():
+			"shovel": t = ToolType.SHOVEL
+			"blower": t = ToolType.BLOWER
+			"salt": t = ToolType.SALT
+			"hands": t = ToolType.HANDS
+	if not is_tool_owned(t):
+		return false
+	_switch_tool(t)
+	return true
+
+const TOOL_CYCLE_ORDER: Array[ToolType] = [
+	ToolType.HANDS,
+	ToolType.SHOVEL,
+	ToolType.BLOWER,
+	ToolType.SALT,
+]
+
+func get_owned_tools() -> Array[ToolType]:
+	var owned: Array[ToolType] = []
+	for t in TOOL_CYCLE_ORDER:
+		if is_tool_owned(t):
+			owned.append(t)
+	return owned
+
+func cycle_tool_next() -> void:
+	var owned := get_owned_tools()
+	if owned.is_empty():
+		_switch_tool(ToolType.HANDS)
+		return
+	var idx := owned.find(current_tool)
+	if idx < 0:
+		_switch_tool(owned[0])
+	else:
+		var next_idx := (idx + 1) % owned.size()
+		_switch_tool(owned[next_idx])
+
+func cycle_tool_prev() -> void:
+	var owned := get_owned_tools()
+	if owned.is_empty():
+		_switch_tool(ToolType.HANDS)
+		return
+	var idx := owned.find(current_tool)
+	if idx < 0:
+		_switch_tool(owned[0])
+	else:
+		var prev_idx := (idx - 1 + owned.size()) % owned.size()
+		_switch_tool(owned[prev_idx])
 
 # Shovel state
 var shovel_current_load: float = 0.0  # kg
@@ -261,6 +375,19 @@ func _ready() -> void:
 	_setup_audio()
 	_build_tools_visuals()
 	_update_active_tool()
+	_connect_snow_field()
+
+func set_snow_field(sf: Node3D) -> void:
+	snow_field = sf
+	_connect_snow_field()
+
+func _connect_snow_field() -> void:
+	if snow_field and snow_field.has_signal("snow_tossed_in_bank"):
+		if not snow_field.snow_tossed_in_bank.is_connected(_on_snow_bank_hit):
+			snow_field.snow_tossed_in_bank.connect(_on_snow_bank_hit)
+
+func _on_snow_bank_hit(bonus: int, _world_pos: Vector3) -> void:
+	add_coins(bonus)
 
 func _setup_audio() -> void:
 	scrape_audio = AudioStreamPlayer3D.new()
@@ -289,9 +416,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_switch_tool(wrapi(current_tool - 1, 0, 3) as ToolType)
+			cycle_tool_prev()
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_switch_tool(wrapi(current_tool + 1, 0, 3) as ToolType)
+			cycle_tool_next()
 
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		mouse_input = event.relative
@@ -308,13 +435,22 @@ func _unhandled_input(event: InputEvent) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 	if event.is_action_pressed("tool_1"):
-		_switch_tool(ToolType.SHOVEL)
+		if is_tool_owned(ToolType.SHOVEL):
+			_switch_tool(ToolType.SHOVEL)
 	elif event.is_action_pressed("tool_2"):
-		_switch_tool(ToolType.BLOWER)
+		if is_tool_owned(ToolType.BLOWER):
+			_switch_tool(ToolType.BLOWER)
 	elif event.is_action_pressed("tool_3"):
-		_switch_tool(ToolType.SALT)
+		if is_tool_owned(ToolType.SALT):
+			_switch_tool(ToolType.SALT)
+
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_4 or event.keycode == KEY_0:
+			_switch_tool(ToolType.HANDS)
 
 func _switch_tool(new_tool: ToolType) -> void:
+	if not is_tool_owned(new_tool):
+		return
 	if current_tool == new_tool:
 		return
 	current_tool = new_tool
@@ -627,6 +763,8 @@ func _physics_process(delta: float) -> void:
 				_process_blower(delta)
 			ToolType.SALT:
 				_process_salt(delta)
+			ToolType.HANDS:
+				pass
 
 	_process_interaction(delta)
 	_update_carried(delta)
