@@ -37,7 +37,11 @@ param(
     [string]$Project = '',
     [string[]]$Only = @(),
     [switch]$Headless,
-    [int]$TimeoutSeconds = 300
+    [int]$TimeoutSeconds = 300,
+    ## Milliseconds to pause between batteries, so one Vulkan device is not torn down and another
+    ## created back to back. See the note where it is used: it is a mitigation for measured
+    ## `Vulkan device was lost` failures that appear only inside a full gate run. Set 0 to disable.
+    [int]$BatteryGapMs = 1200
 )
 
 $ErrorActionPreference = 'Stop'
@@ -155,6 +159,22 @@ foreach ($b in $batteries) {
         Start-Sleep -Milliseconds 100
     }
     $seconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
+
+    # LET THE GPU SETTLE BEFORE THE NEXT BATTERY STARTS.
+    #
+    # The snow field is a GPU simulation and every battery runs a fresh Godot process, so the gate
+    # starts and stops a Vulkan device once per battery, back to back. The failure this addresses
+    # is measured and has a distinctive shape: a battery that passes EVERY time when run alone,
+    # reported by the gate as "no verdict printed (crashed?)" or with failed checks, with
+    # `Vulkan device was lost` in its error log. It has hit --disposal-machine, --phys-demo and
+    # --movement-lab in different runs, and the breadcrumb IDs are per-process (1464 in one,
+    # 12823 in another) so they point at accumulated driver state rather than at any one battery.
+    #
+    # A pause is the cheapest honest mitigation: it costs a few seconds across a full gate and it
+    # targets the mechanism the evidence points at. It is NOT a fix for a driver fault and the
+    # comment says so -- if the device loss survives this, the next step is reducing the GPU work a
+    # single battery queues, not lengthening the pause.
+    if ($BatteryGapMs -gt 0) { Start-Sleep -Milliseconds $BatteryGapMs }
 
     $verdict = 'failed'
     $note = ''

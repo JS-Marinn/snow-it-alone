@@ -355,7 +355,10 @@ func _ph_read_push() -> void:
 func _ph_push_verdict() -> void:
 	if _phase_t < 2.5:
 		return
-	var mass_lost := _carve_yield() - _yield_before
+	# The push's own ledger, from the player. See shovel_push_total_kg for why the field cannot
+	# answer this: the battery clears a strip and then pushes along it, and the field only knows
+	# the sum.
+	var mass_lost := float(player.get("shovel_push_total_kg"))
 	var behind := Vector3(TEST_AT.x, 0.0, TEST_AT.z + 3.0)
 	var front := Vector3(TEST_AT.x, 0.0, TEST_AT.z - 3.5)
 	_behind_after = _height(behind)

@@ -310,6 +310,10 @@ var is_tamping: bool = false
 ## Which shovel behaviour is active. LEGACY by default everywhere, so the main game is unchanged
 ## unless something asks for the other one. See `set_shovel_mode`.
 var shovel_mode: int = SHOVEL_MODE_LEGACY
+## Everything the PUSH has handed the blade, cumulative (kg). The push's own ledger:
+## the only place that knows what the push removed, as opposed to what the field removed for any
+## reason. Read and reset by the shovel battery.
+var shovel_push_total_kg: float = 0.0
 var tamp_timer: float = 0.0
 var snow_resistance: float = 0.0
 ## Normalized advance drag (0 = free). Drives the shoveling speed.
@@ -1356,6 +1360,20 @@ func _process_shovel(delta: float, _horiz_speed: float) -> void:
 			else:
 				kg_cut = snow_field.carve_shovel(scoop_pt, forward_flat, 0.76, 0.30, max_cut)
 			kg_cut = minf(kg_cut, allow)
+
+		# THE PUSH'S OWN LEDGER, kept here because this is the only place that knows.
+		#
+		# The battery that measures the push tried to derive this from the field: total mass before
+		# minus after, or the field's own carve ledger. Both failed for the same reason -- a test
+		# that clears a strip and then pushes along it cannot separate the clearing from the push
+		# when it asks the FIELD, because the field only knows the sum. Measured across four
+		# attempts: 137.171 kg of "field loss" against a 17.000 kg blade, identical to the kilogram
+		# whichever window was chosen, because the clearing's queued operations are not a tail that
+		# can be waited out.
+		#
+		# This counter is the number itself: what the blade was actually handed by the push. It
+		# accumulates the same `kg_cut` the blade receives, so the two cannot disagree.
+		shovel_push_total_kg += kg_cut
 
 		prev_scoop_pos = scoop_pt
 

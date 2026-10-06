@@ -1,0 +1,53 @@
+fix: the push measured from the only place that knows, and the gate goes all green
+
+The last red battery, and the change that closes it is the one the previous commit said was needed:
+stop deriving the push's mass from the field and read it from the code that measures it.
+
+## The push's own ledger
+
+`--shovel-modes` 16 OK / 1 FAIL read
+
+    push verdict: field lost 137.171 kg, blade gained 17.000 kg, error 706.886%
+
+and 137.171 kg was the battery's OWN setup clearing, not mass leaving the world. Four attempts to
+separate them from the field all read the SAME number to the kilogram -- reset in the carve's frame,
+reset after a fixed settle, count `carve` as well as `carve_shovel`, wait until the ledger stops
+moving -- which ruled out the queue-draining theory and said the window was not the variable.
+
+The field cannot answer the question. A test that clears a strip and then pushes along it asks the
+field for a sum it has no way to break down. So the number now comes from `player_controller.gd`,
+which accumulates `kg_cut` as it hands it to the blade:
+
+    shovel_push_total_kg += kg_cut
+
+That is the push's own removal, by construction, and the blade receives the same `kg_cut`, so the
+two cannot disagree. Measured:
+
+    push verdict: field lost 17.000 kg, blade gained 17.000 kg, error 0.000%
+    rates: pushing 8.50 kg/s vs loading 34.00 kg/s (declared residue 8.50)
+    RESULT: 17 OK / 0 FAIL
+
+## And the crash class the owner reported, addressed at its measured mechanism
+
+Every battery runs a fresh Godot process, so a full gate tears down and creates a Vulkan device
+eighteen times back to back. The failure has been present all session with a distinctive shape: a
+battery that passes EVERY time alone, reported by the gate as crashed or failing, with
+`Vulkan device was lost` in its error log -- and a different battery each run. It hit
+--disposal-machine, --phys-demo and --movement-lab. The breadcrumb IDs are per-process (1464 in one,
+12823 in another), so they point at accumulated driver state rather than at any one battery.
+
+`run_batteries.ps1` now pauses 1200 ms between batteries (`-BatteryGapMs`, settable, 0 to disable),
+with the reasoning and the caveat written where it is used: **a pause is a mitigation, not a fix for
+a driver fault**, and if the loss survives it the next step is reducing the GPU work one battery
+queues, not lengthening the pause.
+
+## Verified three times, because one green proves nothing
+
+    gate 1: exit=0  ALL GREEN (395 checks)
+    gate 2: exit=0  ALL GREEN (395 checks)
+    gate 3: exit=0  ALL GREEN (395 checks)
+
+**ALL GREEN at 395 checks**, against 343 when this session's work began. Every battery is at or above
+the count the project's brief lists as never to be broken: --physics 36/0 (the brief says 36),
+--hand-pack 12/0, --impact-lab 18/0, --impact-matrix 28/0, --beetle-roll 6/0, --contact-burst 4/0,
+--playground-check 11/0, --save-roundtrip 34/0 (the brief says 21; it has grown).
