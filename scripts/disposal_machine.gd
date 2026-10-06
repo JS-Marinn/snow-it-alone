@@ -47,6 +47,11 @@ const GROUP: String = "disposal_machines"
 @export var reception_radius: float = 1.1
 ## How high above the machine's origin the reception zone sits (m).
 @export var reception_height: float = 1.15
+## Where the scene puts the mouth mesh, relative to the machine's origin. Negative is the
+## front. Kept as a constant and not hard-coded twice, so the zone and the visual agree.
+const MOUTH_Z: float = -0.65
+## Mouth height, matching the scene's mouth mesh.
+const MOUTH_Y: float = 1.05
 
 ## Total mass this machine has taken out of the world, in kg. The number the HUD shows.
 var accepted_kg: float = 0.0
@@ -71,16 +76,25 @@ func _ready() -> void:
 ## wheelbarrow is NOT something this zone picks up, it is something the player empties in. That
 ## is what makes "containers must be emptied into it" true by construction rather than by a
 ## check: the zone cannot swallow a container because it does not collect containers at all.
+##
+## IN FRONT OF THE MOUTH, and that is a fix rather than a flourish. This zone was centred on the
+## machine's ORIGIN, which put it INSIDE the machine's own 1.7 x 1.5 x 1.2 m collision box (the
+## box spans z = -0.6 to +0.6 and this sphere has a 1.1 m radius). A thrown ball hit the solid
+## box first and bounced off before it could reach the middle of the zone, so the machine never
+## paid for a thrown ball -- the game's only income -- while a chunk tipped in by hand still did.
+## Two batteries spent their time reporting that as an anti-soft-lock failure.
+##
+## The machine's own docstring said "in front of the mouth" from the start. The code did not.
 func _build_reception() -> void:
 	reception_area = Area3D.new()
 	reception_area.name = "Reception"
-	reception_area.position = Vector3(0.0, reception_height, 0.0)
-	# Layer 4 is where loose snow, balls and containers live; layer 8 is props. Layer 1, where
-	# the player's own body is, is NOT in this mask.
-	#
-	# And the mask is not the filter. The filter is `_on_body_entered` below, which refuses a
-	# player by name. Layers get edited by people in a hurry; a refusal written in the code
-	# does not.
+	# Out in front, level with the mouth opening. `MOUTH_Z` is where the scene puts the mouth
+	# mesh, negative being the front of the machine.
+	reception_area.position = Vector3(0.0, reception_height, MOUTH_Z)
+	# Layer 4 is where loose snow, balls and containers live; layer 8 is props. Layer 1 is the
+	# world's terrain and structures, and it is in the mask so that a body RESTING on the ground
+	# in front of the mouth is still seen -- which is what lets a container be detected and
+	# deliberately NOT swallowed, and what lets the "player in the mouth" case be tested at all.
 	reception_area.collision_layer = 0
 	reception_area.collision_mask = 1 | 4 | 8
 	reception_area.monitoring = true
@@ -98,6 +112,20 @@ func _physics_process(_delta: float) -> void:
 	# paid for twice. It is cleared here rather than accumulated: this is bookkeeping for one
 	# frame, not state about the world.
 	_handled.clear()
+	# AND THEN ASK THE ZONE WHAT IS IN IT, rather than waiting to be told.
+	#
+	# `body_entered` fires on the CROSSING, and a fast body can be outside the sphere on one
+	# physics step and past it on the next: a ball leaves the hand at about 8 m/s, which is 13 cm
+	# per step, and a ball thrown at the machine from a couple of metres away is already inside
+	# the zone by the time the first step is tested. Measured: the fixture ball placed in the zone
+	# was paid for, and the ball THROWN at it from (0, 0.32, 14.8) was never seen at all -- the
+	# machine simply never learned it had arrived, which cost this project two batteries' worth of
+	# "the anti-soft-lock check fails" and looked like a payout bug rather than a detection one.
+	#
+	# `get_overlapping_bodies` asks the same question every frame and has no crossing to miss.
+	# `_handled` keeps it from paying twice for the body the signal already caught.
+	for body in reception_area.get_overlapping_bodies():
+		_on_body_entered(body)
 
 
 # ---------------------------------------------------------------------------------------
