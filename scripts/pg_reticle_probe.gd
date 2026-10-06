@@ -20,6 +20,9 @@ var _t: float = 0.0
 var _state: int = 0
 var _state_time: float = 0.0
 var _cam: Camera3D
+## Set once the capture has been STARTED, so the awaited coroutine runs once and not once per
+## physics frame. Without it this probe reported its verdict twenty times over twenty PNGs.
+var _shot_done: bool = false
 
 
 func setup(scene_root: Node3D, field: Node3D, ply: Node3D, _props: Node3D) -> void:
@@ -92,8 +95,15 @@ func _ph_aim() -> void:
 
 
 func _ph_shot() -> void:
+	if _shot_done:
+		return
 	if _state_time < 0.5:
 		return
+	# ONCE. `_shot()` contains an `await`, so calling it without one starts a NEW coroutine every
+	# time this phase runs -- and this phase runs every physics frame. The probe reported its
+	# verdict twenty times in a row and captured twenty PNGs, which is a measuring instrument
+	# lying about how many measurements it took.
+	_shot_done = true
 	_shot()
 	_done()
 

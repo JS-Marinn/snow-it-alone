@@ -1,0 +1,59 @@
+refactor: one HUD, instanced by both scenes
+
+PRIORITY 3 of the engineering-practices goal, and it closes the class of bug that has already cost
+this project two wasted fixes.
+
+## The duplication
+
+`scenes/playground.tscn` held a BYTE-IDENTICAL copy of the HUD subtree from `scenes/main.tscn`:
+24 nodes, every `unique_id` the same, 72% of main.tscn's content. Adding a node to the HUD meant
+editing two scene files, and forgetting one of them is not hypothetical -- commit 635ea6d is titled
+"the Playground gets the reticle" and its own message opens "Two things the owner reported that the
+level's fixes never reached". The reticle fix reached the level and not the test scene because the
+test scene was a copy. Then the fix for THAT was another copy, +184 lines into playground.tscn.
+The bug was closed and its cause reproduced in the same commit.
+
+## What it is now
+
+`scenes/hud.tscn` holds the subtree once. Both scenes instance it:
+
+    [node name="HUD" parent="." instance=ExtResource("1_hud_instance")]
+
+Net: main.tscn 8965 -> 7002 bytes, playground.tscn 6962 -> 4999, plus a 5177-byte shared scene.
+A little under 4 KB smaller in total, which is the least interesting part -- the point is that the
+HUD now has ONE definition, so a capability cannot exist in one scene and not the other.
+
+## Generated, not hand-edited, and verified by loading
+
+`tools/make_hud_scene.gd` extracts the subtree from main.tscn. `tools/use_hud_scene.gd` replaces it
+with an instance in both scenes. Both VERIFY BY LOADING the result and refuse to leave a scene they
+cannot re-read.
+
+That verification earned its place immediately: the first attempt inserted the `[ext_resource]`
+declaration before the first `[sub_resource]`, which in main.tscn is AFTER the project settings
+block, so the declaration landed inside it and the scene failed with "Unknown tag 'ext_resource'".
+The converter said so, did not claim success, and the file was restored from a copy taken
+beforehand. A hand edit would have left that to be discovered later.
+
+## Also fixed, found by re-reading rather than by a test
+
+`playground.gd` assigned `_hint_label` twice in a row: the first built the shovel-mode hint and
+added it to the layer, then the second overwrote the reference. The label was created, parented and
+shown, and permanently unreachable -- it could never be updated or read back. Two labels was fine;
+two labels with ONE name was the defect. Now one label with the shovel hint appended when that mode
+is on.
+
+`pg_reticle_probe.gd` called `_shot()` without `await` from a phase that runs every physics frame.
+`_shot` contains an `await`, so that started a NEW coroutine per frame: the probe reported its
+verdict twenty times over twenty PNGs, which is a measuring instrument lying about how many
+measurements it took. It now reports once, and its reading is `dot at (638, 360) ... contrast 0.865
+... offset (-2.0, 0.0) px`. The offset is noted rather than asserted: -2 px is at the edge of the
+battery's 2 px tolerance, so the reticle may be genuinely two pixels left of centre. Not chased in
+this commit.
+
+## Verification
+
+--playground-check 11 OK / 0 FAIL, --reticle-act 33 OK / 0 FAIL, --save-roundtrip 34 OK / 0, and the
+reticle measured in the Playground's own PNG at contrast 0.865. The full gate is unchanged from
+before the extraction: the same four batteries red with the same check counts (Physics 34/2,
+Disposal machine 21/1, Tool ownership 35/2, Shovel load and push 16/1), so nothing regressed.

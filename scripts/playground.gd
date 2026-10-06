@@ -299,27 +299,30 @@ func _build_overlay() -> void:
 	_ledger_label.add_theme_constant_override("outline_size", 4)
 	layer.add_child(_ledger_label)
 
-	_hint_label = Label.new()
-	_hint_label.position = Vector2(24.0, 210.0)
-	_hint_label.add_theme_font_size_override("font_size", 15)
-	_hint_label.add_theme_color_override("font_color", Color(0.85, 0.95, 1.0))
-	_hint_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0))
-	_hint_label.add_theme_constant_override("outline_size", 4)
-	_hint_label.text = _shovel_hint
-	layer.add_child(_hint_label)
-
+	# ONE hint label, not two.
+	#
+	# There used to be two assignments to `_hint_label` in a row: the first built the shovel-mode
+	# hint and added it to the layer, then the second overwrote the reference with a different
+	# label. The shovel hint was therefore created, parented and shown, and then permanently
+	# unreachable -- it could never be updated or cleared, and nothing could read it back. Two
+	# labels were fine; two labels with ONE name was the defect.
 	_hint_label = Label.new()
 	_hint_label.position = Vector2(24.0, 190.0)
 	_hint_label.add_theme_font_size_override("font_size", 14)
 	_hint_label.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 	_hint_label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0))
 	_hint_label.add_theme_constant_override("outline_size", 4)
-	_hint_label.text = """PLAYGROUND   (development scene)
+	var lines := """PLAYGROUND   (development scene)
 [B] spawn ball      [N] ball size 0.10 / 0.24 / 0.45 m
 [V] free camera     [L] measure field mass now
 [R] restart         [C] run the scripted battery
 Lanes, left to right: virgin snow, packed, shovelled, deep
 Ramps on the right are geometry only: a slope has no simulated snow yet"""
+	# The shovel hint is appended when that mode is on, which is exactly what the overwritten
+	# label was for.
+	if _shovel_hint != "":
+		lines += "\n" + _shovel_hint
+	_hint_label.text = lines
 	layer.add_child(_hint_label)
 
 func _build_free_camera() -> void:

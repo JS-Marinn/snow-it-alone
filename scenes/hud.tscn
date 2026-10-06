@@ -1,56 +1,11 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/playground.gd" id="1_playground"]
-[ext_resource type="Script" path="res://scripts/snow_field.gd" id="2_snowfield"]
-[ext_resource type="Script" path="res://scripts/player_controller.gd" id="3_player"]
-[ext_resource type="Script" uid="uid://v5t0uv7q2qdn" path="res://scripts/hud.gd" id="4_hud"]
-[ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="1_hud_instance"]
+[ext_resource type="Script" uid="uid://v5t0uv7q2qdn" path="res://scripts/hud.gd" id="1_hud"]
 
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
-radius = 0.4
-height = 1.8
+[node name="HUD" type="CanvasLayer"]
+script = ExtResource("1_hud")
 
-[node name="Playground" type="Node3D"]
-script = ExtResource("1_playground")
-
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
-transform = Transform3D(0.86, -0.35, 0.37, 0, 0.72, 0.69, -0.51, -0.6, 0.62, 0, 12, 0)
-shadow_enabled = true
-
-[node name="SnowField" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
-script = ExtResource("2_snowfield")
-field_width = 10.0
-field_length = 40.0
-mesh_subdiv_x = 256
-mesh_subdiv_z = 1024
-
-[node name="Player" type="CharacterBody3D" parent="."]
-transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0, 0.1, -17)
-script = ExtResource("3_player")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
-shape = SubResource("CapsuleShape3D_player")
-
-[node name="Camera3D" type="Camera3D" parent="Player"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
-current = true
-
-[node name="HandRoot" type="Node3D" parent="Player/Camera3D"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.2, -0.18)
-
-[node name="Shovel" type="Node3D" parent="Player/Camera3D/HandRoot"]
-
-[node name="SnowBlower" type="Node3D" parent="Player/Camera3D/HandRoot"]
-visible = false
-
-[node name="SaltShaker" type="Node3D" parent="Player/Camera3D/HandRoot"]
-visible = false
-
-[node name="HUD" parent="." instance=ExtResource("1_hud_instance")]
-script = ExtResource("4_hud")
-
+[node name="MarginContainer" type="MarginContainer" parent="." unique_id=607793710]
 anchors_preset = 10
 anchor_right = 1.0
 offset_bottom = 90.0
@@ -59,36 +14,44 @@ theme_override_constants/margin_left = 30
 theme_override_constants/margin_top = 20
 theme_override_constants/margin_right = 30
 
+[node name="VBoxTop" type="VBoxContainer" parent="MarginContainer" unique_id=1525646717]
 layout_mode = 2
 theme_override_constants/separation = 6
 
+[node name="Title" type="Label" parent="MarginContainer/VBoxTop" unique_id=1658915966]
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
 text = ""
 horizontal_alignment = 1
 
+[node name="ProgressBar" type="ProgressBar" parent="MarginContainer/VBoxTop" unique_id=354146535]
 custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
 
+[node name="HBoxInfo" type="HBoxContainer" parent="MarginContainer/VBoxTop" unique_id=688752316]
 layout_mode = 2
 
+[node name="LabelPct" type="Label" parent="MarginContainer/VBoxTop/HBoxInfo" unique_id=1484473599]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
 text = ""
 
+[node name="LabelKg" type="Label" parent="MarginContainer/VBoxTop/HBoxInfo" unique_id=307483545]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
 text = ""
 horizontal_alignment = 1
 
+[node name="LabelCoins" type="Label" parent="MarginContainer/VBoxTop/HBoxInfo" unique_id=1776857267]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
 text = ""
 horizontal_alignment = 2
 
+[node name="VBoxBottom" type="VBoxContainer" parent="." unique_id=661481620]
 anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
@@ -102,16 +65,19 @@ grow_horizontal = 2
 grow_vertical = 0
 alignment = 1
 
+[node name="LabelTool" type="Label" parent="VBoxBottom" unique_id=1594693660]
 layout_mode = 2
 theme_override_font_sizes/font_size = 16
 text = ""
 horizontal_alignment = 1
 
+[node name="ShovelBar" type="ProgressBar" parent="VBoxBottom" unique_id=1486837678]
 custom_minimum_size = Vector2(0, 16)
 layout_mode = 2
 max_value = 25.0
 step = 0.1
 
+[node name="LabelTossHint" type="Label" parent="VBoxBottom" unique_id=479932022]
 visible = false
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
@@ -119,6 +85,7 @@ theme_override_font_sizes/font_size = 13
 text = ""
 horizontal_alignment = 1
 
+[node name="LabelContainer" type="Label" parent="VBoxBottom" unique_id=1055244917]
 visible = false
 layout_mode = 2
 theme_override_colors/font_color = Color(0.72, 0.88, 1, 1)
@@ -126,6 +93,7 @@ theme_override_font_sizes/font_size = 14
 text = ""
 horizontal_alignment = 1
 
+[node name="Crosshair" type="CenterContainer" parent="." unique_id=673256930]
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
@@ -139,11 +107,13 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
+[node name="Dot" type="ColorRect" parent="Crosshair" unique_id=399734794]
 custom_minimum_size = Vector2(6, 6)
 layout_mode = 2
 mouse_filter = 2
 color = Color(1, 1, 1, 0.8)
 
+[node name="PanelControls" type="PanelContainer" parent="." unique_id=1689321867]
 visible = false
 anchors_preset = 2
 anchor_top = 1.0
@@ -154,16 +124,19 @@ offset_right = 330.0
 offset_bottom = -20.0
 grow_vertical = 0
 
+[node name="Margin" type="MarginContainer" parent="PanelControls" unique_id=139388154]
 layout_mode = 2
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 10
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 10
 
+[node name="LabelControls" type="Label" parent="PanelControls/Margin" unique_id=1365500126]
 layout_mode = 2
 theme_override_font_sizes/font_size = 13
 text = ""
 
+[node name="VictoryPanel" type="PanelContainer" parent="." unique_id=1686212483]
 visible = false
 anchors_preset = 8
 anchor_left = 0.5
@@ -177,20 +150,24 @@ offset_bottom = 70.0
 grow_horizontal = 2
 grow_vertical = 2
 
+[node name="VBox" type="VBoxContainer" parent="VictoryPanel" unique_id=1368936873]
 layout_mode = 2
 alignment = 1
 
+[node name="Title" type="Label" parent="VictoryPanel/VBox" unique_id=2033465500]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.95, 0.85, 0.3, 1)
 theme_override_font_sizes/font_size = 22
 text = ""
 horizontal_alignment = 1
 
+[node name="Sub" type="Label" parent="VictoryPanel/VBox" unique_id=1815646853]
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
 text = ""
 horizontal_alignment = 1
 
+[node name="Crosshair2" type="ColorRect" parent="." unique_id=683570212]
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
@@ -204,4 +181,3 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 color = Color(1, 1, 1, 0.75)
-
