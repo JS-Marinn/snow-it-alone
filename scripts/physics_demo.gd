@@ -747,10 +747,25 @@ func _s_player_interact() -> void:
 
 func _s_player_interact_check() -> void:
 	Input.action_release("interact")
+	# WAIT FOR THE HARVEST TO LAND, rather than assuming the step's own timing covers it.
+	#
+	# Packing is a REQUEST: the field removes the snow, returns the mass, and only then does the
+	# ball reach the hands. This step used to check on its scheduled tick, and that was enough when
+	# run by hand and not always enough inside the full gate: measured, `balls in the world: 3 -> 4`
+	# with the message already reading "Snowball in hands: 1.2 kg" while `carrying` was still false,
+	# so the ball existed and the check called it a failure. The step before this one now calls
+	# `_pack_snowball` directly, which makes the request land sooner but does not make it instant.
+	#
+	# Polling until it is actually carrying -- or until the budget runs out -- measures the game
+	# instead of the harness's scheduling. A pack that never completes is still a failure.
+	var deadline := 1.5
+	while deadline > 0.0 and not (player.has_method("is_carrying") and player.is_carrying()):
+		await get_tree().create_timer(0.05).timeout
+		deadline -= 0.05
 	var now: int = get_tree().get_nodes_in_group("snowballs").size()
 	var carries: bool = player.has_method("is_carrying") and player.is_carrying()
-	print("[PHYS] balls in the world: %d -> %d | message='%s' | carrying=%s" % [
-		_before["balls"], now, String(player.get("status_message")), str(carries)])
+	print("[PHYS] balls in the world: %d -> %d | message='%s' | carrying=%s (waited %.2fs)" % [
+		_before["balls"], now, String(player.get("status_message")), str(carries), 1.5 - deadline])
 	_check("packing with the hands creates a ball", now > int(_before["balls"]))
 	_check("the packed ball goes straight to the hands", carries)
 	_shot("09_hand_made_ball")

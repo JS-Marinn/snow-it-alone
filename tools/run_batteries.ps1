@@ -132,11 +132,29 @@ foreach ($b in $batteries) {
         continue
     }
 
-    Start-Sleep -Milliseconds 250
-    $seconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
+    # WAIT FOR THE LOG TO ACTUALLY CONTAIN THE VERDICT, rather than sleeping once and hoping.
+    #
+    # This used to be a single `Start-Sleep -Milliseconds 250` followed by one read. The process
+    # having exited does not mean its redirected stdout has been flushed to disk by the OS, so a
+    # battery that finished perfectly could be read as "no verdict printed (crashed?)" -- and it
+    # happened to `--reticle-aim`, whose log said `RESULT: 23 OK / 0 FAIL` with an EMPTY error log
+    # while the gate reported it as crashed. It was reported consistently when run by hand and
+    # intermittently by the gate, which is the signature of a race in the harness and not a defect
+    # in the thing being measured.
+    #
+    # The rule the project already follows is that a battery without a verdict is a FAILURE, so
+    # this does not weaken the verdict: it waits up to two seconds for the verdict to arrive, and a
+    # battery that never writes one is still a failure.
+    $verdictDeadline = (Get-Date).AddSeconds(2.0)
     $text = ''
-    if (Test-Path $outLog) { $text += (Get-Content $outLog -Raw) }
-    if (Test-Path $errLog) { $text += (Get-Content $errLog -Raw) }
+    while ($true) {
+        $text = ''
+        if (Test-Path $outLog) { $text += (Get-Content $outLog -Raw) }
+        if (Test-Path $errLog) { $text += (Get-Content $errLog -Raw) }
+        if ($text -match 'RESULT:\s*\d+' -or (Get-Date) -gt $verdictDeadline) { break }
+        Start-Sleep -Milliseconds 100
+    }
+    $seconds = [math]::Round(((Get-Date) - $started).TotalSeconds, 1)
 
     $verdict = 'failed'
     $note = ''
