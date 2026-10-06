@@ -349,7 +349,7 @@ func _ph_hands(tick: int) -> void:
 		_coins_before = _coins()
 		if player.has_method("equip_tool"):
 			player.equip_tool("hands")
-		player.global_position = Vector3(0.0, 0.32, MACHINE_Z - 4.0)
+		player.global_position = Vector3(0.0, 0.32, MACHINE_Z - 2.2)
 		player.set("current_ground_y", 0.32)
 		player.set("is_ground_initialized", true)
 		player.set("status_message", "")
@@ -362,8 +362,21 @@ func _ph_hands(tick: int) -> void:
 	if not _take_action():
 		return
 	if player.has_method("_pack_snowball"):
+		# Aim at the snow before packing.
+		#
+		# ADDED because gathering now requires the aim point to be within PACK_REACH_STRICT
+		# (1.3 m). This phase sets the camera to zero rotation, which is looking level at the
+		# horizon, and then packed -- the exact case the owner reported as the bug ("if I look
+		# forward it must not gather snow"). The anti-soft-lock check still has to prove that
+		# hands alone can earn money, so it looks at the snow at its feet and packs that.
+		if player.get("camera") != null and snow_field != null:
+			var feet_h: float = float(snow_field.get_height_at(player.global_position))
+			player.camera.look_at(Vector3(player.global_position.x, feet_h, player.global_position.z - 0.7), Vector3.UP)
+			player.call("_update_reticle_aim")
 		player.call("_pack_snowball")
-		print("[DISP] packing a snowball by hand at %s" % str(player.global_position))
+		print("[DISP] packing a snowball by hand at %s (aim %s, reticle %d)" % [
+			str(player.global_position), str(player.get_reticle_aim_point()),
+			int(player.get_reticle_state())])
 	else:
 		_check("the player can pack snow by hand", false)
 		_report()
@@ -391,7 +404,7 @@ func _ph_payout(tick: int) -> void:
 	_check("with hands only, a snowball can be packed", carrying and packed > 0.0)
 	# Carry it to the machine and throw it into the mouth, which is the whole loop the machine
 	# exists for: the player is the loader.
-	player.global_position = Vector3(0.0, 0.32, MACHINE_Z - 4.0)
+	player.global_position = Vector3(0.0, 0.32, MACHINE_Z - 2.2)
 	if player.get("camera") != null:
 		player.camera.look_at(Vector3(0.0, 1.5, MACHINE_Z), Vector3.UP)
 	var expected := int(ceil(packed * DisposalMachineScript.PAYOUT_PER_KG))

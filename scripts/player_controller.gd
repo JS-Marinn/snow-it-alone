@@ -164,6 +164,10 @@ var reticle_state: ReticleState = ReticleState.OFF
 var reticle_aim_pt: Vector3 = Vector3.INF
 var reticle_has_hit: bool = false
 var reticle_reach: float = 2.4
+## Distance (m) from the player to the aim point at the last reticle update. Kept so the pack
+## decision and the reticle state are made from the same number instead of measuring twice and
+## disagreeing.
+var reticle_aim_distance: float = -1.0
 
 var _owned_tools: Array[String] = ["hands"]
 
@@ -1131,13 +1135,21 @@ func _update_reticle_aim() -> void:
 
 	reticle_aim_pt = hit_pos
 	reticle_has_hit = true
+	reticle_aim_distance = Vector2(offset.x, offset.z).length()
 
 	# Evaluate reticle state
 	if is_carrying():
 		reticle_state = ReticleState.OFF
 	elif current_tool == ToolType.HANDS:
-		var avail_kg := _estimate_available_snow_kg(reticle_aim_pt)
-		if avail_kg >= pack_min_kg:
+		# Close to the aim point, not merely "the ray hit something".
+		#
+		# THIS IS THE BUG THIS FIX EXISTS FOR. Standing in snow and looking FORWARD puts the aim
+		# point on the ground metres away, where there is plenty of snow, so `avail_kg` passed
+		# and a ball was packed while the player was looking at nothing in particular. The reach
+		# constants existed and were not applied to the decision, which is why four attempts at
+		# this went nowhere: the door that mattered was the one on `reticle_state`, because the
+		# HUD and the pack both read it, and it was open.
+		if _aim_within_pack_reach():
 			reticle_state = ReticleState.CAN_PACK
 		else:
 			reticle_state = ReticleState.OFF
@@ -1149,6 +1161,16 @@ func _update_reticle_aim() -> void:
 			reticle_state = ReticleState.CAN_CARVE
 		else:
 			reticle_state = ReticleState.OFF
+
+
+## True when there is enough snow at the aim point AND the aim point is close enough to reach by
+## hand. ONE definition, read by both the reticle and the pack, because a reticle that says
+## CAN_PACK while a tap does nothing -- or a tap that packs while the reticle says OFF -- is
+## exactly the class of mismatch this bug was.
+func _aim_within_pack_reach() -> bool:
+	return reticle_has_hit and reticle_aim_pt != Vector3.INF \
+		and reticle_aim_distance >= 0.0 and reticle_aim_distance <= PACK_REACH_STRICT \
+		and _estimate_available_snow_kg(reticle_aim_pt) >= pack_min_kg
 
 func _get_target_ground_pos() -> Vector3:
 	if reticle_aim_pt != Vector3.INF:
@@ -1791,14 +1813,20 @@ func _estimate_available_snow_kg(pos: Vector3, harvest_radius: float = PACK_HARV
 	var density: float = float(snow_field.get("snow_density")) if snow_field.get("snow_density") != null else 150.0
 	return cut_depth * eff_area * density
 
-## Finds the ground position to pack a snowball, strictly at the reticle aim point.
-## Forward-only, never searching behind player or under feet on bare ground.
+## Finds the ground position to pack a snowball: the point the reticle is on, and only if it is
+## close enough to reach by hand.
+##
+## THE DOOR IS CLOSED BEFORE ANYTHING IS QUEUED, and that order is the whole point. `_pack_snowball`
+## asks for a harvest and then waits for the field to report the mass it removed; a gate placed
+## after that request produces a HOLE WHERE THE SNOW WAS with no ball to show for it, which is
+## mass leaving the world with nothing accounting for it. That is what the previous attempt at
+## this fix did and why it was reverted, and this project forbids it.
+##
+## `_aim_within_pack_reach` is the same predicate the reticle state uses, so the dot on screen
+## and what a tap does cannot disagree.
 func _find_pack_target() -> Vector3:
 	_update_reticle_aim()
-	# reticle_has_hit is the part that was missing. Looking at the sky leaves the aim point falling
-	# somewhere on the ground with snow on it, so the reach test passed and a ball was packed while
-	# the player was looking at nothing. If the ray hit nothing, there is nothing to gather from.
-	if reticle_has_hit and reticle_aim_pt != Vector3.INF and _estimate_available_snow_kg(reticle_aim_pt) >= pack_min_kg:
+	if _aim_within_pack_reach():
 		return reticle_aim_pt
 	return Vector3.INF
 

@@ -85,6 +85,16 @@ func _ready() -> void:
 		if demo.has_method("setup"):
 			demo.setup(self, snow_field, player, props)
 		return
+	if OS.get_cmdline_user_args().has("--aim-probe"):
+		# Measuring instrument, not a battery: it asserts nothing and only prints what the
+		# reticle decides for each aim case. See `scripts/aim_probe_demo.gd`.
+		var probe_script = load("res://scripts/aim_probe_demo.gd")
+		var probe = Node.new()
+		probe.set_script(probe_script)
+		add_child(probe)
+		if probe.has_method("setup"):
+			probe.setup(self, snow_field, player, props)
+		return
 	if OS.get_cmdline_user_args().has("--disposal-machine"):
 		# The disposal machine battery lives here for the same reason the rest do: this is the
 		# measuring bench, and the machine is placed here first.

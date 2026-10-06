@@ -682,8 +682,20 @@ func _s_player_interact() -> void:
 	if player == null:
 		return
 	_before["balls"] = get_tree().get_nodes_in_group("snowballs").size()
+	# Look at the snow before pressing.
+	#
+	# ADDED because gathering now requires the aim point to be within PACK_REACH_STRICT (1.3 m),
+	# and this rig pressed interact with the camera wherever the previous step left it -- usually
+	# level, which puts the aim ray on the ground metres away. That is the case the owner reported
+	# as "it gathers snow while I look forward", so pressing without aiming was testing behaviour
+	# the game no longer has.
+	if player.camera != null and snow_field != null:
+		var feet_h: float = float(snow_field.get_height_at(player.global_position))
+		player.camera.look_at(Vector3(player.global_position.x, feet_h, player.global_position.z + 0.7), Vector3.UP)
+		player._update_reticle_aim()
 	Input.action_press("interact")
-	print("[PHYS] the player packs snow with their hands")
+	print("[PHYS] the player packs snow with their hands (aim %s, reticle=%d)" % [
+		str(player.get_reticle_aim_point()), int(player.get_reticle_state())])
 
 func _s_player_interact_check() -> void:
 	Input.action_release("interact")

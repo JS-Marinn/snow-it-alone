@@ -126,7 +126,23 @@ func _physics_process(delta: float) -> void:
 			# State 3: Start Phase 2 (pack on normal snow)
 			if _state_time >= 0.30:
 				_p2_mass_before = float(snow_field.measure_total_mass())
-				print("[PACK] Phase 2 start: player packing normal snow, field mass = %.2f kg" % _p2_mass_before)
+				# Look at the snow at the player's feet before pressing.
+				#
+				# ADDED, and the reason is the owner's specification: gathering needs the aim
+				# point to be CLOSE (PACK_REACH_STRICT, 1.3 m). Without aiming, the camera sits
+				# level at eye height and the aim ray lands on the ground 2.2 m away, which is
+				# now correctly refused -- so this case, which is about a ball being created at
+				# all, was failing for a reason that has nothing to do with what it tests.
+				if player.camera != null:
+					var feet_h: float = float(snow_field.get_height_at(player.global_position))
+					player.camera.look_at(Vector3(0.0, feet_h, player.global_position.z + 0.7), Vector3.UP)
+				player._update_reticle_aim()
+				var aim: Vector3 = player.get_reticle_aim_point()
+				var aim_dist := -1.0
+				if aim != Vector3.INF:
+					aim_dist = Vector2(aim.x - player.global_position.x, aim.z - player.global_position.z).length()
+				print("[PACK] Phase 2 start: player packing normal snow, field mass = %.2f kg, reticle=%d aim=%s dist=%.2f m" % [
+					_p2_mass_before, int(player.get_reticle_state()), str(aim), aim_dist])
 				player._pack_snowball()
 				_change_state(4)
 
@@ -177,8 +193,17 @@ func _physics_process(delta: float) -> void:
 				print("[PACK] Phase 3 eval: carried=%s harvest_pt=%s dist=%.2f m" % [
 					str(carrying), str(harvest_pt), dist])
 
-				_check("extended reach: ball created from nearby snow", carrying)
-				_check("extended reach: harvest point within extended reach", dist > 1.3 and dist <= 2.4)
+				# CHANGED ASSERTION, and the reason is the owner's own specification:
+				#     "if I look straight ahead instead of down, it must not gather snow."
+				# The setup clears everything inside 1.29 m and leaves snow at 1.7 m, so the only
+				# snow this case can reach is BEYOND PACK_REACH_STRICT (1.3 m). It used to assert
+				# that a ball WAS created from there, which is the extended reach the owner
+				# reported as the bug. The two checks are inverted rather than deleted: they now
+				# assert the boundary from the far side, that snow past the strict reach is
+				# refused and nothing is harvested from it.
+				_check("extended reach: no ball is created from snow past the strict reach", not carrying)
+				_check("extended reach: nothing is harvested from beyond the strict reach",
+					dist <= player.PACK_REACH_STRICT or not carrying)
 
 				# Release and free the ball
 				if carrying:

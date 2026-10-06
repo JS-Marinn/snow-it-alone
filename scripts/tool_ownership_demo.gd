@@ -43,6 +43,20 @@ func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -
 	print("[TOOL] ==== TOOL OWNERSHIP ACCEPTANCE BATTERY ====")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
+## Points the camera down at the snow just in front of the player's feet.
+##
+## Every battery that packs by hand has to do this now, because gathering requires the aim point
+## to be within PACK_REACH_STRICT (1.3 m). Aiming is part of the mechanic, not a detail of the
+## test: a battery that packs while looking at the horizon is testing behaviour the game does
+## not have any more.
+func _aim_at_snow_below() -> void:
+	if player == null or player.camera == null or snow_field == null:
+		return
+	var feet_h: float = float(snow_field.get_height_at(player.global_position))
+	player.camera.look_at(Vector3(player.global_position.x, feet_h, player.global_position.z + 0.7), Vector3.UP)
+	player._update_reticle_aim()
+
+
 func _physics_process(delta: float) -> void:
 	_t += delta
 	_state_time += delta
@@ -70,7 +84,7 @@ func _physics_process(delta: float) -> void:
 			var mach := root.get_node_or_null("DisposalMachine")
 			var mach_pos := (mach as Node3D).global_position if mach != null else Vector3(0.0, 0.0, -7.6)
 			var to_mach_z := -1.0 if mach_pos.z < 0.0 else 1.0
-			var ply_z := mach_pos.z - to_mach_z * 3.6
+			var ply_z := mach_pos.z - to_mach_z * 2.2
 			var ground_y: float = 0.32
 			if snow_field and snow_field.has_method("get_support_snow_height"):
 				ground_y = maxf(float(snow_field.get_support_snow_height(Vector3(0.0, 0.0, ply_z))), 0.15)
@@ -89,6 +103,12 @@ func _physics_process(delta: float) -> void:
 			# State 1: Wait for physics/terrain to settle, then request hand-packing
 			if _state_time >= 0.25:
 				_coins_before_delivery = player.coins
+				# LOOK AT THE SNOW BEFORE PACKING. Gathering now requires the aim point to be
+				# within PACK_REACH_STRICT (1.3 m); the camera was left at zero rotation, which
+				# is looking straight ahead at the horizon, and that is exactly the case the
+				# owner reported as the bug ("if I look forward it must not gather"). A battery
+				# that packs without aiming is testing a code path the game no longer has.
+				_aim_at_snow_below()
 				print("[TOOL] Anti-soft-lock setup: packing snow with bare hands at pos %s..." % str(player.global_position))
 				player._pack_snowball()
 				_change_state(2)
@@ -119,8 +139,17 @@ func _physics_process(delta: float) -> void:
 
 		3:
 			# State 3: Wait for the ball to reach the machine and for the balance to move
+			#
+			# KNOWN BLOCKER, measured: the throw never reaches the machine, so this check cannot
+			# pass yet. The ball is created and thrown, and then the PLAYGROUND SCENE is loaded
+			# on top of the level ("[PG] disposal machine placed at ..." appears in this run's
+			# log), which takes the whole tree away with it -- so the ball stops existing and the
+			# machine never registers a delivery. That is why this battery used to HANG at
+			# `cd2095a` instead of failing: nothing was ever packed, so this state was never
+			# reached. It now reaches it, which is progress, and the remaining fault is the scene
+			# switch and not the throw or the payout.
 			var coins_earned: int = int(player.coins) - _coins_before_delivery
-			if coins_earned > 0 or _state_time >= 4.0:
+			if coins_earned > 0 or _state_time >= 6.0:
 				var expected_coins: int = int(ceil(_packed_ball_mass * DisposalMachineScript.PAYOUT_PER_KG))
 				print("[TOOL] Anti-soft-lock result: coins before = %d, coins now = %d, earned = %d (expected %d)" % [
 					_coins_before_delivery, player.coins, coins_earned, expected_coins

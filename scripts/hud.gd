@@ -672,25 +672,32 @@ func _build_reticle() -> void:
 	# The plainest thing that can work: a small solid square, on its own canvas layer, in pure
 	# screen coordinates, sized by its own minimum and centred by preset. No custom draw, no
 	# container that sizes it, no arithmetic: the three things that broke the drawn reticle.
-	# Dark ring first, white dot on top: the pairing every game uses, because it reads on snow and on
-	# dark objects alike. Position and size are trusted to the preset, not to arithmetic.
+	#
+	# DARK dot on a LIGHT ring, NOT white on dark. This was measured, not chosen: the white dot
+	# rendered at 0.96 against snow at 0.99 -- three per cent of contrast -- so it was drawn, and
+	# centred, and invisible, which is exactly what the owner reported while the log insisted it
+	# was fine. A dark dot reads on snow, which is where this game is played. The ring behind it
+	# is white so the dot still reads if the player is looking at something dark.
+	# ALWAYS VISIBLE, in every state, on purpose: a reticle that depends on state for its
+	# existence is a reticle that can be absent for a reason nobody can see. It is dim when
+	# there is nothing to do and bright when there is.
 	_reticle_dot_ring = ColorRect.new()
 	_reticle_dot_ring.name = "ReticleDotRing"
-	_reticle_dot_ring.custom_minimum_size = Vector2(11.0, 11.0)
-	_reticle_dot_ring.color = Color(0.04, 0.05, 0.09, 0.85)
+	_reticle_dot_ring.custom_minimum_size = Vector2(13.0, 13.0)
+	_reticle_dot_ring.color = Color(0.97, 0.98, 1.0, 0.85)
 	_reticle_dot_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	reticle_layer.add_child(_reticle_dot_ring)
 	_reticle_dot_ring.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	_reticle_dot_ring.visible = false
+	_reticle_dot_ring.visible = true
 
 	_reticle_dot = ColorRect.new()
 	_reticle_dot.name = "ReticleDot"
 	_reticle_dot.custom_minimum_size = Vector2(5.0, 5.0)
-	_reticle_dot.color = Color(1.0, 1.0, 1.0, 0.95)
+	_reticle_dot.color = Color(0.05, 0.06, 0.10, 0.55)
 	_reticle_dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	reticle_layer.add_child(_reticle_dot)
 	_reticle_dot.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	_reticle_dot.visible = false
+	_reticle_dot.visible = true
 	_reticle_drawer.visible = true
 
 ## The reticle state lives on the player, because the player is what decides whether snow is
@@ -705,18 +712,30 @@ func _sync_reticle_from_player() -> void:
 		if node.has_method("get_reticle_state"):
 			state = int(node.get_reticle_state())
 			break
-	if state == _reticle_state:
-		return
+	var changed := state != _reticle_state
 	_reticle_state = state
-	_reticle_drawer.visible = state != 0
-	_reticle_drawer.queue_redraw()
+	# The dot and its ring are drawn in EVERY state; only their colour changes. See
+	# `_build_reticle` for why the dark dot on a light ring is measured rather than chosen, and
+	# why a reticle whose existence depends on state can go missing for reasons nobody sees.
 	if _reticle_dot != null:
-		_reticle_dot.visible = state != 0
+		_reticle_dot.visible = true
 		if _reticle_dot_ring != null:
-			_reticle_dot_ring.visible = state != 0
-			_reticle_dot_ring.color = Color(0.30, 0.85, 0.95, 0.9) if state == 2 else Color(0.04, 0.05, 0.09, 0.85)
-		# Cyan when a tool can carve, white when a ball can be packed.
-		_reticle_dot.color = Color(0.35, 0.95, 1.0, 0.95) if state == 2 else Color(1.0, 1.0, 1.0, 0.95)
+			_reticle_dot_ring.visible = true
+		# Cyan when a tool can carve, dim grey when there is nothing to do, dark red-brown for a
+		# packable ball: three states the player can tell apart on snow at a glance.
+		match state:
+			1:
+				_reticle_dot.color = Color(0.85, 0.15, 0.10, 0.95)
+				_reticle_dot_ring.color = Color(0.98, 0.99, 1.0, 0.95)
+			2:
+				_reticle_dot.color = Color(0.05, 0.55, 0.75, 0.95)
+				_reticle_dot_ring.color = Color(0.95, 0.99, 1.0, 0.95)
+			_:
+				_reticle_dot.color = Color(0.10, 0.12, 0.18, 0.45)
+				_reticle_dot_ring.color = Color(0.95, 0.96, 1.0, 0.40)
+	_reticle_drawer.visible = true
+	if changed:
+		_reticle_drawer.queue_redraw()
 
 func _on_reticle_draw() -> void:
 	if _reticle_drawer == null or _reticle_state == 0:

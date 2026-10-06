@@ -9,6 +9,7 @@ const LEVEL_SCENE: String = "res://scenes/main.tscn"
 const LocalizationManagerScript = preload("res://scripts/localization_manager.gd")
 const SettingsSystemScript = preload("res://scripts/settings_system.gd")
 const InputBindingsScript = preload("res://scripts/input_bindings.gd")
+const BuildStampScript = preload("res://scripts/build_stamp.gd")
 
 static func _cleanup_scratch_files() -> void:
 	for f in ["user://scratch_settings.json", "user://scratch_bindings.json"]:
@@ -32,6 +33,9 @@ var _confirm_overwrite: bool = false
 var _confirm_timer: float = 0.0
 
 func _ready() -> void:
+	# The first line of every run: which commit this is. See `scripts/build_stamp.gd` for why
+	# one line is worth it.
+	BuildStampScript.announce()
 	var is_shot := false
 	for arg in OS.get_cmdline_user_args():
 		if arg.ends_with("-shot"):
@@ -48,7 +52,7 @@ func _ready() -> void:
 
 	# Diagnostics never go through the menu, they boot straight into the level. The
 	# Playground has a scene of its own, so it is the one flag that goes elsewhere.
-	var playground_flags := ["--playground", "--playground-check", "--beetle-roll", "--disposal-machine"]
+	var playground_flags := ["--playground", "--playground-check", "--beetle-roll", "--disposal-machine", "--aim-probe"]
 	for flag in playground_flags:
 		if OS.get_cmdline_user_args().has(flag):
 			# Deferred: swapping the scene from inside _ready() while the menu is still
@@ -60,7 +64,7 @@ func _ready() -> void:
 		"--impact-lab", "--impact-matrix", "--plow-demo", "--save-roundtrip",
 		"--pause-shot", "--settings-shot", "--rebind-shot", "--face-snow-shot", "--i18n-check",
 		"--diagnostics-harmless", "--contact-burst", "--hand-pack", "--toon-shot", "--toon-bisect",
-		"--curve-flight", "--tool-ownership", "--reticle-act", "--disposal-shot", "--pack-probe",
+		"--curve-flight", "--tool-ownership", "--reticle-act", "--reticle-aim", "--disposal-shot", "--pack-probe",
 	]
 	for flag in demo_flags:
 		if OS.get_cmdline_user_args().has(flag):

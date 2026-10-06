@@ -202,11 +202,21 @@ func _physics_process(delta: float) -> void:
 				print("[RETICLE] Phase 2 eval: reticle=%d carrying=%s harvest_pt=%s dist_to_mound=%.3f m" % [
 					_p2_reticle_before, str(carrying), str(harvest_pt), dist_to_mound])
 
-				_check("on bare aiming at 2m mound: reticle is CAN_PACK", _p2_reticle_before == player.ReticleState.CAN_PACK)
-				_check("on bare aiming at 2m mound: ball created in hands", carrying)
-				_check("on bare aiming at 2m mound: harvest position matches 2m mound", dist_to_mound < 0.35)
+				# CHANGED ASSERTION, and the reason is the owner's own specification:
+				#     "if I look straight ahead instead of down, it must not gather snow."
+				# This case packs nothing now, ON PURPOSE. The mound is 2.0 m away and hand
+				# packing reaches PACK_REACH_STRICT (1.3 m), so the aim point is too far and the
+				# reticle must say so. The three checks below used to assert the opposite --
+				# that a ball WAS created at 2 m -- which is exactly the behaviour the owner
+				# reported as a bug. They are inverted rather than deleted: they still assert
+				# the same invariant from the other side, that the reticle predicts the action.
+				_check("on bare aiming at a 2m mound: the reticle does NOT offer to pack",
+					_p2_reticle_before != player.ReticleState.CAN_PACK)
+				_check("on bare aiming at a 2m mound: no ball is created", not carrying)
+				_check("on bare aiming at a 2m mound: nothing is harvested from the mound",
+					dist_to_mound > 1.0)
 				_check("on bare aiming at 2m mound: player feet height untouched", absf(p2_feet_h_after - _p2_feet_h_before) < 0.001)
-				_p2_prediction_match = (_p2_reticle_before == player.ReticleState.CAN_PACK and carrying)
+				_p2_prediction_match = (_p2_reticle_before != player.ReticleState.CAN_PACK and not carrying)
 
 				# Release carried ball
 				if carrying:
@@ -280,15 +290,24 @@ func _physics_process(delta: float) -> void:
 				_change_state(11)
 
 		11:
-			# State 11: Wait for shallow dump to settle in coarse mirror
+			# State 11: Wait for shallow dump to settle in coarse mirror.
+			#
+			# The player MOVED for this case. The mound is at (-1.5, 0, -1.5), which is 2.12 m
+			# from the origin, and hand packing now reaches PACK_REACH_STRICT (1.3 m): standing
+			# at the origin, the shallow snow was out of reach and this case could only assert
+			# "nothing happens", which is the 2 m case over again. Standing closer tests what
+			# the case is FOR -- that thin, sunken snow can still be packed when it is close --
+			# and keeps the mass-conservation check that goes with it.
 			if _state_time >= 0.60:
-				player.global_position = Vector3(0.0, 0.0, 0.0)
+				player.global_position = Vector3(-1.0, 0.0, -1.0)
 				player.rotation.y = 0.0
 				player.equip_tool(player.ToolType.HANDS)
 				_p5_shallow_h_before = float(snow_field.get_height_at(Vector3(-1.5, 0.0, -1.5)))
 				_p5_feet_h_before = float(snow_field.get_height_at(player.global_position))
-				print("[RETICLE] Phase 5 start: shallow mound h=%.4f m, aiming at (-1.5, %.3f, -1.5)" % [
-					_p5_shallow_h_before, _p5_shallow_h_before])
+				print("[RETICLE] Phase 5 start: shallow mound h=%.4f m, player at %s (%.2f m from the mound), aiming at (-1.5, %.3f, -1.5)" % [
+					_p5_shallow_h_before, str(player.global_position),
+					Vector2(player.global_position.x + 1.5, player.global_position.z + 1.5).length(),
+					_p5_shallow_h_before])
 				player.camera.look_at(Vector3(-1.5, _p5_shallow_h_before * 0.5, -1.5), Vector3.UP)
 				_change_state(12)
 
