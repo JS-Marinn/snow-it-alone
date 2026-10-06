@@ -1443,10 +1443,6 @@ func shovel_mode_name() -> String:
 	return "LOAD_AND_PUSH" if shovel_mode == SHOVEL_MODE_LOAD_AND_PUSH else "LEGACY"
 
 
-func is_load_and_push_mode() -> bool:
-	return shovel_mode == SHOVEL_MODE_LOAD_AND_PUSH
-
-
 ## How much of the push feed the blade keeps while pushing. See PUSH_RESIDUE_FACTOR.
 func _push_residue_fraction() -> float:
 	return clampf(PUSH_RESIDUE_FACTOR, 0.0, 1.0)

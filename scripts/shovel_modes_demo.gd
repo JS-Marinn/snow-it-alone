@@ -283,10 +283,6 @@ func _ph_push() -> void:
 	_next()
 
 
-func _ph_push_wait() -> void:
-	_next()
-
-
 func _ph_read_push() -> void:
 	# Wait for the strip to settle, then push along it for a fixed time.
 	if _phase_t < 1.5:

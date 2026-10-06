@@ -48,7 +48,6 @@ var _phase_t: float = 0.0
 var _phase: int = 0
 var _phase_ticks: int = 0
 var _pending_action: bool = true
-var _last_diag: float = -1.0
 
 var _ok: int = 0
 var _fail: int = 0
@@ -144,20 +143,12 @@ func _next() -> void:
 	_pending_action = true
 	_phase_t = 0.0
 	_phase_ticks = 0
-	_last_diag = -1.0
 
 
 func _take_action() -> bool:
 	if not _pending_action:
 		return false
 	_pending_action = false
-	return true
-
-
-func _diag_tick(every: float) -> bool:
-	if _phase_t - _last_diag < every:
-		return false
-	_last_diag = _phase_t
 	return true
 
 
