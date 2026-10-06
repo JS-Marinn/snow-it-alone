@@ -21,6 +21,7 @@ extends Node3D
 
 const DummyScript = preload("res://scripts/training_dummy.gd")
 const DisposalMachineScript = preload("res://scripts/disposal_machine.gd")
+const WorldAssemblyScript = preload("res://scripts/world_assembly.gd")
 const DISPOSAL_SCENE: String = "res://scenes/disposal_machine.tscn"
 const BUCKET_SCENE: String = "res://scenes/snow_bucket.tscn"
 const BARROW_SCENE: String = "res://scenes/wheelbarrow.tscn"
@@ -44,10 +45,8 @@ var _measured_before: float = 0.0
 var _measured_after: float = 0.0
 ## Mass this scene created out of nothing, which the balance check subtracts again.
 var _free_injected: float = 0.0
-## Everything the machine has taken, and what has been paid for it. The payout is computed on
-## this running total so that a shattered ball cannot earn a coin per fragment.
-var _sent_kg: float = 0.0
-var _paid_coins: int = 0
+## The payout ledger, shared with the level through WorldAssembly.
+var _payout := WorldAssemblyScript.PayoutLedger.new()
 var _spawned_ball: Node = null
 var _checks_ok: int = 0
 var _checks_fail: int = 0
@@ -167,14 +166,10 @@ func _wire_player() -> void:
 		player.equip_tool("shovel")
 
 func _build_props() -> void:
-	props = Node3D.new()
-	props.name = "PropsSystem"
-	props.set_script(load("res://scripts/props_system.gd"))
-	add_child(props)
-	if props.has_method("setup"):
-		props.setup(snow_field)
-	if player and "props_system" in player:
-		player.props_system = props
+	# The same builder the level uses. This was seven lines byte-identical to `main.gd`'s
+	# `_setup_props_system`, which is the sort of duplication that is harmless right up until one
+	# copy is changed and the other is not.
+	props = WorldAssemblyScript.build_props_system(self, "res://scripts/props_system.gd", snow_field, player)
 
 func _build_dummies() -> void:
 	for i in range(3):
@@ -210,20 +205,18 @@ func _place_disposal_machine() -> void:
 ## The Playground has no HUD, but the player still holds the purse, so a battery can read the
 ## balance. The fallback pays nobody and says so rather than failing silently.
 func _on_snow_sent(kg: float, world_pos: Vector3) -> void:
-	# Paid on the RUNNING TOTAL, for the reason spelled out in `main.gd`: `ceil` per emission gives
-	# every fragment of a shattered ball a whole coin, which measured 8 coins for 0.546 kg against
-	# a declared 2. Rounding once on the total keeps the rate and removes the floor.
-	_sent_kg += kg
-	var owed := int(ceil(_sent_kg * DisposalMachineScript.PAYOUT_PER_KG))
-	var coins := owed - _paid_coins
+	# The arithmetic is `WorldAssembly.PayoutLedger`, shared with the level. It used to be written
+	# out here AND in `main.gd`, which is why the wrong rounding had to be fixed twice in two files
+	# that had already drifted apart. One implementation, one place to be right.
+	var coins := _payout.add(kg, DisposalMachineScript.PAYOUT_PER_KG)
 	if coins <= 0:
-		print("[DISP] %.2f kg sent at %s (%.3f kg total), no coins due yet" % [kg, str(world_pos), _sent_kg])
+		print("[DISP] %.2f kg sent at %s (%.3f kg total), no coins due yet" % [
+			kg, str(world_pos), _payout.sent_kg])
 		return
-	_paid_coins = owed
 	if player != null:
 		player.add_coins(coins)
 	print("[DISP] %.2f kg sent at %s, paid %d coins (%.3f kg total, %d in all)" % [
-		kg, str(world_pos), coins, _sent_kg, _paid_coins])
+		kg, str(world_pos), coins, _payout.sent_kg, _payout.paid_coins])
 
 
 ## Places the bucket and the wheelbarrow in the playground near player spawn.

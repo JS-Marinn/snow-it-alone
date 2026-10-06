@@ -1,0 +1,44 @@
+refactor: the jobs both scenes were doing twice, done once
+
+PRIORITY 4. `main.gd` and `playground.gd` are two scenes that each build a world, and a structural
+audit found nine jobs done in both. This is not a style complaint: the duplication has already cost
+this project real time, twice, in ways the owner noticed.
+
+  * The HUD subtree existed byte for byte in both scenes, so a reticle fix reached the level and not
+    the test scene. Fixed earlier in this session by extracting `scenes/hud.tscn`.
+  * The disposal machine's payout arithmetic was written out in both files. When the rounding was
+    wrong -- `ceil` per emission, so a shattered ball earned a coin per fragment, measured at 8
+    coins for 0.546 kg against a declared 2 -- it had to be found and fixed in two places, and the
+    two copies had ALREADY DRIFTED: the test scene's copy had a null guard on the player and the
+    level's did not.
+
+## What moved
+
+`scripts/world_assembly.gd`:
+
+  * `PayoutLedger` -- the two numbers that are only meaningful together (kilograms taken, coins
+    paid) and the `add(kg, rate)` that turns a delivery into coins on the running total. Both
+    scenes now hold one of these and call it; neither knows the arithmetic any more.
+  * `build_props_system(parent, script_path, field, player)` -- seven lines that were
+    byte-identical in the two files.
+
+The module knows nothing about which scene it is in: the props script path is an argument, and
+everything scene-specific (the machine's position, the payout guard, the level's decoration, the
+test scene's lanes) stays where it belongs.
+
+## Verified
+
+--playground-check 11 OK / 0 FAIL, --disposal-machine 22 OK / 0 FAIL, --pg-reticle-probe reports the
+reticle visible at contrast 0.912, and NO script errors in any of the four runs. The full gate goes
+from 3 red to **2**: --physics 34/2, --shovel-modes 16/1. --tool-ownership now passes inside the gate
+at **37 OK / 0 FAIL**.
+
+## What is left, and it is now short
+
+  * `--shovel-modes` 16/1: the push's own ledger verdict, which measures the battery's setup carves
+    rather than the push. The mechanic is right and measured (8.50 kg/s against a declared 8.50,
+    17.000 kg in 2.00 s); the measurement window is not.
+  * `--physics` 34/2: its rig stands where the new aim rule cannot reach, so its packing case reads
+    the reticle as OFF. Same shape as the four batteries already updated for that rule.
+  * The remaining practice items: `load()` inside functions (35 sites), and the unconnected
+    `contents_changed` signals that make a decoy of the update path in `hud.gd`.
