@@ -121,7 +121,7 @@ const PACK_HARVEST_DEPTH: float = 0.10
 ## must cost CONTROL (drift, grip), not turn walking into crawling.
 @export var carry_weight_ref: float = 300.0
 ## Speed floor while carrying: weight never costs more than this.
-@export_range(0.3, 1.0) var carry_speed_floor: float = 0.75
+@export_range(0.3, 1.0) var carry_speed_floor: float = 0.80
 ## Grip drain per second while carrying a ball two-handed.
 @export var grip_drain_base: float = 0.05
 @export var grip_drain_stagger: float = 0.22
@@ -151,6 +151,17 @@ var props_system: Node3D
 
 enum ToolType { SHOVEL = 0, BLOWER = 1, SALT = 2, HANDS = 3 }
 var current_tool: ToolType = ToolType.HANDS
+
+## Reticle states: OFF (no snow / out of reach), CAN_PACK (snow packable by hand), CAN_CARVE (snow carveable with tool).
+enum ReticleState {
+	OFF = 0,
+	CAN_PACK = 1,
+	CAN_CARVE = 2,
+}
+var reticle_state: ReticleState = ReticleState.OFF
+var reticle_aim_pt: Vector3 = Vector3.INF
+var reticle_has_hit: bool = false
+var reticle_reach: float = 2.4
 
 var _owned_tools: Array[String] = ["hands"]
 
@@ -754,6 +765,9 @@ func _physics_process(delta: float) -> void:
 	# Physical push on balls and props when colliding with them
 	_push_touched_bodies(horiz_speed)
 
+	# Refresh reticle aim and state for active tool and interaction
+	_update_reticle_aim()
+
 	# Staggered and knocked down players cannot work their tools.
 	if hit_state == HitState.NORMAL:
 		match current_tool:
@@ -939,17 +953,179 @@ func _play_footstep() -> void:
 	step_audio.pitch_scale = randf_range(0.92, 1.08)
 	step_audio.play()
 
+func get_snow_surface_y(pos: Vector3) -> float:
+	var base_y := 0.0
+	if snow_field:
+		base_y = snow_field.global_position.y
+		if snow_field.has_method("get_height_at"):
+			var h: float = snow_field.get_height_at(pos)
+			if h >= 0.0:
+				return base_y + h
+		if snow_field.has_method("get_support_snow_height"):
+			return base_y + maxf(snow_field.get_support_snow_height(pos, 0.35), 0.0)
+	return base_y
+
+func get_reticle_state() -> ReticleState:
+	return reticle_state
+
+func get_reticle_aim_point() -> Vector3:
+	return reticle_aim_pt
+
+func _update_reticle_aim() -> void:
+	if camera == null:
+		reticle_state = ReticleState.OFF
+		reticle_aim_pt = Vector3.INF
+		reticle_has_hit = false
+		return
+
+	var max_reach := 2.4
+	match current_tool:
+		ToolType.HANDS:
+			max_reach = PACK_REACH_EXTENDED
+		ToolType.SHOVEL:
+			max_reach = 2.2
+		ToolType.BLOWER:
+			max_reach = 4.0
+		ToolType.SALT:
+			max_reach = 3.0
+	reticle_reach = max_reach
+
+	var cam_pos := camera.global_position
+	var cam_dir := -camera.global_transform.basis.z.normalized()
+	var forward_flat := _forward_flat()
+
+	var hit_found := false
+	var hit_pos := Vector3.INF
+
+	# 1. Downward raycast towards the snowpack/ground (pitch down)
+	if cam_dir.y < -0.02:
+		var step_size := 0.08
+		var cur_d := 0.20
+		var limit_d := max_reach + 2.5
+		var prev_d := cur_d
+
+		var p0 := cam_pos + cam_dir * cur_d
+		if p0.y <= get_snow_surface_y(p0):
+			hit_found = true
+			hit_pos = p0
+			hit_pos.y = get_snow_surface_y(hit_pos)
+		else:
+			while cur_d <= limit_d:
+				cur_d += step_size
+				var p := cam_pos + cam_dir * cur_d
+				if p.y <= get_snow_surface_y(p):
+					hit_found = true
+					break
+				prev_d = cur_d
+
+			if hit_found:
+				var d_min := prev_d
+				var d_max := cur_d
+				for i in range(5):
+					var d_mid := (d_min + d_max) * 0.5
+					var pm := cam_pos + cam_dir * d_mid
+					if pm.y <= get_snow_surface_y(pm):
+						d_max = d_mid
+					else:
+						d_min = d_mid
+				var final_d := (d_min + d_max) * 0.5
+				hit_pos = cam_pos + cam_dir * final_d
+				hit_pos.y = get_snow_surface_y(hit_pos)
+
+	# 2. Horizontal or straight-ahead look (not aimed high in the sky)
+	if not hit_found and cam_dir.y >= -0.02 and cam_dir.y < 0.25:
+		# Check if ray intersects an elevated mound in front
+		var cur_d := 0.3
+		var limit_d := max_reach + 0.5
+		var prev_d := cur_d
+		var mound_hit := false
+		while cur_d <= limit_d:
+			cur_d += 0.10
+			var p := cam_pos + cam_dir * cur_d
+			if p.y <= get_snow_surface_y(p):
+				mound_hit = true
+				break
+			prev_d = cur_d
+		if mound_hit:
+			var d_min := prev_d
+			var d_max := cur_d
+			for i in range(5):
+				var d_mid := (d_min + d_max) * 0.5
+				var pm := cam_pos + cam_dir * d_mid
+				if pm.y <= get_snow_surface_y(pm):
+					d_max = d_mid
+				else:
+					d_min = d_mid
+			hit_pos = cam_pos + cam_dir * ((d_min + d_max) * 0.5)
+			hit_pos.y = get_snow_surface_y(hit_pos)
+			hit_found = true
+		else:
+			# Forward reach along line of sight (forward-only, no backward search)
+			if current_tool == ToolType.HANDS:
+				var forward_radii: Array[float] = [PACK_REACH_STRICT, 0.9, 1.7, 2.0, PACK_REACH_EXTENDED]
+				for r in forward_radii:
+					var cand_ext := global_position + forward_flat * r
+					cand_ext.y = get_snow_surface_y(cand_ext)
+					if _estimate_available_snow_kg(cand_ext) >= pack_min_kg:
+						hit_pos = cand_ext
+						hit_found = true
+						break
+				if not hit_found:
+					var cand := global_position + forward_flat * PACK_REACH_STRICT
+					cand.y = get_snow_surface_y(cand)
+					hit_pos = cand
+					hit_found = true
+			else:
+				var cand := global_position + forward_flat * minf(1.4, max_reach)
+				cand.y = get_snow_surface_y(cand)
+				hit_pos = cand
+				hit_found = true
+
+	if not hit_found:
+		reticle_state = ReticleState.OFF
+		reticle_aim_pt = Vector3.INF
+		reticle_has_hit = false
+		return
+
+	# Target must be in front of the player and within tool reach
+	var offset := hit_pos - global_position
+	var forward_dot := offset.dot(forward_flat)
+	var horiz_dist := Vector2(offset.x, offset.z).length()
+
+	if forward_dot <= 0.05 or horiz_dist > max_reach:
+		reticle_state = ReticleState.OFF
+		reticle_aim_pt = Vector3.INF
+		reticle_has_hit = false
+		return
+
+	reticle_aim_pt = hit_pos
+	reticle_has_hit = true
+
+	# Evaluate reticle state
+	if is_carrying():
+		reticle_state = ReticleState.OFF
+	elif current_tool == ToolType.HANDS:
+		var avail_kg := _estimate_available_snow_kg(reticle_aim_pt)
+		if avail_kg >= pack_min_kg:
+			reticle_state = ReticleState.CAN_PACK
+		else:
+			reticle_state = ReticleState.OFF
+	else:
+		var depth := 0.0
+		if snow_field and snow_field.has_method("get_height_at"):
+			depth = snow_field.get_height_at(reticle_aim_pt)
+		if depth > 0.015:
+			reticle_state = ReticleState.CAN_CARVE
+		else:
+			reticle_state = ReticleState.OFF
+
 func _get_target_ground_pos() -> Vector3:
-	var cam_pos = camera.global_position
-	var cam_dir = -camera.global_transform.basis.z
-
-	if cam_dir.y < -0.05:
-		var t = -cam_pos.y / cam_dir.y
-		if t > 0.4 and t < 6.5:
-			return cam_pos + cam_dir * t
-
-	var forward_flat = Vector3(cam_dir.x, 0, cam_dir.z).normalized()
-	return global_position + forward_flat * 1.4
+	if reticle_aim_pt != Vector3.INF:
+		return reticle_aim_pt
+	var fwd := _forward_flat()
+	var fallback := global_position + fwd * 1.4
+	fallback.y = get_snow_surface_y(fallback)
+	return fallback
 
 func _forward_flat() -> Vector3:
 	var f := -camera.global_transform.basis.z
@@ -1010,8 +1186,15 @@ func _process_shovel(delta: float, _horiz_speed: float) -> void:
 		if bite_factor < 0.55:
 			max_cut = 0.02 + 0.06 * (bite_factor / 0.55)
 
-		var scoop_pt = global_position + forward_flat * 1.05
-		scoop_pt.y = 0.0
+		var scoop_pt := _get_target_ground_pos()
+		var scoop_offset := scoop_pt - global_position
+		var scoop_dist := Vector2(scoop_offset.x, scoop_offset.z).length()
+		if scoop_dist > 1.4:
+			scoop_pt = global_position + forward_flat * 1.10
+			scoop_pt.y = get_snow_surface_y(scoop_pt)
+		elif scoop_dist < 0.6:
+			scoop_pt = global_position + forward_flat * 0.8
+			scoop_pt.y = get_snow_surface_y(scoop_pt)
 
 		# Frontal resistance (physical readout for the HUD and the jam decision)
 		blade_snow_height = 0.0
@@ -1094,9 +1277,12 @@ func _pour_shovel_load(delta: float) -> void:
 		return
 	var kg := minf(dump_rate * delta, shovel_current_load)
 	var forward_flat := _forward_flat()
-	var pour_pt := global_position + forward_flat * 0.62
-	if snow_field.has_method("get_height_at"):
-		pour_pt.y = maxf(snow_field.get_height_at(pour_pt), 0.0)
+	var pour_pt := _get_target_ground_pos()
+	var pour_offset := pour_pt - global_position
+	var pour_dist := Vector2(pour_offset.x, pour_offset.z).length()
+	if pour_dist > 2.2 or pour_dist < 0.4:
+		pour_pt = global_position + forward_flat * clampf(pour_dist, 0.6, 2.2)
+	pour_pt.y = get_snow_surface_y(pour_pt)
 	snow_field.dump_snow(pour_pt, kg, 0.26)
 	shovel_current_load = maxf(shovel_current_load - kg, 0.0)
 	_pour_ops += 1
@@ -1498,35 +1684,12 @@ func _estimate_available_snow_kg(pos: Vector3, harvest_radius: float = PACK_HARV
 	var density: float = float(snow_field.get("snow_density")) if snow_field.get("snow_density") != null else 150.0
 	return effective_cut * eff_area * density
 
-## Finds the closest ground position with enough snow to pack a ball (Scenario A & B).
-## Checks strict aim point first, then searches concentric rings up to PACK_REACH_EXTENDED.
+## Finds the ground position to pack a snowball, strictly at the reticle aim point.
+## Forward-only, never searching behind player or under feet on bare ground.
 func _find_pack_target() -> Vector3:
-	var fwd := _forward_flat()
-	if fwd.length_squared() < 0.01:
-		fwd = -global_transform.basis.z
-		fwd.y = 0.0
-	if fwd.length_squared() < 0.01:
-		fwd = Vector3.FORWARD
-	fwd = fwd.normalized()
-
-	# 1. Aimed point in strict reach
-	var target := _get_target_ground_pos()
-	var offset_target := target - global_position
-	var dist_target := Vector2(offset_target.x, offset_target.z).length()
-	if dist_target <= PACK_REACH_STRICT and _estimate_available_snow_kg(target) >= pack_min_kg:
-		return target
-
-	# 2. Concentric rings around player (closest first)
-	var angles: Array[float] = [0.0, 0.5236, -0.5236, 1.0472, -1.0472, 1.5708, -1.5708, 2.0944, -2.0944, 2.618, -2.618, 3.14159]
-	var radii: Array[float] = [0.6, 0.9, PACK_REACH_STRICT, 1.7, 2.0, PACK_REACH_EXTENDED]
-
-	for r in radii:
-		for angle in angles:
-			var dir: Vector3 = fwd.rotated(Vector3.UP, angle)
-			var candidate: Vector3 = global_position + dir * r
-			if _estimate_available_snow_kg(candidate) >= pack_min_kg:
-				return candidate
-
+	_update_reticle_aim()
+	if reticle_aim_pt != Vector3.INF and _estimate_available_snow_kg(reticle_aim_pt) >= pack_min_kg:
+		return reticle_aim_pt
 	return Vector3.INF
 
 ## Packs snow by hand: the mass comes from the snowpack and forms a real ball

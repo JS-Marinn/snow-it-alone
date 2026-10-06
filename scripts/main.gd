@@ -42,9 +42,9 @@ func _ready() -> void:
 		or args.has("--ball-shape") or args.has("--movement-lab") or args.has("--impact-lab") \
 		or args.has("--impact-matrix") or args.has("--contact-burst") or args.has("--hand-pack") \
 		or args.has("--toon-shot") or args.has("--toon-bisect") or args.has("--curve-flight") \
-		or args.has("--tool-ownership")
+		or args.has("--tool-ownership") or args.has("--reticle-act")
 	# Screenshots belong to diagnostics only; a normal session must not write files.
-	if is_scripted and not args.has("--toon-shot") and not args.has("--toon-bisect") and not args.has("--curve-flight") and not args.has("--tool-ownership"):
+	if is_scripted and not args.has("--toon-shot") and not args.has("--toon-bisect") and not args.has("--curve-flight") and not args.has("--tool-ownership") and not args.has("--reticle-act"):
 		get_tree().create_timer(9.5 if is_demo else 1.8).timeout.connect(capture_screenshot)
 	if is_demo:
 		get_tree().create_timer(11.0).timeout.connect(get_tree().quit)
@@ -74,6 +74,8 @@ func _ready() -> void:
 		_start_demo_script("res://scripts/curve_flight_demo.gd")
 	if args.has("--tool-ownership"):
 		_start_demo_script("res://scripts/tool_ownership_demo.gd")
+	if args.has("--reticle-act"):
+		_start_demo_script("res://scripts/reticle_act_demo.gd")
 
 ## Picks up the session started from the main menu: restores the money counter and
 ## starts tracking playtime for the save slot.

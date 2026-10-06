@@ -63,6 +63,7 @@ $batteries = @(
     @{ Flag = 'hand-pack';        Name = 'Hand packing'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'toon-shot';        Name = 'Cel shading';  Kind = 'result'; Gpu = $true },
     @{ Flag = 'tool-ownership';   Name = 'Tool ownership'; Kind = 'result'; Gpu = $true },
+    @{ Flag = 'reticle-act';      Name = 'Reticle and aim'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'carve-quality';    Name = 'Snow carving'; Kind = 'diagnostic'; Gpu = $true; MinFps = 5 }
 )
 

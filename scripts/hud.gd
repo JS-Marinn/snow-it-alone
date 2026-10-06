@@ -33,6 +33,8 @@ var _last_kg: float = 0.0
 ## Snow across the face. Sits under the HUD text but over the world.
 var _face_blind_rect: ColorRect
 var _face_overlay: TextureRect
+var _reticle_drawer: Control
+var _reticle_state: int = 0
 var _audio_lpf: AudioEffectLowPassFilter = null
 var _audio_bus_idx: int = -1
 var _audio_effect_idx: int = -1
@@ -81,6 +83,7 @@ func _ready() -> void:
 	LocalizationManagerScript.ensure_loaded()
 	LocalizationManagerScript.add_listener(refresh_text)
 	_build_face_overlay()
+	_build_reticle()
 	# The HUD has to keep working while the game is paused: it owns the pause menu, so
 	# being paused must not stop it from reading the key that unpauses.
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -570,6 +573,59 @@ func set_coins(value: int) -> void:
 	if label_coins:
 		label_coins.text = tr("HUD_MONEY") % coins
 
+## Center Reticle: OFF (hidden) / CAN_PACK (white dot & ring) / CAN_CARVE (cyan notch crosshair)
+func _build_reticle() -> void:
+	var legacy_ch := get_node_or_null("Crosshair")
+	if legacy_ch:
+		legacy_ch.visible = false
+	var legacy_ch2 := get_node_or_null("Crosshair2")
+	if legacy_ch2:
+		legacy_ch2.visible = false
+
+	var centre := CenterContainer.new()
+	centre.name = "ReticleCentre"
+	centre.set_anchors_preset(Control.PRESET_FULL_RECT)
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(centre)
+
+	_reticle_drawer = Control.new()
+	_reticle_drawer.name = "ReticleDrawer"
+	_reticle_drawer.custom_minimum_size = Vector2(32.0, 32.0)
+	_reticle_drawer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_reticle_drawer.draw.connect(_on_reticle_draw)
+	centre.add_child(_reticle_drawer)
+	_reticle_drawer.visible = false
+
+func _on_reticle_draw() -> void:
+	if _reticle_drawer == null:
+		return
+	var c := Vector2(16.0, 16.0)
+	match _reticle_state:
+		1: # CAN_PACK (clean white dot & ring for packing snow by hand)
+			_reticle_drawer.draw_circle(c, 3.2, Color(1.0, 1.0, 1.0, 0.95))
+			_reticle_drawer.draw_arc(c, 5.5, 0.0, TAU, 16, Color(1.0, 1.0, 1.0, 0.45), 1.2)
+		2: # CAN_CARVE (distinct cyan notched brackets for carving tools)
+			var col := Color(0.40, 0.85, 1.0, 0.95)
+			_reticle_drawer.draw_circle(c, 1.8, col)
+			_reticle_drawer.draw_line(c + Vector2(-9.0, 0.0), c + Vector2(-4.0, 0.0), col, 1.6)
+			_reticle_drawer.draw_line(c + Vector2(4.0, 0.0), c + Vector2(9.0, 0.0), col, 1.6)
+			_reticle_drawer.draw_line(c + Vector2(0.0, -9.0), c + Vector2(0.0, -4.0), col, 1.6)
+			_reticle_drawer.draw_line(c + Vector2(0.0, 4.0), c + Vector2(0.0, 9.0), col, 1.6)
+
+func _update_reticle() -> void:
+	if not _reticle_drawer or not player_ref:
+		return
+	var state: int = 0
+	if player_ref.has_method("get_reticle_state"):
+		state = int(player_ref.get_reticle_state())
+	elif "reticle_state" in player_ref:
+		state = int(player_ref.reticle_state)
+
+	if state != _reticle_state:
+		_reticle_state = state
+		_reticle_drawer.visible = (_reticle_state != 0)
+		_reticle_drawer.queue_redraw()
+
 func _process(delta: float) -> void:
 	if not player_ref:
 		return
@@ -577,6 +633,7 @@ func _process(delta: float) -> void:
 	_update_tool_label()
 	_update_face_overlay()
 	_update_hint()
+	_update_reticle()
 
 func _update_tool_label() -> void:
 	if not label_tool_name:
