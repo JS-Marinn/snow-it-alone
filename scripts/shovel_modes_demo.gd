@@ -83,6 +83,8 @@ var _sky_mass_before: float = 0.0
 var _shot_done: bool = false
 ## Set once the test pack has been topped up, so the topping loop does not run every frame.
 var _topped_up: bool = false
+## Set once the push phase has started its settle, so its await cannot be re-entered per frame.
+var _push_started: bool = false
 
 
 func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -> void:
@@ -303,7 +305,32 @@ func _ph_read_push() -> void:
 	# correct and measured nothing -- the setup's kilograms arrived afterwards and the verdict
 	# read 137.171 kg of field loss for a 13.717 kg blade, a 900% error made entirely of the
 	# clearing. By the time this line runs, the field has stopped moving.
-	_reset_blade_yield()
+	# GUARDED, because the settle below awaits and the phase machine keeps calling this phase while
+	# the coroutine is suspended. Without the flag it started a new coroutine every frame and the
+	# battery lost whole phases -- measured, it stopped at 8 OK with the push verdict never reached.
+	# Same defect the screenshot phases had.
+	if _push_started:
+		return
+	_push_started = true
+	# WAIT FOR THE LEDGER TO STOP MOVING, then zero it and open the window.
+	#
+	# The strip was cleared with `carve`, which is a QUEUED GPU operation: it hands its kilograms to
+	# the ledger when it runs, frames later. Resetting in the same frame as the carve looked correct
+	# and measured nothing -- those kilograms arrived afterwards and the verdict read 137.171 kg of
+	# field loss for a 13.717 kg blade, an error made entirely of the clearing. Waiting for the
+	# ledger to be still is what makes the window real; a fixed settle time was a guess about how
+	# long the GPU queue is, and the queue's length is not this battery's business.
+	var settle := 0.0
+	var last := _carve_yield()
+	while settle < 3.0:
+		await get_tree().create_timer(0.1).timeout
+		settle += 0.1
+		var now := _carve_yield()
+		if absf(now - last) < 0.001:
+			break
+		last = now
+	_reset_carve_yield()
+	_yield_before = _carve_yield()
 	# Drive the pushing path for a fixed number of steps, each one a frame's worth.
 	var dt := 1.0 / 60.0
 	_push_seconds = 0.0
