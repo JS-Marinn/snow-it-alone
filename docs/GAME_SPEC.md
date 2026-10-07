@@ -136,14 +136,22 @@ hold. That is the whole contract: **your numbers, these rules.***
 
 ## 2. The snow — the technique
 
-> **This is a GPU heightfield-deformable-terrain technique with granular materials**, of the family
-> used by *Red Faction: Guerrilla* for destructible terrain and by *God of War* for snow — a
-> texture-based heightfield simulated on the GPU, with material state per texel and a granular
-> relaxation solver. **It is not the technique behind *Donkey Kong Country***: that game (Rare, 1994)
-> is famous for **pre-rendered sprites produced on SGI workstations** — computer-modelled imagery
-> baked into 2D art — which is a rendering pipeline choice and has nothing to do with simulating a
-> deformable material. If a reference is needed, reach for the heightfield-deformation family, not
-> for pre-rendered art.
+> **This is a GPU heightfield-deformable-terrain technique with granular materials** — a texture-based
+> heightfield simulated on the GPU, with material state per texel and a granular relaxation solver.
+> The family is the one used by *Red Faction: Guerrilla* for destructible terrain and by *God of War*
+> for snow.
+>
+> **Do not confuse it with two things whose names sound similar:**
+>
+> - ***Donkey Kong Country*** (Rare, 1994) is famous for **pre-rendered sprites produced on SGI
+>   workstations** — computer-modelled imagery baked into 2D art. That is a rendering-pipeline choice
+>   and has nothing to do with simulating a deformable material.
+> - ***Donkey Kong Bananza*** (Nintendo, 2025) is a **voxel** engine — its world is voxels, and almost
+>   everything in it can be destroyed. **This is genuinely a different technique from the one
+>   specified here**, and the choice between them is a design decision this game has already made.
+>   **Read §2.13 before assuming voxels would be better**, because for a snow-shovelling game they
+>   very probably are not — and the reason is a limitation of the heightfield that must be accepted
+>   knowingly rather than discovered later.
 
 > **You are expected to IMPROVE this model, and every improvement must be judged on PERFORMANCE
 > first.** See §2.12.
@@ -418,6 +426,64 @@ and the machine running. "It runs fine in an empty field" is not a measurement.
 **And the constraint that must not be traded away:** performance work may change *resolution,
 frequency and iteration counts*, and must **not** change the **invariants** — mass conservation, the
 mass rule of §4.3, or the model's structure. **Make it cheaper; never make it lie.**
+
+### 2.13 Heightfield versus VOXELS — the choice, and the price of it
+
+The obvious question on reading §2 is: ***Donkey Kong Bananza* destroys everything with voxels — why
+not do that?** ([Nintendo's own account of the voxel work is worth reading](https://www.nintendo.com/au/news-and-articles/ask-the-developer-vol-19-donkey-kong-bananza-chapter-2/).)
+It is a fair question and it deserves a real answer, because **this design has already chosen, and
+the choice has a cost that must be accepted knowingly.**
+
+**A heightfield stores ONE height per position `(x, z)`.** A voxel grid stores a volume, and can
+therefore express **full 3D shape**: overhangs, tunnels, caves, and material suspended above empty
+space. The practical difference:
+
+| | **Heightfield** (this design) | **Voxels** (Bananza's family) |
+|---|---|---|
+| Shape it can express | A surface. One height per column | Anything, including overhangs and voids |
+| Digging a tunnel | **Impossible** — you can only make the surface lower | Natural |
+| Collapse / cave-in | **Not representable** | Natural, and a whole gameplay system |
+| Memory | Small and fixed: one texture | **Scales with volume**, and is the defining cost |
+| Per-frame simulation cost | Bounded by a fixed grid; cheap and predictable | Far heavier, and the hard problem is keeping it stable |
+| Shader complexity | One texel, a few neighbours | Neighbourhood volume, meshing, and streaming |
+| **What the player can do to it** | **Shape the surface: dig, push, pile, flatten, carve** | **Remove and destroy arbitrary material** |
+
+**So the trade is stark and simple: a heightfield buys predictability and cost, and pays for them with
+everything below the surface.**
+
+**Why this game takes the heightfield:**
+
+- **Snow is a surface material.** Snow falls from above, piles up, and is cleared from above. It does
+  not form caves, and a snow tunnel is not a thing the fiction wants.
+- **The core verb is SHAPING, not DESTROYING.** The player digs, pushes, piles, flattens and carves.
+  All of those are surface operations, and all of them are cheaper and more stable on a heightfield
+  than they would be on voxels.
+- **Mass accounting is exact and simple** (§2.4): one value per column, and the ledger follows from
+  it. In a voxel world, "how much snow did that push move" is a volumetric question.
+- **Performance is a stated requirement** (§2.12). A heightfield's cost is fixed by the grid; a voxel
+  world's cost is a problem to be solved continuously.
+
+**What this design therefore CANNOT do, and must not be asked to:**
+
+1. **No tunnels, caves or overhangs in snow.** If a level design calls for digging into a hillside and
+   emerging on the other side, **that is a mesh problem, not a snow problem** — build it as static
+   geometry that the snow surface sits on top of.
+2. **No structural collapse of snow.** A roof of snow falling in is not representable. **Do not design
+   a mechanic that depends on it** without changing the technique.
+3. **Underneath an overhang, the heightfield still has a value.** There is no "empty" — a column has a
+   height, and geometry above it is scenery. **This is the single most common source of confusion when
+   mixing heightfield snow with arbitrary level geometry**, and it should be stated in the code.
+
+**If a future design genuinely needs any of those three, the response is not to change the snow
+technique — it is to reconsider whether the design needs them.** A game can be built around shaping a
+surface for years. **A game built on both would pay for both.** And if the decision is ever revisited,
+it should be revisited **early and with a measured prototype**, not by accreted exceptions on top of a
+heightfield.
+
+> **A note on combining them:** some games use a heightfield for the ground and voxels only where
+> destruction matters. **That is a legitimate option and an expensive one** — two material systems mean
+> two sets of rules, two collision paths, and two ways for mass to be lost. **It is not a free upgrade
+> and should not be adopted casually.**
 
 ---
 
@@ -1473,7 +1539,7 @@ the gap the week of release.
   for this project: **premium, no microtransactions, no battle pass.** If that changes, change it
   deliberately.)
 
-### 15.2 Art and audio
+### 15.2 Art
 
 - **An art direction with a stated reference**, so that "does this look right" has an answer. The
   current look is **stylised, low-poly, cel-shaded**.
@@ -1485,13 +1551,126 @@ the gap the week of release.
   its own decisions**, including the shadow rule in §2.5.
 - **VFX for the material**: impact sprays, the powder cloud on breakage, footprints, the machine's
   output. **The breakage system already has an art hook** (§5.3) — use it rather than rebuilding it.
-- **Audio: buy it in or make it, but plan it.** A labour game is **heard more than watched** — a
-  shovel scraping, a ball thudding, snow compacting. **Audio is the cheapest way to make work feel
-  satisfying**, and the cheapest thing to forget until the end.
 - **A placeholder policy**: programmatic primitives are legitimate stand-ins, **but they must be
   marked as such in the code and tracked**, or they ship.
 
-### 15.3 Accessibility
+### 15.3 AUDIO — build the whole system, leave the tracks empty
+
+**This is an instruction about scope, and it is specific: build the audio SYSTEM completely and
+prepare a slot for every track. The tracks themselves are not needed — the owner will supply them.**
+
+**So do not skip audio, and do not stub it either.** The failure this prevents is the common one: audio
+is left until last because there is nothing to play, and then every sound is wired in a panic with
+different conventions.
+
+**What must exist, with no content in it:**
+
+- **A named catalogue of every sound the game needs**, so the set is known before anything is
+  recorded. It should cover at least:
+
+  | Group | What is in it |
+  |---|---|
+  | Footsteps | Per surface: powder, packed, cleared, pavement, shallow water or slush |
+  | Shovel | Scrape (looping, pitched by load and speed), bite/cut, jam, release/pour, tamp |
+  | Blower | Motor loop with a load-dependent pitch, intake, output |
+  | Salt | Pour loop, scatter |
+  | Snow impacts | Light, medium, heavy, and a burst for breaking |
+  | Bodies | Ball roll (looping, pitched by size and speed), ball settling, ball creaking under load |
+  | The machine | Motor under load, feed thud, coin/payout chime, idle hum |
+  | Interface | Menu move, menu confirm, menu back, refusal, purchase, autosave tick |
+  | Player | Stagger, knockdown, hit by snow, face-full of snow, wipe |
+  | Ambience | Wind loop, falling snow, distance |
+  | Music | Menu, level, and the state changes between them |
+
+- **A track definition with its metadata declared**, so that dropping a file in is the whole job. Each
+  slot declares: a **name/key**, the **file path** it will load from, **looping or one-shot**,
+  **bus/channel routing**, **base volume**, **pitch-randomisation range** (so repeated footsteps are
+  not machine-gun-identical), **polyphony limit** and, where relevant, the **runtime parameter that
+  drives its pitch or volume** (speed, load, size, distance).
+- **The audio buses defined up front**: `Master`, `Music`, `SFX`, `Ambience`, `UI`. **All routing is
+  through them from day one** — this is what makes the settings in §9.7 work, and retrofitting buses
+  after the fact means touching every play call.
+- **A missing file must be a warning, never a crash**, and must be visible in the log so an empty slot
+  is obvious rather than silent.
+- **Placeholders that make the silence informative**: a programmatic tone or noise on each wired-up
+  event is better than nothing, because it proves the trigger fires. **A sound event that never
+  fires is the actual bug, and a placeholder is how you find it before the real asset exists.**
+- **Every event trigger wired to its slot**, so the game is audibly complete with placeholder tones and
+  becomes real the moment files appear.
+- **A debug facility**: a way to list the slots, see which are empty, and trigger any of them on
+  demand. **The cheapest QA tool for audio is a test page**, and it costs an afternoon.
+- **Document the format expected** (sample rate, mono or stereo, loop metadata, normalisation target)
+  so the provided tracks drop in without a conversion pass.
+
+**Why this matters even with no content:** a labour game is **heard more than watched** — a shovel
+scraping, a ball thudding, snow compacting — and **audio is the cheapest way to make work feel
+satisfying**. Leaving the system unbuilt because the tracks do not exist yet means the feel cannot be
+evaluated at all, and the feel is the product.
+
+### 15.4 The experience around the game — the things new developers skip
+
+**This is the other half of "professional", and it is the half most often missing.** The list below is
+not polish; **each item is something a player will hit, and each one is routinely left undone.**
+
+**Menu structure, as a map to be designed — not discovered**
+
+- **Every screen drawn out before it is built**: title, main menu, level select or loading, in-game
+  HUD, pause, settings, controls/rebinding, save slots, credits, quit confirmation, and the
+  level-complete and failure states.
+- **The path in and out of every screen defined**, plus **how to get back** from anything (§9.7).
+  A screen with no exit is a bug, not a rough edge.
+- **The first-run experience decided**: what a brand-new player sees, what defaults they begin with,
+  and **whether anything is explained or asked before they play**. Defaults are a design decision —
+  a new player should never be handed a settings maze before their first minute of play.
+- **A loading story**: what is shown, how long, whether it can be skipped, and **what happens on the
+  very first launch**, which is always slower.
+
+**Configuration, and the list is longer than most people expect**
+
+- **Display**: resolution, window mode (windowed, borderless, fullscreen), V-sync, frame-rate cap,
+  monitor selection for multi-monitor, and **brightness/gamma**.
+- **Graphics quality that actually drives the simulation** — the preset levels must map to the snow
+  resolution and iteration counts of §2.12, and **changing them must never change the physics**, only
+  its fidelity.
+- **Audio**: the buses above, each independently adjustable, **with 0 being a legal value** and a mute
+  that remembers the previous levels.
+- **Controls**: separate mouse and stick sensitivity, invert-Y (both axes), and **conflict detection
+  when rebinding** so two actions cannot silently share a key.
+- **Language selection**, and **whether it applies immediately or needs a restart** — decide, and say
+  so in the interface.
+- **Accessibility options** (§15.5) surfaced in the same place as everything else, not hidden.
+- **Every setting persists** (§9.8), is applied at startup, and **survives a version change** —
+  adding a new setting must not reset the others.
+- **Restore defaults**, per section and globally.
+
+**The states nobody designs until they break**
+
+- **Save slots**: create, load, overwrite, delete, with confirmation and enough identity to tell them
+  apart (§9.8).
+- **Level select and progress presentation**, if there is one.
+- **The "you have no save" and "your save is from a newer version" paths** — both are real, both are
+  seen, and both are usually a blank screen.
+- **The victory and failure screens**, including **what the player can do next**.
+- **Quitting properly** — from the pause menu, from the main menu, and by closing the window, all of
+  which should ask the same question and give the same answer.
+- **The credits**, which are legally required in most jurisdictions and are always forgotten.
+- **Window focus loss, alt-tab, and monitor changes** — decide the behaviour (§9.7).
+
+**And the low-chrome details that separate a build from a product**
+
+- **Localisation-ready layout** (§9.6) — nothing clipped when a German word is twice the length.
+- **A visible version number** in the interface, matching the build marker (§9.6).
+- **Mouse cursor behaviour**: captured in play, visible in menus, **and never trapped**.
+- **Every default sensible out of the box**, because most players never open settings at all. **The
+  defaults are the game that most people will play.**
+- **A title screen that costs nothing to skip** on the second launch.
+
+> **If a line here is not applicable, say so in the plan. Do not leave it unconsidered** — this list
+> exists because "we will handle that later" is how a finished-looking game ships without a credits
+> screen or a way to change the volume.
+
+
+### 15.5 Accessibility
 
 **Plan this before content exists, because retrofitting it is far harder.** At minimum:
 
@@ -1506,7 +1685,7 @@ the gap the week of release.
 - **Consider the player who cannot use two hands on a mouse or controller** before designing a
   two-button mechanic — or provide an alternative.
 
-### 15.4 Quality assurance
+### 15.6 Quality assurance
 
 - **A formal test plan.** The automated checks in §12 are its backbone, **not a substitute for
   playing the game**.
@@ -1523,7 +1702,7 @@ the gap the week of release.
   check if it can be expressed as one.
 - **A release checklist**, performed on the release candidate and not before.
 
-### 15.5 Build, distribution and release
+### 15.7 Build, distribution and release
 
 - **Reproducible builds**, and a version number that appears in the interface **and in the save file**.
 - **The build marker from §9.6 wired into the real build**, not just the development run.
@@ -1531,22 +1710,22 @@ the gap the week of release.
   ways.
 - **A store presence**: page, screenshots, trailer, description — and **those are deliverables with
   deadlines**, not marketing afterthoughts.
-- **Legal**: the **licence record** (§15.5), the age rating, and the EULA or privacy obligations if any
+- **Legal**: the **licence record** (§15.7), the age rating, and the EULA or privacy obligations if any
   data leaves the machine.
 - **Crash reporting and a way to receive player feedback**, if the platform allows it — with the
   player's consent.
 - **A rollback plan.** A broken release is worse than a late one.
 
-### 15.6 Live and long-term
+### 15.8 Live and long-term
 
 - **A patch process**, and a **save-format migration plan** (§9.8) for the day the format changes.
 - **A content plan** for after release — or an explicit decision that there is none.
 - **Telemetry is optional and must be consensual.** If the game has none, say so deliberately, because
-  it means tuning has to come from playtests (§15.4) instead.
+  it means tuning has to come from playtests (§15.6) instead.
 - **Localisation is a decision, not a default.** The infrastructure in §9.6 costs little and should
   exist regardless; **how many languages ship** is a budget question.
 
-### 15.7 The engineering habits that make the rest possible
+### 15.9 The engineering habits that make the rest possible
 
 - **A single source of truth for shared work.** A job that must be done in two places will be done
   correctly in one of them (§10.1).
