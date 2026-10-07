@@ -42,14 +42,15 @@ design the answer is no, and that is what makes the machine the destination.
 
 ## 2. The snow itself
 
-This is the heart of the game and the most expensive thing to get wrong. It is a **GPU simulation**.
+This is the heart of the game and the most expensive thing to get wrong. **§2c describes the
+technique; read it before designing anything else.** What follows here is the numeric envelope.
 
 | Property | Value | Meaning |
 |---|---|---|
-| `TEX_SIZE` | 512 | Simulation grid resolution |
-| `COARSE_SIZE` | 64 | CPU-readable "coarse mirror" |
-| `MAX_OPS` | 12 | Field operations per frame |
-| `BUCKETS` | 192 | Sideways pressure transfer buckets |
+| `TEX_SIZE` | 512 | Simulation grid (512² RGBA32F, ping-ponged) |
+| `COARSE_SIZE` | 64 | CPU-readable mirror, the only thing gameplay reads |
+| `MAX_OPS` | 12 | Field operations per frame — **a hard budget, see §2c** |
+| `BUCKETS` | 192 | Sideways pressure-transfer buckets for the granular relaxation |
 | `RELAX_ITERATIONS` | 8 | Relaxation iterations per frame |
 | `SETTLE_TIME` | 2.5 s | Time for disturbed snow to settle |
 | `DEPOSIT_LAMBDA` | 0.16 | Snowfall deposition falloff |
@@ -63,11 +64,11 @@ This is the heart of the game and the most expensive thing to get wrong. It is a
 **Everything gameplay reads comes from the 64-wide coarse mirror, and it is quantised.** Two
 consequences, both measured, and both of which cost real time:
 
-1. **A whole-field mass integral drifts by more than a bucket-sized change.** Measured: the same
-   untouched world read **23199.15 kg** and then **23202.04 kg**. A 12 kg bucket is 0.05 % of the
-   field; the drift is several kilograms. *Any rule of the form "the total mass must be unchanged"
-   is unmeasurable at that scale.* If the rebuild needs mass accounting, it needs a **ledger** —
-   an exact counter incremented where the snow is actually removed — not an integral.
+1. **A whole-field mass integral drifts by more than a small delivery.** Measured: the same
+   untouched world read **23199.15 kg** and then **23202.04 kg**. The drift is several kilograms,
+   while what gets delivered is a few. *Any rule of the form "the total mass must be unchanged" is
+   unmeasurable at that scale.* If the rebuild needs mass accounting it needs a **ledger** — the
+   per-operation volume the simulation already reports (mode 6, §2c) — not an integral.
 2. **Small local changes are visible where totals are not.** A 22 cm harvest disc is readable even
    though the whole-field integral cannot resolve it. Measure locally, or keep a ledger.
 
@@ -85,32 +86,222 @@ Surfaces are classified by **cohesion and height**, and the classification drive
 Measured reference points: untouched dry snow sits near **cohesion 0.20**; a tamped strip near
 **0.68**.
 
-### The field operations
-
-These are the verbs the simulation offers. A rebuild needs equivalents for all of them.
-
-| Operation | What it does |
-|---|---|
-| `carve_shovel` | A directional bite: takes snow from a blade-shaped area and **returns the kilograms it removed** |
-| `carve` | Radial clearing over a radius |
-| `dump_snow` | Injects mass as loose wet snow |
-| `tamp` | Compacts: raises cohesion, lowers height |
-| `harvest` | Removes a disc of snow for packing |
-| `footprint` | A dent where the player walked |
-
-**`carve_shovel` must return what it removed.** This is the hook that makes mass accounting possible,
-and in the current build it is what the player's own push ledger counts. Its return value is
-estimated from a probe with **latency** — the value can be zero on the frame an operation is queued
-— which is why anything measuring mass must account for the queue and not just the call.
-
 ### Snowfall
 
-Deposition is continuous, with a falloff (`DEPOSIT_LAMBDA`, `DEPOSIT_LENGTH`) so drifts build where
-you would expect.
+Deposition is continuous, with a falloff (`DEPOSIT_LAMBDA = 0.16`, `DEPOSIT_LENGTH = 0.70`) so
+drifts build where you would expect.
 
 ---
 
-## 2b. HOW THE SNOW IS BUILT — the construction method
+## 2b. THE PHYSICS TECHNIQUE — how the snow model actually works
+
+**Read this section before designing anything.** The previous draft of this document described the
+snow as "a GPU simulation with a coarse mirror", which is true and useless. This is the actual
+model, taken from `shaders/snow_sim.glsl` and `docs/fisicas_nieve.md`.
+
+### The representation: a heightfield with a material state
+
+A **`RGBA32F` texture, 512 × 512, ping-ponged**, over the field. Four channels, and the choice of
+what goes in each one *is* the model:
+
+| Channel | Meaning |
+|---|---|
+| **R** | **Total height.** `1.0` means `snow_depth` metres |
+| **G** | **Loose** — the movable fraction. **Only this part can flow** |
+| **B** | **Cohesion / moisture** — modulates the internal friction angle |
+| **A** | Relaxation scratch: `+scale` = the cell is at rest, `−scale` = the cell is flowing |
+
+**The key idea: height alone is not snow.** The same height with different `G` and `B` behaves
+completely differently — that is how dry powder and a packed path can look identical and walk
+differently. A rebuild that models only height will not be able to express this game.
+
+**Strict mass conservation** across the two-phase flow is a stated property of the system.
+
+### The angle of repose, with hysteresis
+
+This is the granular rule that makes heaps behave.
+
+- A cell **at rest** must exceed the **static** angle to start moving: `dynamic + hysteresis`, by
+  default **32° + 8° = 40°**.
+- A cell **already moving** settles at the **dynamic** angle, **32°**.
+- **Cohesion raises both.** Dry snow (`B ≈ 0`) flows at **32°**; wet and packed snow (`B → 1`) holds
+  up to **54°**.
+
+**Two-phase hysteresis is why a pile has a definite shape and does not creep.** A single angle makes
+heaps melt into flat cones over time.
+
+### The compute modes
+
+Each mode is a dispatch. A rebuild needs an equivalent of every row, because together they are the
+whole vocabulary of the material.
+
+| Mode | Function |
+|---|---|
+| 0 | **Blade collects** the snow under the plate. `max_cut > 0` turns it into a **chisel**, which is how free sculpting works |
+| 1 | **Blade deposits** its load in front of it, forming a heap |
+| 2 | **Stamps**: boot print (sinks and compacts) and radial clearing (salt breaks cohesion) |
+| 3 | **Dump**: injects free volume with a **conical profile**, flagged loose and wet |
+| 4–5 | **Granular relaxation in two passes** (output scale + transfer) |
+| 6 | **Statistics, probes, and the volume removed per operation** |
+| 7 | **Tamp**: flattens by diffusion and settles plastically by pushing mass outwards |
+| 8 | **Harvest**: cylindrical mowing along a segment (accretion and sculpting) |
+| 9 | The reduced **64 × 64 mirror** for CPU queries |
+
+**Mode 6 is where mass accounting comes from.** "Volume removed per operation" is a first-class
+output of the simulation, which is what makes an exact ledger possible at all.
+
+### The CPU mirror, and why gameplay must not read the full texture
+
+Every frame the GPU writes a **64 × 64** summary — **mean height, mean loose snow, mean cohesion and
+maximum height per block** — which the CPU reads **asynchronously**.
+
+It resolves: the player's support on heaps, the shovel's resistance, the rolling of balls, and the
+pinning of objects. **Gameplay never reads the 512² texture.**
+
+**The consequence that has cost this project the most time:** the mirror is **quantised**, so:
+
+1. **A whole-field mass integral drifts by more than a small delivery.** Measured: the same
+   untouched world read **23199.15 kg** and then **23202.04 kg**. That drift is several kilograms,
+   while the things that get delivered are a few kilograms. **Any rule of the form "the total mass
+   must not change" is unmeasurable at this scale.** Mass accounting needs a **ledger** — an exact
+   counter taken where the snow is removed (mode 6's per-operation volume) — not an integral.
+2. **Small local changes are visible where totals are not.** A 22 cm harvest disc is readable even
+   though the whole-field integral cannot resolve it. **Measure locally, or keep a ledger.**
+
+### Resolution, and the aliasing trap
+
+| Quantity | Value |
+|---|---|
+| Simulation texel | **1.56 × 2.34 cm** (512² over 8 × 12 m) |
+| Snow mesh vertex spacing | **2.5 cm** (`mesh_subdiv_x/z` = 320 × 480) |
+
+**The two grids do not match, and sampling the map raw produced aliasing**: the edges of collected
+snow came out in **dark "teeth" with inverted normals**.
+
+**The rule: rendering must read the map through ONE filtered sample whose radius is derived from the
+actual mesh subdivision**, and **displacement, colour mask and normals must all use that same
+filtered value** so geometry and lighting agree. In the current build this is `sample_height()` with
+its radius set from the mesh subdivision.
+
+Three settings that go with it, each fixing a specific artefact:
+
+- **A narrow snow→pavement mask** — `smoothstep(0.010, 0.060, h)` — for a clean edge.
+- **Softened SSAO** (radius 1.15 · intensity 0.85): it used to darken the bottoms of hollows too
+  much.
+- **Lighter pavement** (wet slate), so contrast with the snow does not turn any irregularity into a
+  black patch.
+- **The viewmodel casts NO shadow.** The shovel plates are very thin, and with a low sun the shadow
+  stretched into a blue "needle" over the snow.
+
+### The public API the technique exposes
+
+`dump_snow(pos, kg, radius)`, `tamp(pos, radius, strength)`,
+`request_harvest(owner, from, to, radius, depth)`,
+`carve_shovel(pos, dir, width, length, max_cut_m)`, `get_height_at(pos)`,
+`get_support_snow_height(pos)`, `get_cohesion_at(pos)`, `get_loose_fraction_at(pos)`.
+
+**`carve_shovel` must return what it removed.** That is the hook mass accounting hangs on. Its value
+is estimated from a **probe with latency** — it can be **zero on the frame an operation is queued** —
+so anything measuring mass must account for the queue, not just the call. See §2c.
+
+### Bodies on snow: a spring along the terrain normal
+
+Objects do not collide with a snow mesh. They ride a **spring-damper along the terrain normal**,
+critically damped, with a rest penetration of about **2.4 cm**, and friction applied to the **actual
+sliding at the contact point** so the torque produces **pure rolling** instead of braking the body.
+
+| Constant | Value |
+|---|---|
+| `SUPPORT_STIFFNESS` | 400.0 |
+| `SUPPORT_DAMPING` | 40.0 |
+| `CONTACT_FRICTION` | 0.85 |
+| `NORMAL_SAMPLE_OFFSET` | 0.16 m |
+
+**A body riding the spring must NOT also collide with the terrain**, or it is supported twice.
+
+### Accretion: how a ball grows
+
+Every **12 cm travelled** the ball **mows a strip the width of its footprint** and absorbs the
+**exact volume the GPU reports**, leaving the clean furrow behind:
+
+```
+R = ∛(R³ + 3ΔV / 4π)
+```
+
+**The mowing only joins points that were in continuous contact with the snowpack.** The anchor is
+invalidated as soon as the ball is clearly in the air, and any jump larger than `MAX_HARVEST_STEP`
+(**0.45 m**) re-anchors **without mowing**.
+
+**Why that rule exists, measured:** without it, landing after a throw scratched a **straight strip
+from the throw point to the landing point** — an unnatural "line" drawn across the snow.
+
+### Density rises with size — the ball is NOT a pure R³
+
+```
+m = 4/3 · π · R³ · ρ(R)
+```
+
+**`ρ(R)` rises from 300 to 470 kg/m³** with size: the snow compacts and expels air as it rolls. **A
+ball therefore weighs more than its volume at constant density.**
+
+Measured reference masses: **2 kg at r = 0.12 · 32 kg at r = 0.28 · 73 kg at r = 0.36 · 266 kg at
+r = 0.52.**
+
+**Consequences that follow:**
+
+- **Rolling resistance grows with the cube of the size.** A small ball rolls a long way; a giant one
+  is stopped almost immediately.
+- **Godot derives inertia from mass and shape**, so it updates itself — no separate inertia curve to
+  maintain.
+- **The push is by FORCE, not acceleration**, so the same force moves a light ball a lot and a heavy
+  one barely at all.
+
+> **⚠ A DOCUMENTATION DRIFT TO RESOLVE.** The technique document says `PUSH_FORCE_NEWTONS = 260 N`
+> capped at **26 m/s²**. The code reads **380 N** capped at **32 m/s²**. Same for the break threshold:
+> the document says **7 m/s**, the code says a tiered **2.5–5.0 m/s** depending on ball size (§5).
+> **One of the two is stale and the document does not say which.** Do not carry either forward without
+> checking against the build you are porting from.
+
+### Breaking, and why mass stays closed
+
+Above the break threshold a ball **breaks apart**, and the split is specified:
+
+- **55 % of its mass returns to the snowpack right at the impact point** (`dump_snow`).
+- **The rest is spread as a shower of fragments** with scatter velocities, plus a powdered-snow cloud
+  and a sound.
+- **Chunks that lose their energy dissolve and reintegrate their volume** into the pack.
+- **Rolling or falling gently does not break it.**
+
+So **what was a ball becomes a heap plus chunks that are reabsorbed** — the mass stays closed, which
+is the same invariant as everywhere else.
+
+**Hook for final art:** fragments and the cloud are **provisional** (spherical chunks and CPU
+particles). Assigning a pre-fractured scene to the fragment and puff slots makes
+`_make_fragment()` instantiate the real art, and **the rest of the system — mass, impulses,
+reabsorption — does not change.** A rebuild should keep that seam.
+
+### Stacking and pinning: the "no assembly buttons" design
+
+The guiding idea of the whole physics document, in its own words: **there are no guided missions and
+no assembly buttons** — four systems cooperate and the snowman, the wall or the sculpture appear as a
+consequence of the same rules.
+
+- **Stacking by snow bonding.** When a ball rests centred on another and both are almost still, a
+  **physical joint is consolidated** (a locked 6-DOF joint) that gives the snowman its mechanical
+  stability. **A strong impact breaks it.** The balls are **always clean spheres** — there is no added
+  deformation geometry.
+- **Pinning.** Branches, stones, carrots and coal carry a **`sharpness`**. If the tip penetrates snow
+  with enough cohesion (or a ball) it is fixed with a **real pin joint** or by kinematic freezing.
+  They are **extracted by pulling**, they **pop off if the ball rolls fast**, and they **fall on their
+  own if the snow holding them is shovelled away.**
+
+**That last clause is the design in one line:** an object is held by the snow, so removing the snow
+removes the support. A rebuild should preserve it, because it is what makes the material feel like a
+material rather than a surface.
+
+---
+
+## 2c. HOW THE SNOW IS BUILT — the construction method
 
 This section was missing from the first draft and it is one of the most important ones: the game
 **manufactures** its snow out of the same operations the tools use, and there is a measured rule
