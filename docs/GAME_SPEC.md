@@ -18,14 +18,42 @@ you are using.
 
 ## 1. What this game is
 
-**Snow It Alone.** A co-op snow-shovelling game. First person. One to two players.
+**Snow It Alone.** A co-op snow-shovelling game. First person. **One or two players.**
 
 The loop: snow falls and piles up; the player clears it with tools; the cleared area is progress;
 delivered snow earns money; money buys better tools. It is a **labour game** — the satisfaction
 comes from work becoming visibly done, and from a material that behaves like a material.
 
-**It must be playable and enjoyable solo.** A second player is a bonus, never a requirement. This is
-a hard constraint on every co-op feature: it has to have a solo answer.
+### The co-op rule, and it cuts both ways
+
+**Build it as a co-operative game from the start, and make it perfectly playable alone.**
+
+These are not in tension if the design is right, and getting them out of order is expensive — **a
+co-op game retrofitted onto a single-player design is two games in one codebase**, and a
+single-player mode bolted onto a co-op design is a mode nobody plays.
+
+**So both are first-class, from the first day:**
+
+- **Co-op first in the design:** division of labour is a design material. Two players can split a
+  field, one can shovel while the other hauls, one can load while the other drives the machine.
+  **Any mechanic that only one player can operate is a mechanic that halves in co-op** — decide
+  deliberately whether that is intended.
+- **Solo always in the design:** every co-op feature needs a solo answer — a way for one player to
+  accomplish it, even if it takes longer. **A feature that is impossible alone is not a feature, it
+  is a wall.**
+- **The work scales, not the rules.** With two players there is twice the snow and twice the hands.
+  **Do not resolve co-op by changing what a tool does** — the same shovel must behave the same way
+  whether one or two people are holding shovels. Scale the *job*, not the *physics*.
+- **Nothing may depend on a second player being present to be understandable.** If a player cannot
+  tell what their partner is doing and why it matters, the co-op is decorative.
+- **Test both, always.** Every acceptance check in §12 should be runnable in both configurations
+  where the system touches cooperation. **A check that only ever ran solo does not prove the game
+  works solo, and it proves nothing at all about co-op.**
+
+**The safe anti-pattern to avoid:** designing for one player and "adding multiplayer later". By the
+time it is added, every system has a single-player assumption baked into it — who owns the tool, who
+gets the money, whose aim decides the pack. Those are cheap to decide now and very expensive to
+change later.
 
 ### The one rule that produces most of the game
 
@@ -107,6 +135,18 @@ hold. That is the whole contract: **your numbers, these rules.***
 ---
 
 ## 2. The snow — the technique
+
+> **This is a GPU heightfield-deformable-terrain technique with granular materials**, of the family
+> used by *Red Faction: Guerrilla* for destructible terrain and by *God of War* for snow — a
+> texture-based heightfield simulated on the GPU, with material state per texel and a granular
+> relaxation solver. **It is not the technique behind *Donkey Kong Country***: that game (Rare, 1994)
+> is famous for **pre-rendered sprites produced on SGI workstations** — computer-modelled imagery
+> baked into 2D art — which is a rendering pipeline choice and has nothing to do with simulating a
+> deformable material. If a reference is needed, reach for the heightfield-deformation family, not
+> for pre-rendered art.
+
+> **You are expected to IMPROVE this model, and every improvement must be judged on PERFORMANCE
+> first.** See §2.12.
 
 > **The values in this section are starting points you may tune. The MODEL STRUCTURE is not** — the
 > four channels, the two-phase angle of repose with hysteresis, cohesion as a real quantity, and the
@@ -338,6 +378,46 @@ Surfaces are classified by **cohesion and height**, and the classification drive
 | Powder | untouched dry snow | slowest |
 
 Reference points: **untouched dry snow sits near cohesion 0.20; a tamped strip near 0.68.**
+
+### 2.12 PERFORMANCE — a first-class requirement, not an optimisation pass
+
+**Improve this model, and judge every improvement on performance first.** A snow simulation is a
+per-frame cost paid on every frame forever, and a technique that is elegant on paper and slow in a
+full field is not an improvement.
+
+**The budget is not a suggestion: the game must hold its frame rate on the target machine with the
+field in its worst state** — mid-avalanche, several bodies riding the snow, two players, snow falling,
+and the machine running. "It runs fine in an empty field" is not a measurement.
+
+**The concrete rules that fall out of this:**
+
+- **The simulation grid is a resolution/quality dial, not a constant to defend.** If a lower
+  resolution still feels right at full field, take it. **Feel is the requirement; the number is a
+  variable.**
+- **Gameplay must read the small CPU mirror, never the full texture** (§2.4). This is already a
+  performance rule as much as an accuracy one — a full-texture read stalls the CPU against the GPU.
+- **There is a hard operation budget per frame** (§2.8). Exceeding it does not slow things down, it
+  **silently drops work** — the worst kind of performance bug, because the game keeps running and
+  quietly loses what the player did.
+- **Relaxation is the expensive part.** Iterations and the active-region concept exist to bound it:
+  **only relaxed where something was disturbed, and only as many iterations as the look requires.**
+  An always-on full-field solver is the classic way this technique becomes unshippable.
+- **Mesh resolution follows the simulation's, not the other way round.** The two grids must be chosen
+  together, or the filtering that fixes aliasing (§2.5) costs more than it should.
+- **Measure before and after, every time, and record the number.** A change to the physics with no
+  frame-time measurement is a guess — and this is the single easiest place in the project for a
+  "small" change to halve the frame rate.
+- **Keep the cost visible.** A performance counter for the simulation (frame time, relay/dispatch
+  cost, active region size) should exist from early on, because the day it is needed is not the day to
+  build it.
+- **The same applies to the bodies**: the number of balls and chunks alive at once is a design
+  budget, not just a physics question. **Cap it deliberately and give the player a visible
+  consequence** (chunks dissolving and reabsorbing is that mechanism — use it rather than letting the
+  count grow).
+
+**And the constraint that must not be traded away:** performance work may change *resolution,
+frequency and iteration counts*, and must **not** change the **invariants** — mass conservation, the
+mass rule of §4.3, or the model's structure. **Make it cheaper; never make it lie.**
 
 ---
 
@@ -615,8 +695,7 @@ larger than `MAX_HARVEST_STEP` (**0.45 m**) re-anchors **without mowing**.
 Above the break threshold a ball **breaks apart**, and the split is specified:
 
 - **55 % of its mass returns to the snowpack at the impact point** (a `dump_snow`).
-- The rest is a **shower of fragments** with scatter velocities, plus a powdered-snow cloud and a
-  sound.
+- The rest is a **shower of fragments** with scatter velocities, plus a powdered-snow cloud.
 - **Chunks that lose their energy dissolve and reintegrate their volume** into the pack.
 - **Rolling or falling gently does not break it.**
 
@@ -713,7 +792,7 @@ leave in the source is essentially: *"one day someone will change the collision 
 the zone cannot pick up something that is not loose snow because it does not collect those at all.
 
 > **A decision to make explicitly.** In the design as handed to you, `accept()` has **no caller** —
-> there is no carrying container in this game (§11). **Keep it as the documented extension point and
+> there is no carrying container in this game (§10). **Keep it as the documented extension point and
 > label it as currently unused**, or drop it. What must not happen is an API with no caller that
 > nobody labels as such, because the next person concludes the feature is half-built.
 
@@ -742,8 +821,9 @@ mouth at `(0, 1.05, −0.65)`, machine body **1.70 × 1.50 × 1.20 m** centred a
 Three things must exist, and **none of them needs a model**:
 
 - **A visible output spout**, so it is clear where it spits.
-- **Output sound**: the motor under load, and the thud of snow landing in the box.
 - **A counter: "Snow sent: X kg."**
+- **Readable state at a glance** — the player must be able to tell, without stopping, that the
+  machine is working and roughly how much has gone in.
 
 **All player-facing strings go through the translation table and `tr()`** (§9). Diagnostic output
 stays English.
@@ -766,7 +846,7 @@ Two placements are part of the design:
 ## 7. The economy
 
 > **These numbers are yours, and they are the ones most in need of planning.** The one genuinely
-> missing measurement is **income per minute** (§14). See the design target in §1: **comfortable
+> missing measurement is **income per minute** (§12). See the design target in §1: **comfortable
 > and fun, nothing exaggerated.**
 
 **Every price in this design is a placeholder and should be marked as such in the code.** The number
@@ -970,9 +1050,112 @@ of `(640, 360)` — **off by one pixel.**
   at least 140 % of the English length**, so layout problems show up before a real translation does.
   *This is the cheap way to find out that a button cannot hold a longer word.*
 - **Print a build marker at startup** — `[BUILD] <short hash>`. **"Am I running the code I think I
-  am?"** is a question that wastes whole days, and a screenshot cannot answer it. Write the hash into a
-  file at build time rather than reading version control at runtime, so an exported build can say
+  am?"** is a question that wastes whole days, and a screenshot cannot answer it. Write the hash into
+  a file at build time rather than reading version control at runtime, so an exported build can say
   which commit it is.
+
+### 9.7 Interface details that a professional build is expected to have
+
+The items above are the load-bearing ones. **These are the rest of what a finished interface is
+expected to cover** — treat this as a checklist, not an afterthought, because each of these is
+individually small and collectively the difference between a prototype and a product.
+
+**Moment to moment**
+
+- **A crosshair or reticle state that never lies** (§9.3) — and no other indicator that duplicates it.
+- **Immediate feedback for every action**: a press that does something must show *something* on the
+  same frame — the load bar moving, a hit flash, a number changing. **A press with no visible
+  response reads as a broken input even when the system worked.**
+- **A refusal must say why.** "You cannot do that" is worse than useless. Every refused action
+  (not enough snow, blade jammed, hands full, tool not owned) needs **a short, specific reason**, and
+  it should be dismissible or self-clearing rather than modal.
+- **Prompts for what is in reach**: when the player looks at something they can interact with, they
+  should be able to tell. **Contextual prompts must not be spammy** — one prompt for the nearest
+  candidate, not five overlapping labels.
+- **A warning before a consequence, not after.** The grip warning at 30 % (§5.4) is the model to
+  follow: **the player is told before they lose control of the load**, not after.
+
+**Onboarding and discoverability**
+
+- **Progressive disclosure of controls.** A player should be able to start without reading a manual,
+  and the full control list should be available when they want it (and hideable; the help overlay
+  starts hidden — §9.4).
+- **Teach in context.** The first time a mechanic matters is when it should be explained — not in a
+  wall of text before the level.
+- **A solo player and two co-op players may need different explanations.** If a teaching step
+  assumes a partner, it is wrong for half the sessions (§1).
+
+**Menus and navigation**
+
+- **Every screen reachable and exitable by keyboard, mouse and controller.** Not "mostly" — each
+  panel needs a defined way in and a defined way out.
+- **Consistent focus behaviour and a visible focus indicator**, since a controller has no cursor.
+- **Sensible back behaviour**: `ui_cancel` walks outward one level at a time (§9.4), never dumping the
+  player to the desktop and never trapping them.
+- **A confirmation for anything destructive** (quit to menu, restart level, overwrite a save).
+- **The main menu, the pause menu, settings and the level-complete screen all exist and all are
+  reachable** — and each one is a screen the player will stare at, so none may be left as raw default
+  styling.
+
+**Settings, and the list is longer than it looks**
+
+- **Display**: resolution, window mode, V-sync, frame-rate cap, brightness.
+- **Graphics**: the quality level that drives the snow simulation's resolution and iteration counts
+  (§2.12) — **this is a gameplay-relevant setting, so it must be adjustable and must not silently
+  change the physics**, only its fidelity.
+- **Audio**: master, and separate music and effects. **Include a mute and a volume of zero that
+  behaves** (zero is a legal value, not a fallback to default).
+- **Controls**: full rebinding (§9.4), plus reset to defaults, plus separate sensitivity for mouse
+  and stick.
+- **Accessibility**: at minimum a field of view slider, a subtitle/text-size option if text carries
+  meaning, no colour-only signalling, and an option to reduce camera motion for players who need it.
+  **This is a normal feature of a professional build, not a nice-to-have.**
+- **Every setting persists** and is applied both at startup and the moment it changes.
+
+**Failure states and edge cases**
+
+- **Nothing may strand the player.** No unclimbable hole dug by the player's own shovel, no
+  unreachable machine, no state where the only way out is to quit. If the game can be made
+  unplayable by playing it, provide a way out (a manual respawn or restart level).
+- **Pause must work at any moment**, including mid-anything (§9.4).
+- **The interface must survive every state**: paused, carrying, staggered, victorious, empty, and
+  loading. **A panel that assumes one state will be seen in the others.**
+- **Window focus loss** must pause or otherwise not punish the player — alt-tabbing should not cost
+  a level.
+
+**Performance and polish**
+
+- **No interface work in a per-frame loop that cannot justify it.** A label that changes rarely does
+  not need rebuilding every frame (§2.4 has the same rule for the simulation).
+- **No layout that assumes a specific resolution.** Every panel that is centred is centred, not
+  offset by a hand-tuned number.
+- **Transitions are short and skippable.** Loading, level start, victory.
+
+### 9.8 Persistence — saves are a feature, and they must be frequent
+
+**Save often, and save without the player asking.**
+
+- **Autosave at every natural boundary**: level start, level complete, a purchase, and **every so
+  often during play** — the interval is a tuning value, but there must be one. **Losing progress to a
+  crash is a defect, not bad luck.**
+- **Autosave must be cheap and invisible.** It must not hitch the frame, so it must not be doing
+  expensive work synchronously on the game thread.
+- **A save must be self-describing and versioned.** A save written by an older build must either load
+  correctly or **fail with a clear message** — silently loading a mismatched save and corrupting a
+  player's progress is the worst outcome available.
+- **A visible, non-intrusive autosave indicator.** The player should be able to know their progress is
+  safe without being interrupted.
+- **Atomic writes.** Write to a temporary file and swap, so an interrupted save cannot destroy the
+  previous one.
+- **Keeping a previous save slot** is cheap insurance and worth it.
+- **What must be in a save**: the player's tools and ownership, money, level progress, and any
+  setting that is part of the world rather than the machine. **What must NOT be in a save**: the
+  live snow field's simulation texture. **It is far too large to serialize, and it does not need to
+  be** — a level is rebuilt from its initial state plus the level's durable progress. **Decide this
+  early**, because "we will just save the snow" is a decision that kills a save system late.
+- **Manual save and load** alongside the automatic one, in a slot UI that shows enough to identify
+  each slot (a name or timestamp, progress, money).
+- **Deleting a save asks for confirmation** (§9.7).
 
 ---
 
@@ -1037,34 +1220,34 @@ SYSTEM 2  physical shovel        ◄──────►  SYSTEM 3  3D balls an
 
 ---
 
-## 11. Containers — DECIDED AGAINST
+## 11. NO CARRYING CONTAINERS — a settled decision
 
-**There is no bucket and no wheelbarrow in this game.** This is a settled decision.
+**The player does not carry a container of any kind.** Snow is moved with the **shovel**, the
+**blower** and the **salt**, and it reaches the disposal machine **thrown, or under its own momentum**.
+There is no vessel to fill, no vessel to tip, and no interface element for one.
 
-**What follows from it, and must be followed through:**
+**Follow this through, because it touches three other sections:**
 
-- **There is no intermediate container.** The player moves snow with the **shovel** and the
-  **blower**, and snow reaches the disposal machine **thrown, or under its own momentum**.
-- **The machine's `accept()` entry has no caller** (§6.2) — keep it labelled as an extension point,
-  or drop it.
-- **The "do not swallow a container" rule** becomes **"do not swallow anything that is not snow"** —
-  the same line of code with a different justification, and the justification is what a future reader
-  needs.
-- **No interface element for a carried container.**
+- **The machine's `accept()` entry has no caller** (§6.2). **Keep it as the documented extension point
+  and label it as currently unused**, or drop it. What must not happen is an API with no caller that
+  nobody labels as such, because the next person concludes the feature is half-built.
+- **The machine's rule** is **"nothing that is not snow is swallowed"** — not "do not swallow the
+  vessel". Same check, different justification, and the justification is what a future reader needs.
+- **No interface readout for carried contents** (§9.2).
 
 ### The cost, stated so it is a conscious choice
 
-**A container is the natural way to move a large amount of snow a long distance for a small price in
-effort.** Without one, the economics of "carry snow to the far end of the field" rests entirely on
-**thrown balls and blown snow** — and **the economy has never been timed** (§7).
+**A carrying container is the natural way to move a large amount of snow a long distance for a small
+price in effort.** Without one, that job rests entirely on **thrown balls and blown snow** — and **the
+economy has never been timed** (§7, §12).
 
-**So this is the thing to measure first.** If carrying turns out to be too expensive in effort, the
-answers are: a container after all, a shorter field, or a different payout. **Not a guess** — measure
-income per minute in both directions and decide.
+**So this is the thing to measure first.** If moving snow across a field turns out to be too expensive
+in effort, the answers are: a shorter field, a different payout, or a carrying container after all.
+**Not a guess** — measure income per minute before deciding.
 
-### If a carrying container is ever wanted, this is the contract
+### If a carrying container is ever added, this is the contract it must satisfy
 
-Recorded so the API is not invented inconsistently. A container must expose:
+Recorded so the API is not invented inconsistently. It must expose:
 
 | Member | Meaning |
 |---|---|
@@ -1078,42 +1261,42 @@ Recorded so the API is not invented inconsistently. A container must expose:
 | `free_space_kg()` | How much more it can take |
 | `fill_ratio()` | Contents over capacity |
 
-**`fill` returns what it took and never more than the free space** — that is the mass invariant, and
-it is why the return values matter rather than being void.
+**`fill` returns what it took and never more than the free space** — that is the mass invariant, and it
+is why the return values matter rather than being void.
 
-**One trap from an earlier attempt:** three container classes declared a `contents_changed` signal
-that **nothing connected to**, because the interface **polled** the value every frame instead. That
-is not broken, but **a signal that looks like the update path and is not one is a decoy** — the next
-person connects to it, sees nothing happen, and has to work out why. **Either connect it or do not
+**One trap from the past, worth not repeating:** three such classes declared a `contents_changed`
+signal that **nothing connected to**, because the interface **polled** the value every frame instead.
+That is not broken, but **a signal that looks like the update path and is not one is a decoy** — the
+next person connects to it, sees nothing happen, and has to work out why. **Either connect it or do not
 declare it.**
 
-### For the record: why the wheelbarrow never worked
+### For the record: if a WHEELED vehicle is ever attempted
 
-**Two of the four causes are about support physics and two are about geometry.** If a wheeled vehicle
-is ever attempted, these are the walls it will hit.
+**Two of the four causes below are about support physics and two are about geometry.** They were paid
+for once; they do not need paying for twice.
 
-1. **A support spring on the tray AND on the wheels.** They disagreed (reference radii 0.42 against
-   0.22) and threw the tray to **y = 1.17 m** at 3.5 m/s.
-2. **A spring only on the wheels, with a hinge.** The hinge **did not transmit the tray's weight**:
-   the tray rode *above* its own wheels (origin 0.449 m, wheel centres 0.486 m) and the wheels felt
-   only their own weight — **31.5 N of support for a 137 N barrow**.
-3. **Support applied off the centre of mass on uneven ground.** The surfaces under a 1 m wheelbase
-   vary by centimetres, and one point reading 0.14 m deeper took **166 N** by itself — a third of the
-   weight in one corner. **Pitch 0° → 50° in half a second.** The remedy is **support at the centre of
-   mass** plus a weak explicit levelling torque, so the support cannot rotate the object.
+1. **A support spring on both the body and the wheels.** They disagreed (reference radii 0.42 against
+   0.22) and threw the body to **y = 1.17 m** at 3.5 m/s.
+2. **A spring only on the wheels, with a hinge.** The hinge **did not transmit the body's weight**: the
+   body rode *above* its own wheels (origin 0.449 m, wheel centres 0.486 m) and the wheels felt only
+   their own weight — **31.5 N of support for a 137 N load**.
+3. **Support applied off the centre of mass on uneven ground.** The surfaces under a 1 m wheelbase vary
+   by centimetres, and one point reading 0.14 m deeper took **166 N** by itself — a third of the weight
+   in one corner. **Pitch 0° → 50° in half a second.** The remedy is **support at the centre of mass**
+   plus a weak explicit levelling torque, so the support cannot rotate the object.
 4. **Rolling resistance with the sign inverted**, applied always against the body's own `-heading`, so
-   it **pushed** when the barrow rolled backwards. Measured: raising it from 0.04 to 0.12 made the
-   barrow **faster** (1.71 → 2.96 m/s).
+   it **pushed** when the vehicle rolled backwards. Measured: raising it from 0.04 to 0.12 made the
+   vehicle **faster** (1.71 → 2.96 m/s).
 
-**And the defect that was never fixed, which is the one worth reading:**
+**And the error that was never fixed, which is the one worth reading:**
 
 > The contact points are **in the ground plane by construction**: the body's origin **is** the wheel
-> contact line. So a barrow at ride height has its three points **0.22 m "below" the snow**, and a
+> contact line. So a vehicle at ride height has its three points **0.22 m "below" the snow**, and a
 > spring read directly from there puts `400 × 14 × 0.22 = 5.5 kN` on a 14 kg body — **thirty-nine g**.
 > That is why it left at 6 m/s, and why raising the rolling resistance made it faster: the resistance
 > was fighting a fraction of a force that should not exist.
 >
-> **The spring must be measured from where the barrow RESTS**, which is **one wheel radius up.** The
+> **The spring must be measured from where the vehicle RESTS**, which is **one wheel radius up.** The
 > deepest point decides, so no contact is compressed more than the suspension allows.
 
 ---
@@ -1215,30 +1398,14 @@ the GPU work a single check queues — not lengthening the pause.**
 
 ---
 
-## 13. Audio
-
-**Sound is doing narrative work in this game**, so it is design, not an afterthought. The machine
-exists without a model because it can be **heard**: a motor under load and the thud of snow landing in
-a box.
-
-| Group | Content |
-|---|---|
-| Steps | snow steps, concrete steps, two snow-walk variants |
-| Shovel | scrape variants, a dig |
-| Thuds | snow thud variants |
-| Loops | blower loop, wind loop, salt pour |
-| Generated | coin, victory, and general synthesis |
-
----
-
-## 14. What is open — decisions still to make
+## 13. What is open — decisions still to make
 
 Stated plainly so nothing is inherited by accident.
 
 1. **Income per minute has never been measured.** **Every price is a placeholder.** This is the single
-   most important open number, and §11 makes it urgent: with no container, the cost of transporting
+   most important open number, and §10 makes it urgent: with so little carrying capacity, the cost of transporting
    snow is untested.
-2. **Whether a carrying container is needed at all** — see §11. Decide with measurements, not taste.
+2. **Whether a carried load is needed at all** — see §10. Decide with measurements, not taste.
 3. **Ownership: save or session?** — see §7.4.
 4. **Is the player's facing ever externally forced?** — see §3.
 5. **One of two push-force values is stale** (260 N/26 m/s² versus 380 N/32 m/s²) and **one of two
@@ -1252,7 +1419,7 @@ Stated plainly so nothing is inherited by accident.
 
 ---
 
-## 15. Working rules
+## 14. Working rules
 
 Not preferences. Each exists because its absence cost time, and most of them cost it more than once.
 
@@ -1275,14 +1442,127 @@ Not preferences. Each exists because its absence cost time, and most of them cos
 
 ---
 
-## 16. Assets
+## 15. Everything else a professional build needs
 
-**Keep a licence record and keep it truthful.** A licence is not a detail that can be reconstructed
-later. Every asset shipped needs a recorded source and licence.
+**This section exists so nothing is missing by accident.** It is a **checklist, not a
+specification**: it names the work a professional release involves, and the expectation is that **you
+add detail, reorder it, and cut what genuinely does not apply** — but that you do so **deliberately**,
+having considered each line. **If a line here does not apply, say why. If it applies, plan it.**
+
+**The single most important warning in this section:** none of these items is optional because the
+game is small. **A small game still ships with a save system, a settings menu, a build process and a
+licence file.** The failure mode is not choosing badly — it is not choosing at all, and discovering
+the gap the week of release.
+
+### 15.1 Production and project management
+
+- **A production method and a milestone plan.** What "done" means for a level, a mechanic, a build.
+- **A vertical slice before content volume.** One level, complete end to end, at final quality,
+  before producing ten of them. **This is the cheapest possible way to find out the game is not fun.**
+- **A scope decision, written down, with what is being cut.** Small games die of scope, not of
+  ambition.
+- **Version control discipline** — and this project **already requires it**: the build marker in §9.6
+  assumes a single identifiable build, and the checks in §12 assume a runnable game at any commit.
+- **An issue tracker** with the measured evidence attached to each defect, because §12's whole method
+  is that a claim without a measurement is not a claim.
+- **A definition of the target hardware**, since §2.12 sets a performance requirement that is
+  meaningless without a machine to meet it on.
+- **A schedule that includes the things nobody schedules**: bug triage, the tuning pass, and the
+  "make it feel good" phase at the end, which is always longer than estimated.
+- **A decision on the business model, early**, because it constrains design. (The reference answer
+  for this project: **premium, no microtransactions, no battle pass.** If that changes, change it
+  deliberately.)
+
+### 15.2 Art and audio
+
+- **An art direction with a stated reference**, so that "does this look right" has an answer. The
+  current look is **stylised, low-poly, cel-shaded**.
+- **A cel-shading / toon pipeline** applied **consistently** — a single object outside the style reads
+  worse than none of it applied.
+- **An asset pipeline and naming convention**, and a folder discipline that keeps source art out of
+  the shipped build.
+- **Animation**: first-person hands and tools, and the world objects that move. **The viewmodel needs
+  its own decisions**, including the shadow rule in §2.5.
+- **VFX for the material**: impact sprays, the powder cloud on breakage, footprints, the machine's
+  output. **The breakage system already has an art hook** (§5.3) — use it rather than rebuilding it.
+- **Audio: buy it in or make it, but plan it.** A labour game is **heard more than watched** — a
+  shovel scraping, a ball thudding, snow compacting. **Audio is the cheapest way to make work feel
+  satisfying**, and the cheapest thing to forget until the end.
+- **A placeholder policy**: programmatic primitives are legitimate stand-ins, **but they must be
+  marked as such in the code and tracked**, or they ship.
+
+### 15.3 Accessibility
+
+**Plan this before content exists, because retrofitting it is far harder.** At minimum:
+
+- Full remapping of every control, on keyboard and controller (§9.4).
+- A field-of-view slider, and **motion-reduction** options.
+- **No colour-only signalling** — every colour-coded state also distinguishable by shape, position
+  or text.
+- **Text that scales**, and contrast that survives it.
+- Subtitles/captions wherever audio carries information the player needs.
+- **Difficulty that can be lowered without shame**, and a way past a stuck state that is not "quit"
+  (§9.7).
+- **Consider the player who cannot use two hands on a mouse or controller** before designing a
+  two-button mechanic — or provide an alternative.
+
+### 15.4 Quality assurance
+
+- **A formal test plan.** The automated checks in §12 are its backbone, **not a substitute for
+  playing the game**.
+- **A bug severity definition** and a triage rhythm.
+- **A soak test**: leave the game running for hours and verify nothing degrades. The GPU hazard in
+  §12.4 is exactly the class of defect this finds.
+- **Save/load testing**, including **corrupted saves and version mismatches** (§9.8).
+- **A clean-install test**: a machine that has never had the game, with saves, settings file and
+  shader cache all absent.
+- **A playtest protocol**: who plays, how, what is observed, and **which measurements are taken**.
+  **Playtesting a labour game is about whether the work is satisfying**, which is a different question
+  from whether it functions.
+- **A regression suite that grows with each fixed bug** — every defect found by play should become a
+  check if it can be expressed as one.
+- **A release checklist**, performed on the release candidate and not before.
+
+### 15.5 Build, distribution and release
+
+- **Reproducible builds**, and a version number that appears in the interface **and in the save file**.
+- **The build marker from §9.6 wired into the real build**, not just the development run.
+- **Export to the target platform(s) early**, not at the end. Exports break in their own specific
+  ways.
+- **A store presence**: page, screenshots, trailer, description — and **those are deliverables with
+  deadlines**, not marketing afterthoughts.
+- **Legal**: the **licence record** (§15.5), the age rating, and the EULA or privacy obligations if any
+  data leaves the machine.
+- **Crash reporting and a way to receive player feedback**, if the platform allows it — with the
+  player's consent.
+- **A rollback plan.** A broken release is worse than a late one.
+
+### 15.6 Live and long-term
+
+- **A patch process**, and a **save-format migration plan** (§9.8) for the day the format changes.
+- **A content plan** for after release — or an explicit decision that there is none.
+- **Telemetry is optional and must be consensual.** If the game has none, say so deliberately, because
+  it means tuning has to come from playtests (§15.4) instead.
+- **Localisation is a decision, not a default.** The infrastructure in §9.6 costs little and should
+  exist regardless; **how many languages ship** is a budget question.
+
+### 15.7 The engineering habits that make the rest possible
+
+- **A single source of truth for shared work.** A job that must be done in two places will be done
+  correctly in one of them (§10.1).
+- **A check for every rule that matters** — the doc-test pattern in §12.3 is the cheap version.
+- **Measure before and after every performance change**, and keep the numbers (§2.12).
+- **A comment that records the measured cause**, not the intention.
+- **State what is not done**, out loud, in every hand-over and every commit message.
+
+> **If you are the AI reading this: treat §15 as the list of things you were told to CONSIDER rather
+> than the list of things that were settled. Everything else in this document is settled. This section
+> is where your judgement is wanted, and where you should add whatever a professional build needs that
+> is not already named here.**
 
 ---
 
-## 17. The five things most likely to be got wrong again
+## 16. The five things most likely to be got wrong again
 
 If only one section is read, read this one.
 
@@ -1306,4 +1586,4 @@ If only one section is read, read this one.
 
 *Every value in this document was read out of a working implementation or from a measured log, not
 estimated. Where two sources disagreed, the disagreement is recorded rather than resolved. Where a
-claim was never verified, it is written as a question in §14.*
+claim was never verified, it is written as a question in §12.*
