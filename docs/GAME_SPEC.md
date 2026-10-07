@@ -49,9 +49,68 @@ shovel, the balls, and physical assembly — produce the snowman, the wall or th
 This is the heart of the design. If a feature can be replaced by a button that spawns the result, it
 is the wrong feature.
 
+### The third rule: the NUMBERS ARE YOURS, the INVARIANTS ARE NOT
+
+This document contains a great many values — densities, rates, speeds, prices, thresholds. **Read
+them as starting points, not as specifications.** They are recorded because they are known to work
+and because a number you can check beats an instruction you have to trust, but **tuning them is
+expected and encouraged**, and on several of them you are explicitly the designer.
+
+**What is yours to plan and tune, freely:**
+
+- **Progression and upgrade values** — how much better each tool becomes, what improvements cost, how
+  long a level should take, how the difficulty of the work grows.
+- **The snow's tuning** — how deep it starts, how fast it falls, how heavy it is to move, how quickly
+  it settles, how much a shovel holds, how far a ball flies.
+- **Economy numbers** — payout per kilogram, tool prices, anything about money.
+- **Feel numbers** — movement speeds, throw speeds, carry penalties, camera behaviour, the weight of
+  everything in the hands.
+
+**What is NOT yours to change**, because it is an invariant the design rests on:
+
+- **Mass is conserved.** Snow is relocated, never deleted, except at the disposal machine.
+- **The mass the field gives up is the mass the blade receives.** The rate limits the *cut*; nothing
+  scales what is kept.
+- **Payout is per kilogram on the running total**, never per delivery.
+- **Gathering requires close aim, decided by one predicate shared with the reticle.**
+- **The snow's model structure** — the four channels, the two-phase angle of repose with hysteresis,
+  cohesion as a real quantity. The *values* are yours; the *shape* of the model is what makes the
+  game work.
+
+### How the numbers should feel — the design target
+
+**Comfortable and fun. Pleasurable to use. Nothing exaggerated.**
+
+This is a labour game, and its fantasy is **satisfying work** — not power, not spectacle. That
+points the numbers in a specific direction:
+
+- **Effort is the content, but exhaustion is not.** Clearing snow should feel like *doing* something,
+  and never like fighting the controls. If the player is fighting the interface instead of the snow,
+  the numbers are wrong.
+- **Restraint over drama.** Do not make a shovel lift a mountain, do not make a ball fly like a
+  cannon, do not make money arrive fast. **The pleasure is in a job going well, and that pleasure
+  needs room to exist** — it disappears the moment the work is trivial.
+- **Improvement should be felt as relief, not as superpower.** An upgraded tool should make the same
+  job *easier and smoother*, not make the job vanish. **The best upgrade is one the player notices
+  they are no longer thinking about.**
+- **Nothing should feel like a grind, and nothing should feel like a cheat.** Between those two is a
+  band, and that band is the target.
+- **When two values conflict, prefer the one that makes the moment-to-moment feel better**, because
+  this game is played in the moment — there is no story to carry a bad minute.
+- **Measure the feel, do not assume it.** The loop's income per minute, the time to clear a level,
+  and the speed of each tool are all measurable, and §12 describes how. **A tuning change without a
+  measurement is a guess**, and guesses are how a comfortable game becomes a tedious one.
+
+*If you re-plan these values and something changes meaning, the invariants above are what must still
+hold. That is the whole contract: **your numbers, these rules.***
+
 ---
 
 ## 2. The snow — the technique
+
+> **The values in this section are starting points you may tune. The MODEL STRUCTURE is not** — the
+> four channels, the two-phase angle of repose with hysteresis, cohesion as a real quantity, and the
+> mass invariant. See §1, *the numbers are yours, the invariants are not.*
 
 **This is the most important section. Read it before designing anything else.** The snow is not a
 texture the tools paint on; it is a simulated material, and the model's structure is what makes the
@@ -284,6 +343,9 @@ Reference points: **untouched dry snow sits near cohesion 0.20; a tamped strip n
 
 ## 3. Movement
 
+> **Tuning values, not specifications.** These are recorded because they are known to work, and they
+> are yours to plan and re-tune freely. See the design target in §1.
+
 First person, momentum-preserving. The feel is deliberate: walking should be fast, jumping should
 reward skill, and snow should slow you without ever becoming a drag.
 
@@ -322,6 +384,10 @@ and every movement test built on it.
 ---
 
 ## 4. The shovel
+
+> **Tuning values, not specifications.** These are recorded because they are known to work, and they
+> are yours to plan and re-tune freely. See the design target in §1. **The mass rule in §4.3 is the
+> exception: that one is an invariant.**
 
 The default tool, and the one with the most design behind it. **It has three verbs.**
 
@@ -476,6 +542,9 @@ is a shipped feature (§9).
 ---
 
 ## 5. The snowball
+
+> **Tuning values, not specifications.** These are recorded because they are known to work, and they
+> are yours to plan and re-tune freely. See the design target in §1.
 
 Packed snow is a rigid body that rides the snow. It is the most physics-heavy object in the game and
 the carrier of most of the emergent behaviour.
@@ -695,6 +764,10 @@ Two placements are part of the design:
 ---
 
 ## 7. The economy
+
+> **These numbers are yours, and they are the ones most in need of planning.** The one genuinely
+> missing measurement is **income per minute** (§14). See the design target in §1: **comfortable
+> and fun, nothing exaggerated.**
 
 **Every price in this design is a placeholder and should be marked as such in the code.** The number
 that is genuinely missing is **income per minute**, because the loop has never been timed. Until it
