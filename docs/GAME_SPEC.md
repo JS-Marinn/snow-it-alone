@@ -153,8 +153,8 @@ hold. That is the whole contract: **your numbers, these rules.***
 >   very probably are not — and the reason is a limitation of the heightfield that must be accepted
 >   knowingly rather than discovered later.
 
-> **You are expected to IMPROVE this model, and every improvement must be judged on PERFORMANCE
-> first.** See §2.12.
+> **You are expected to IMPROVE this model.** The five specific failures that must be fixed are in
+> **§2.14**, and **every improvement must be judged on PERFORMANCE first** — see §2.12.
 
 > **The values in this section are starting points you may tune. The MODEL STRUCTURE is not** — the
 > four channels, the two-phase angle of repose with hysteresis, cohesion as a real quantity, and the
@@ -485,6 +485,172 @@ heightfield.
 > two sets of rules, two collision paths, and two ways for mass to be lost. **It is not a free upgrade
 > and should not be adopted casually.**
 
+### 2.14 THE FIVE PHYSICS FAILURES THE NEXT BUILD MUST FIX
+
+**These are the things the previous implementation got wrong, described from the player's side and
+then located in the code.** They are the **first work item on the snow**, not a polish pass, and the
+whole reason §2.12 says performance must be judged without letting the physics regress.
+
+**The rule that ties all five together, and should be written into the code:**
+
+> **NO OPERATION MAY REMOVE MASS WITHOUT AN EXACT ACCOUNT OF WHERE IT WENT.**
+>
+> Every removal is either **held** (in a blade or a hand), **relocated** (dumped somewhere as snow),
+> or **delivered** (into the machine). Anything else is a deletion, and **a deletion is a bug even
+> when it looks like the feature working** — because it is invisible, it accumulates, and it is the
+> single hardest class of defect to find once the game is large.
+
+**And the corollary, which is a gameplay requirement rather than an accounting one:**
+
+> **A tool's verb must match what the player sees.** A blower that visibly deletes snow is not a
+> blower; a pile with the wrong silhouette is not a pile. **The accounting above keeps the mass
+> honest; the silhouette is what tells the player the mass is being moved rather than destroyed.**
+
+#### Failure 1 — THE BLOWER DELETES THE SNOW instead of blowing it
+
+**Reported:** *"the blower, instead of blowing the snow, makes it disappear completely."*
+**This one is not an impression. It is measurably true.**
+
+**What it does now:** the blower calls a **radial clearing operation centred on the aim point** — the
+same primitive used for scattering salt. That primitive **removes a disc of snow and returns the
+kilograms it removed**, and the blower does nothing with most of them. Snow chunks are spawned **only
+30 % of the time**, and each chunk carries **only 30 % of the removed mass**:
+
+```
+kg_removed = carve(aim, radius 1.05, depth 0.40)     # removed from the field
+if randf() < 0.30:                                   # 70 % of the time: nothing at all
+    chunk.kg_weight = kg_removed * 0.30              # and even then, only 30 % of it
+```
+
+**So on 70 % of the ticks the snow is simply gone, and on the other 30 % about 70 % of it is still
+gone.** To a player holding the trigger, that is a machine that erases snow, and **it is the correct
+description of what the code does.**
+
+**What a snow blower must do:** **take snow in at the intake and put the SAME MASS out through the
+chute, in a visible stream, at speed.** Every kilogram the intake removes must appear as **flying
+mass** — chunks, a stream, or a deposit where it lands — and when it lands it must **become snow
+again**. The blower is a **transport** tool, never a sink.
+
+**The design questions this raises, and they should be answered deliberately:**
+
+- **Does the blower throw, or does it deposit?** A real blower throws over a distance. **Throwing is
+  better here**, because the arc is visible, the accumulation is somewhere the player chose, and it
+  keeps the machine's monopoly on deletion.
+- **Does it sweep or does it point?** A real blower takes what its intake can reach as the player
+  walks. **A radial carve at the aim point means the player aims at a spot and deletes a circle**,
+  which does not match the fiction.
+- **What happens to what it throws when it lands?** It must **rejoin the field as snow**, with its
+  mass counted, and it must be placeable somewhere that matters — onto a bank, into the machine, or
+  onto a pile the player will have to deal with.
+- **Where does the mass come from, and does the intake have a shape?** The intake should have a
+  **footprint and a capacity per second**, so the blower is a rate, not an event.
+- **And it must respect the same aim rule as the shovel** (§4.5): a blower pointed at nothing blows
+  nothing, and a blower pointed at the sky must not reach into the ground.
+
+**Acceptance criterion:** *point the blower at a heap and hold. The heap loses mass, and an equal
+mass is observably thrown and lands and rejoins the field. **The field's own mass ledger is
+unchanged except for whatever ended up in the machine.** If either half of that sentence is false,
+the blower is deleting snow.*
+
+#### Failure 2 — THE SHOVEL PUSH DOES NOT FEEL LIKE SNOW
+
+**Reported:** *"the shovel pushes it in a way that does not feel like snow."*
+
+**What it does now:** the push **removes** snow (`carve_shovel`) and then **adds it back as a fresh
+deposit in front of the player**. Two separate operations, and neither of them is a push. The result
+is that the player **deletes a shape and spawns a shape**, rather than **shoving a mass**.
+
+**What is wrong with that, and why it is felt:**
+
+- **A real blade moves a CONTINUOUS FRONT.** The snow in front of the blade is not deleted and
+  recreated — it is **shoved**, and the shove is resisted by the snow already there.
+- **Snow is heavy and sticky.** A blade full of snow **slows the player down**, and the resistance
+  **grows as the front grows**. Right now the work is done by the carve, so the *shoving* has no
+  weight.
+- **Snow spills.** When the front gets taller than the blade, **it should spill off the ends and over
+  the top** — that is the shovel's whole vocabulary, and it is what makes a push strategic.
+- **The pile must build where the blade goes**, continuously, not appear as a lump at the moment of
+  the carve.
+- **The player should feel the pile resisting.** Pushing into a tall drift must be **harder than
+  pushing into a shallow one**, and that difference must be felt in movement, not only read in a HUD
+  number.
+
+**What is probably the right model, to be prototyped rather than assumed:** **treat the blade as a
+moving wall that displaces snow rather than removing it** — a **directional** volume transfer along
+the blade's facing, with the displaced snow going into whatever is in front, **spilling when it
+cannot go anywhere**. Only the **residue that sticks to the blade** (§4.2) is actually *taken*, and
+that is the only removal in the whole interaction.
+
+**Acceptance criterion:** *push a full blade into a drift and the drift **moves ahead of the blade**;
+the total mass of the field plus the blade is unchanged; and the player's speed drops as the front
+grows. **Then push until the front is taller than the blade, and watch snow spill off the sides.**
+None of those three is true today.*
+
+#### Failure 3 — PILES ARE CONES INSTEAD OF THE EXPECTED SHAPE
+
+**Reported:** *"the mounds of snow have a conical shape instead of the expected one."*
+
+**What it does now:** the dump operation **injects free volume with a CONICAL profile.** That is
+literally in the operation's own description (§2.3, mode 3). **A cone is a shape no real snow pile
+has**, and the reason a real pile is not a cone is the same rule that governs everything else here:
+**the angle of repose with hysteresis** (§2.2).
+
+**What a snow pile should look like instead:**
+
+- **A rounded, slumped dome with a broader base** — the profile of a material that has partly flowed
+  and then stopped, not a straight-sided heap.
+- **It should depend on how the snow arrived.** Dumped wet snow **slumps** and spreads. Thrown snow
+  **piles steeper** where it lands and spatters outward. **Pushed snow forms a BERM with a ridge
+  along the blade's path**, not a mound.
+- **It should depend on what is underneath.** Snow landing on packed ground spreads; snow landing on
+  deep powder builds differently.
+- **The peak should not be a point.** The top of a real pile is a rounded plateau, and the sides near
+  the top fall away faster than near the base.
+
+**The likely cause is that the dump primitive bypasses the repose solver** — it injects a profile
+directly instead of **adding mass and letting the angle-of-repose relaxation decide the shape.** If
+that is so, **the fix is not to draw a better cone; it is to stop drawing a shape at all** and let
+the granular rules produce it. That is also the design intent of §1's "no assembly buttons": the
+form should be a **consequence** of the rules.
+
+**Acceptance criterion:** *dump a bucket-sized mass onto flat snow and let it settle. The result is
+**not a cone** — it has a rounded top and a slumped base — and its silhouette is **reproducible**,
+because it comes from the same repose rule every time. **Then do it on powder and on packed ground
+and get visibly different piles.***
+
+#### Failure 4 — MASS DISAPPEARS IN OTHER PLACES TOO, AND NOBODY IS WATCHING
+
+The blower is the worst case, but the same shape of defect — **an operation that removes and does not
+account** — is the most likely thing to be wrong **everywhere**. **So the guard must be a rule, not a
+fix for one tool:**
+
+- **Every removal route increments a ledger** (§2.4), and the ledger says **which tool** did the
+  removing.
+- **A check exists whose only job is to prove the ledger closes**: total removed equals total held
+  plus total delivered plus total re-dumped, within a stated tolerance.
+- **That check runs on the whole game, not per tool**, so a new tool cannot be added without being
+  caught.
+- **A removal with no destination is a failure at the moment it happens**, in a debug build, with the
+  tool's name in the message.
+
+#### Failure 5 — THE PHYSICS IS NOT FELT, ONLY COMPUTED
+
+Underneath the three reported symptoms there is one theme: **the simulation computes a result and the
+player does not feel the process.** The shovel deletes and re-creates; the blower deletes; the pile is
+drawn rather than formed.
+
+**So the goal for the snow physics is not accuracy for its own sake — it is that the player can feel
+the material through the controls.** Concretely:
+
+- **Resistance that varies with what is being moved** — depth, weight, and cohesion.
+- **Momentum in the material**: a pile that is shoved keeps going a little and settles.
+- **Spilling and slumping as visible, predictable events**, not as a shape that was already there.
+- **A delay between cause and result that matches the material's weight** — snow is not instant.
+
+**And the constraint that keeps this from becoming a physics project with a game attached** (§1): the
+verbs are **shaping** and **moving**, and they must all remain **comfortable and fun.** **If a more
+accurate model makes the game less pleasant to play, the accurate model is wrong.**
+
 ---
 
 ## 3. Movement
@@ -676,14 +842,47 @@ requirement is **distance**.
 | `Q` | Tamp / flatten and compact — **inert in LOAD_AND_PUSH** |
 | `E` press | Pick up objects and balls · pack snow with the hands |
 | `E` hold | Push a ball glued to the ground, without lifting it |
-| 1 2 3 | Shovel / blower / salt |
-| `R` / `ESC` | Restart level / release mouse |
+| 1 2 3 | Shovel / blower / salt || `R` / `ESC` | Restart level / release mouse |
 | `H` | Show or hide the key help (starts hidden) |
 
 **Bindings must be named actions, never button numbers written in code** — `shovel_push`,
 `shovel_load`, `shovel_toss`, `shovel_tamp`, `interact`, `jump`, `move_*`, `sprint`, `toggle_cursor`
 — so they can be swapped without touching logic. This is a requirement, not a preference: rebinding
 is a shipped feature (§9).
+
+### 4.7 The blower — a TRANSPORT tool, and it must not delete snow
+
+**The design intent, in one line: the blower takes snow in at the intake and puts the same mass out
+through the chute, visibly, at speed.** It is the tool for moving **volume quickly over a distance** —
+the counterpart to the shovel, which is precise and laborious.
+
+**A snow blower is never a sink.** The disposal machine (§6) is the only place snow leaves the world,
+and that rule does not bend for a powerful tool. **A blower that deletes snow makes the machine
+pointless and the mass ledger a fiction.**
+
+**What the implementation must satisfy, and each line is checkable:**
+
+| Requirement | Why |
+|---|---|
+| **The intake has a rate and a footprint** | It takes a limited amount per second over a shape, not a discrete bite. A blower is a stream. |
+| **Everything taken is thrown** | A visible arc of chunks carrying **the whole removed mass**, not a fraction of it |
+| **Everything thrown lands as snow** | Whatever lands **rejoins the field with its mass counted** (§2.9, §5.3's reabsorption) |
+| **The throw is aimed and bounded** | A real blower throws a certain distance; the player chooses the direction, and where it lands is a consequence |
+| **Nothing happens when pointed at nothing** | Same close-aim rule as the shovel (§4.5) |
+| **It does not reach the machine for free** | Snow thrown into the machine is delivered and paid for, like anything else — that is a legitimate use and should be satisfying |
+
+**Failure 1 in §2.14 is this exact tool going wrong, with the measured numbers.** Read it before
+implementing, because the shape of the mistake — *remove, then spawn a fraction of it, sometimes* —
+is the natural first implementation and it is wrong by construction.
+
+**Tuning direction (§1's design target):** the blower should be **fast and loud and satisfying**, and
+should make the player feel like they are **clearing ground**, not erasing it. It should be
+**bad at precision** — that is the shovel's job — and **good at volume**.
+
+**Open design question worth answering deliberately:** does the blower *sweep* as the player walks, or
+does it act on the aim point? **A real blower takes what its intake passes over**, which pairs with
+walking and makes the tool about **choosing a path**, not choosing a spot. Decide it, and make the
+intake shape match the answer.
 
 ---
 
@@ -1467,6 +1666,14 @@ the GPU work a single check queues — not lengthening the pause.**
 ## 13. What is open — decisions still to make
 
 Stated plainly so nothing is inherited by accident.
+
+**0. THE SNOW PHYSICS IS THE FIRST WORK ITEM, NOT A LATER PASS.**
+   **§2.14 lists five measured failures to fix** — the blower deletes snow instead of blowing it, the
+   shovel push does not feel like snow, piles come out as cones, mass disappears unaccounted in
+   several places, and the material is computed but not felt. **Fix these before building content on
+   top of the material**, because every tool, every level and every balance number sits on it. **The
+   governing rule is in §2.14: no operation may remove mass without an exact account of where it
+   went.**
 
 1. **Income per minute has never been measured.** **Every price is a placeholder.** This is the single
    most important open number, and §10 makes it urgent: with so little carrying capacity, the cost of transporting
