@@ -42,7 +42,7 @@ design the answer is no, and that is what makes the machine the destination.
 
 ## 2. The snow itself
 
-This is the heart of the game and the most expensive thing to get wrong. **§2c describes the
+This is the heart of the game and the most expensive thing to get wrong. **§2b describes the
 technique; read it before designing anything else.** What follows here is the numeric envelope.
 
 | Property | Value | Meaning |
@@ -68,7 +68,7 @@ consequences, both measured, and both of which cost real time:
    untouched world read **23199.15 kg** and then **23202.04 kg**. The drift is several kilograms,
    while what gets delivered is a few. *Any rule of the form "the total mass must be unchanged" is
    unmeasurable at that scale.* If the rebuild needs mass accounting it needs a **ledger** — the
-   per-operation volume the simulation already reports (mode 6, §2c) — not an integral.
+   per-operation volume the simulation already reports (mode 6, §2b) — not an integral.
 2. **Small local changes are visible where totals are not.** A 22 cm harvest disc is readable even
    though the whole-field integral cannot resolve it. Measure locally, or keep a ledger.
 
