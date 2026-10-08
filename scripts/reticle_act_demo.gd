@@ -60,6 +60,7 @@ var _shovel_target_before: float = 0.0
 var _shovel_feet_before: float = 0.0
 var _salt_target_before: float = 0.0
 var _salt_feet_before: float = 0.0
+var _salt_cohesion_before: float = 0.0
 var _blower_target_before: float = 0.0
 var _blower_feet_before: float = 0.0
 
@@ -115,7 +116,7 @@ func _physics_process(delta: float) -> void:
 			if _state_time >= 0.5 and snow_field != null and snow_field.has_method("is_coarse_ready") and snow_field.is_coarse_ready():
 				# Phase 1 Setup: Clear ground in front of player (3.5m radius circle at (0.0, 0.0, 2.5))
 				print("[RETICLE] Phase 1 setup: clearing 3.5m circle at (0.0, 0.0, 2.5) while player stands on snow")
-				snow_field.carve(Vector3(0.0, 0.0, 2.5), 3.5, 0.50)
+				snow_field.clear_for_diagnostics(Vector3(0.0, 0.0, 2.5), 3.5)
 				_change_state(1)
 
 		1:
@@ -165,7 +166,7 @@ func _physics_process(delta: float) -> void:
 
 				# Phase 2 Setup: Player on bare ground, aiming at a snow pile at 2m
 				print("[RETICLE] Phase 2 setup: clearing 3.0m at origin, dumping 3.5kg snow pile at (0, 0, -2.0)")
-				snow_field.carve(Vector3(0.0, 0.0, 0.0), 3.0, 0.50)
+				snow_field.clear_for_diagnostics(Vector3(0.0, 0.0, 0.0), 3.0)
 				snow_field.dump_snow(Vector3(0.0, 0.0, -2.0), 3.5, 0.35)
 				_change_state(4)
 
@@ -284,9 +285,9 @@ func _physics_process(delta: float) -> void:
 				_p4_prediction_match = (_p4_reticle_before == player.ReticleState.OFF and not carrying)
 
 				# Phase 5 Setup: Shallow sunken snow (2-4cm)
-				print("[RETICLE] Phase 5 setup: clearing 1.2m at (-1.5, 0.0, -1.5), dumping 1.8kg snow (leaves ~3.2cm)")
-				snow_field.carve(Vector3(-1.5, 0.0, -1.5), 1.2, 0.50)
-				snow_field.dump_snow(Vector3(-1.5, 0.0, -1.5), 1.8, 0.5)
+				print("[RETICLE] Phase 5 setup: clearing 1.2m at (-1.5, 0.0, -1.5), depositing a shallow 4kg footprint")
+				snow_field.clear_for_diagnostics(Vector3(-1.5, 0.0, -1.5), 1.2)
+				snow_field.dump_snow(Vector3(-1.5, 0.0, -1.5), 4.0, 0.5)
 				_change_state(11)
 
 		11:
@@ -298,7 +299,10 @@ func _physics_process(delta: float) -> void:
 			# "nothing happens", which is the 2 m case over again. Standing closer tests what
 			# the case is FOR -- that thin, sunken snow can still be packed when it is close --
 			# and keeps the mass-conservation check that goes with it.
-			if _state_time >= 0.60:
+			var shallow_sample: float = float(snow_field.get_height_at(Vector3(-1.5, 0.0, -1.5)))
+			if shallow_sample <= 0.018 and _state_time < 2.0:
+				return
+			if _state_time >= 0.60 or shallow_sample > 0.018:
 				player.global_position = Vector3(-1.0, 0.0, -1.0)
 				player.rotation.y = 0.0
 				player.equip_tool(player.ToolType.HANDS)
@@ -431,6 +435,7 @@ func _physics_process(delta: float) -> void:
 				player.equip_tool(player.ToolType.SALT)
 				_salt_target_before = float(snow_field.get_height_at(Vector3(0.0, 0.0, 1.8)))
 				_salt_feet_before = float(snow_field.get_height_at(player.global_position))
+				_salt_cohesion_before = float(snow_field.get_cohesion_at(Vector3(0.0, 0.0, 1.8)))
 				player.camera.look_at(Vector3(0.0, _salt_target_before * 0.5, 1.8), Vector3.UP)
 				_change_state(21)
 
@@ -441,7 +446,7 @@ func _physics_process(delta: float) -> void:
 				var salt_aim_pt: Vector3 = player.get_reticle_aim_point()
 				print("[RETICLE] Salt test: reticle=%d aim=%s pile_h=%.3f" % [salt_reticle, str(salt_aim_pt), _salt_target_before])
 				_check("salt aiming at snow: reticle is CAN_CARVE", salt_reticle == player.ReticleState.CAN_CARVE)
-				snow_field.carve(salt_aim_pt, 1.6, 0.50, Vector3.ZERO, true)
+				snow_field.apply_salt(salt_aim_pt, 1.6)
 				_change_state(22)
 
 		22:
@@ -449,11 +454,15 @@ func _physics_process(delta: float) -> void:
 			if _state_time >= 0.45:
 				var salt_target_after: float = float(snow_field.get_height_at(Vector3(0.0, 0.0, 1.8)))
 				var salt_feet_after: float = float(snow_field.get_height_at(player.global_position))
-				print("[RETICLE] Salt eval: target h %.3f -> %.3f, feet h %.3f -> %.3f" % [
-					_salt_target_before, salt_target_after, _salt_feet_before, salt_feet_after])
+				var salt_cohesion_after: float = float(snow_field.get_cohesion_at(Vector3(0.0, 0.0, 1.8)))
+				print("[RETICLE] Salt eval: h %.3f -> %.3f, cohesion %.3f -> %.3f, feet h %.3f -> %.3f" % [
+					_salt_target_before, salt_target_after, _salt_cohesion_before, salt_cohesion_after,
+					_salt_feet_before, salt_feet_after])
 
-				_check("salt modifies height at pointed point", salt_target_after < _salt_target_before - 0.01)
-				_check("salt does not modify height around player feet", absf(salt_feet_after - _salt_feet_before) < 0.001)
+				_check("salt reduces cohesion at the pointed point", salt_cohesion_after < _salt_cohesion_before - 0.1)
+				_check("salt leaves snow mass and player feet height intact",
+					absf(salt_target_after - _salt_target_before) < 0.001 \
+					and absf(salt_feet_after - _salt_feet_before) < 0.001)
 
 				# Setup Tool 3 (Blower) - dump snow pile at (1.8, 0, 0)
 				print("[RETICLE] Phase 10 setup: blower test, dumping snow pile at (1.8, 0, 0)")
@@ -463,7 +472,9 @@ func _physics_process(delta: float) -> void:
 		23:
 			# State 23: Wait for blower pile to register
 			if _state_time >= 0.45:
-				player.global_position = Vector3(0.0, 0.0, 0.0)
+				# The blower shares the shovel's close-ground aim gate; stand within reach of the
+				# intake target instead of asking the reticle to act across 1.8 m.
+				player.global_position = Vector3(1.0, 0.0, 0.0)
 				player.rotation.y = 0.0
 				player.equip_tool(player.ToolType.BLOWER)
 				_blower_target_before = float(snow_field.get_height_at(Vector3(1.8, 0.0, 0.0)))
@@ -478,12 +489,15 @@ func _physics_process(delta: float) -> void:
 				var blower_aim_pt: Vector3 = player.get_reticle_aim_point()
 				print("[RETICLE] Blower test: reticle=%d aim=%s pile_h=%.3f" % [blower_reticle, str(blower_aim_pt), _blower_target_before])
 				_check("blower aiming at snow: reticle is CAN_CARVE", blower_reticle == player.ReticleState.CAN_CARVE)
-				snow_field.carve(blower_aim_pt, 1.05, 0.40, player._forward_flat())
+				# Exercise the real tool path so harvested snow is handed to the blower payload rather
+				# than disappearing through the old destructive radial-clear API.
+				Input.action_press("shovel_push")
 				_change_state(25)
 
 		25:
 			# State 25: Evaluate Blower action
 			if _state_time >= 0.45:
+				Input.action_release("shovel_push")
 				var blower_target_after: float = float(snow_field.get_height_at(Vector3(1.8, 0.0, 0.0)))
 				var blower_feet_after: float = float(snow_field.get_height_at(player.global_position))
 				print("[RETICLE] Blower eval: target h %.3f -> %.3f, feet h %.3f -> %.3f" % [
@@ -509,6 +523,7 @@ func _report() -> void:
 	if _finished:
 		return
 	_finished = true
+	Input.action_release("shovel_push")
 	print("[RETICLE] RESULT: %d OK / %d FAIL" % [_checks_ok, _checks_fail])
 	print("[RETICLE] ==== END ====")
 	get_tree().create_timer(0.4).timeout.connect(get_tree().quit)

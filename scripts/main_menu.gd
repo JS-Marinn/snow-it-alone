@@ -65,6 +65,7 @@ func _ready() -> void:
 		"--pause-shot", "--settings-shot", "--rebind-shot", "--face-snow-shot", "--i18n-check",
 		"--diagnostics-harmless", "--contact-burst", "--hand-pack", "--toon-shot", "--toon-bisect",
 		"--curve-flight", "--tool-ownership", "--reticle-act", "--reticle-aim", "--disposal-shot", "--pack-probe", "--throw-probe",
+		"--blower-transport",
 	]
 	for flag in demo_flags:
 		if OS.get_cmdline_user_args().has(flag):
@@ -349,4 +350,3 @@ func _run_diagnostics_harmless_battery() -> void:
 	battery.set_script(load("res://scripts/diagnostics_harmless_demo.gd"))
 	battery.name = "DiagnosticsHarmlessDemo"
 	add_child(battery)
-

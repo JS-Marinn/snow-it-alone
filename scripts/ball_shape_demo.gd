@@ -250,6 +250,10 @@ func _s_summary() -> void:
 	get_tree().create_timer(0.4).timeout.connect(get_tree().quit)
 
 func _shot(label: String) -> void:
+	# Geometry and mass checks are headless-safe; image capture is not. Waiting on
+	# frame_post_draw in headless mode never completes and used to hang the battery before verdict.
+	if DisplayServer.get_name() == "headless":
+		return
 	await RenderingServer.frame_post_draw
 	var v_tex := get_viewport().get_texture()
 	if v_tex == null:

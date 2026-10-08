@@ -65,6 +65,7 @@ var _phase: int = 0
 var _ok: int = 0
 var _fail: int = 0
 var _finished: bool = false
+var _shot_in_flight: bool = false
 
 ## Per-case records, so the verdict is printed from measurements and not from live state.
 var _row: Dictionary = {}
@@ -195,7 +196,7 @@ func _ph_read_sky() -> void:
 func _ph_carve() -> void:
 	if _phase_t < 0.1:
 		return
-	snow_field.carve(BARE_GROUND, 1.2, 0.5)
+	snow_field.clear_for_diagnostics(BARE_GROUND, 1.2)
 	print("[RETICLE] carved a 1.2 m disc at %s for the bare-ground case" % str(BARE_GROUND))
 	_next()
 
@@ -224,23 +225,31 @@ func _ph_read_bare() -> void:
 # The reticle in pixels
 # ---------------------------------------------------------------------------------------
 func _ph_shot_feet() -> void:
+	if _shot_in_flight:
+		return
 	# Aim back down at close snow so the reticle is in its CAN_PACK state, then photograph it.
 	if _phase_t < 0.1:
 		_aim(SNOW_AT_FEET)
 		return
 	if _phase_t < 0.5:
 		return
+	_shot_in_flight = true
 	await _shot("reticle_down")
+	_shot_in_flight = false
 	_next()
 
 
 func _ph_shot_forward() -> void:
+	if _shot_in_flight:
+		return
 	if _phase_t < 0.1:
 		_aim(FORWARD_GAZE)
 		return
 	if _phase_t < 0.5:
 		return
+	_shot_in_flight = true
 	await _shot("reticle_forward")
+	_shot_in_flight = false
 	_next()
 
 

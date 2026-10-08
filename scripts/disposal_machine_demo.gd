@@ -54,6 +54,8 @@ var _fail: int = 0
 var _finished: bool = false
 
 var _machine: Node = null
+var _machine_accepted_start: float = 0.0
+var _ledger_delivered_start: float = 0.0
 var _cam: Camera3D
 ## Balances and masses carried from one phase to the next.
 var _coins_before: int = 0
@@ -66,6 +68,7 @@ var _chunk_kg: float = 0.0
 var _ball_kg: float = 0.0
 ## The ball that was just thrown, kept so its path can be reported when it fails to arrive.
 var _thrown_probe: Node = null
+var _mass_at_delivery: float = -1.0
 
 
 func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -> void:
@@ -92,6 +95,11 @@ func setup(scene_root: Node3D, field: Node3D, ply: Node3D, props_node: Node3D) -
 		_check("the Playground has a disposal machine to test", false)
 		_report()
 		return
+	if _machine.has_signal("snow_received"):
+		_machine.snow_received.connect(_capture_delivery_mass)
+	_machine_accepted_start = float(_machine.get("accepted_kg"))
+	var initial_ledger: Dictionary = snow_field.call("mass_ledger_snapshot")
+	_ledger_delivered_start = float(initial_ledger.get("delivered_kg", 0.0))
 	print("[DISP] machine at %s, payout %.2f coins/kg, reception radius %.2f m" % [
 		str((_machine as Node3D).global_position), DisposalMachineScript.PAYOUT_PER_KG,
 		float(_machine.get("reception_radius"))])
@@ -249,6 +257,10 @@ func _ph_container_touch(tick: int) -> void:
 		_report()
 		return
 	var loaded := float(_container.call("fill", TIP_KG))
+	if snow_field.has_method("register_payload_mass"):
+		_check("the container fixture receives an explicit ledger source",
+			bool(snow_field.call("register_payload_mass", int(_container.get_instance_id()),
+				loaded, -1, &"disposal_container_fixture")))
 	print("[DISP] container placed in the mouth holding %.3f kg (asked for %.3f)" % [loaded, TIP_KG])
 	_next()
 
@@ -275,7 +287,7 @@ func _ph_container_tip(tick: int) -> void:
 	_delivered_before = _delivered_kg
 	var at: Vector3 = (_container as Node3D).global_position
 	var taken := float(_container.call("empty_all"))
-	var accepted := float(_machine.call("accept", taken, at))
+	var accepted := float(_machine.call("accept", taken, at, int(_container.get_instance_id())))
 	print("[DISP] tipped %.3f kg explicitly: machine accepted %.3f kg" % [taken, accepted])
 	_check("an explicit tip is accepted in full", absf(accepted - taken) < 0.0001 and taken > 0.0)
 	_tipped_kg = taken
@@ -331,7 +343,8 @@ func _ph_bank(tick: int) -> void:
 	_check("a player inside the reception zone puts no snow through the machine",
 		absf(accepted_moved) < 0.0001)
 
-	# The bank used to pay. It does not any more, and that is checked rather than assumed.
+	# Banks are scenery, not sinks. A false hit response is what prevents a ball from being
+	# discarded at the field edge before it reaches the disposal machine.
 	_coins_before = _coins()
 	var half_w := float(snow_field.get("field_width")) * 0.5
 	var bank_at := Vector3(half_w + 0.5, 0.0, 0.0)
@@ -339,7 +352,7 @@ func _ph_bank(tick: int) -> void:
 	var bank_paid := _coins() - _coins_before
 	print("[DISP] bank: claims a hit at %s = %s, coins moved %d" % [
 		str(bank_at), str(bank_claims_hit), bank_paid])
-	_check("the bank still reports a hit where a bank is", bank_claims_hit)
+	_check("a decorative bank is not reported as a delivery or mass sink", not bank_claims_hit)
 	_check("the bank no longer pays", bank_paid == 0)
 	_next()
 
@@ -428,6 +441,8 @@ func _ph_payout(tick: int) -> void:
 	var drop := -0.14
 	if player.get("camera") != null:
 		player.camera.look_at(Vector3(0.0, DisposalMachineScript.MOUTH_Y - drop, (MACHINE_Z + DisposalMachineScript.MOUTH_Z)), Vector3.UP)
+	_thrown_probe = ball
+	_mass_at_delivery = -1.0
 	player.call("_throw_carried")
 	print("[DISP] threw the hand-packed ball at the machine from %s (expecting +%d coins)" % [
 		str(player.global_position), expected])
@@ -489,16 +504,29 @@ func _ph_report(tick: int) -> void:
 		earned > 0)
 	_check("the payout is the declared one for this delivery, on the running total (%d)" % owed,
 		earned == owed)
-	var lost := absf(accepted - _pending_packed)
-	print("[DISP]   mass: ball was %.3f kg, machine took %.3f kg, %.4f kg out (%.1f%% off)" % [
-		_pending_packed, accepted, lost, 100.0 * lost / maxf(_pending_packed, 0.001)])
-	# BOTH DIRECTIONS, because before the throat existed this check only caught a ball arriving
-	# SHORT. It was `accepted > ball * 0.9`, so a machine that took MORE than the ball weighed
-	# would have passed silently -- and one run took 1.624 kg for a 1.211 kg ball. A mass check
-	# that only looks one way is half a mass check.
-	_check("the thrown ball reaches the machine as mass, within 20%% either way",
-		lost <= _pending_packed * 0.2)
+	var expected_body_mass := _mass_at_delivery if _mass_at_delivery > 0.0 else _pending_packed
+	var lost := absf(accepted - expected_body_mass)
+	print("[DISP]   mass: packed %.3f kg, at delivery %.3f kg, machine took %.3f kg (error %.4f kg)" % [
+		_pending_packed, expected_body_mass, accepted, lost])
+	# A rolling ball can legitimately accrete snow between packing and delivery. Compare the sink
+	# against the ball's mass at the reception event, not its earlier hand-packed mass.
+	_check("the machine accepts the ball's measured delivery mass (within 1%%)",
+		lost <= maxf(expected_body_mass * 0.01, 0.005))
+	var ledger_snapshot: Dictionary = snow_field.call("mass_ledger_snapshot")
+	var machine_delta := float(_machine.get("accepted_kg")) - _machine_accepted_start
+	var ledger_delta := float(ledger_snapshot.get("delivered_kg", 0.0)) - _ledger_delivered_start
+	print("[DISP] runtime sink: machine %.4f kg, ledger %.4f kg, balance error %.6f kg, accounts=%s" % [
+		machine_delta, ledger_delta, float(ledger_snapshot.get("balance_error_kg", INF)),
+		str(ledger_snapshot.get("accounts", {}))])
+	_check("machine deliveries reconcile with the runtime ledger sink",
+		absf(machine_delta - ledger_delta) <= maxf(0.005, machine_delta * 0.001)
+		and bool(snow_field.call("mass_ledger_is_balanced", 0.001)))
 	_report()
+
+
+func _capture_delivery_mass(_kg: float, _world_pos: Vector3) -> void:
+	if _thrown_probe != null and is_instance_valid(_thrown_probe) and _thrown_probe.has_method("packed_mass"):
+		_mass_at_delivery = float(_thrown_probe.call("packed_mass"))
 
 
 # ---------------------------------------------------------------------------------------

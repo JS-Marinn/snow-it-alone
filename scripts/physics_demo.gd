@@ -102,9 +102,9 @@ func _build_steps() -> void:
 		[29.4, _s_energy_heavy_throw],
 		[29.8, _s_shatter_test],
 		[30.0, _s_shatter_shot],
-		[30.7, _s_shatter_check],
-		[31.1, _s_hud_panel],
-		[31.3, _s_summary],
+		[31.8, _s_shatter_check],
+		[32.1, _s_hud_panel],
+		[32.3, _s_summary],
 	]
 
 # Phase 4: heavy carry, [E] push and shattering
@@ -177,6 +177,14 @@ func _s_heavy_walk_stop() -> void:
 	# next [E] press dropped 124 kg on the player's head, which knocks them down.
 	if player.is_carrying():
 		player._release_carried(Vector3(0.0, 0.0, -2.5))
+	# Keep the same body for the later heavy-throw phase, but park it outside the light-throw lane.
+	# Letting 124 kg roll through the test area could hit the player during the next measurement and
+	# turn the one-handed throw into a staggered throw with half speed.
+	if _heavy_ball != null and is_instance_valid(_heavy_ball):
+		_heavy_ball.global_position = player.global_position + Vector3(5.0, 0.0, 5.0)
+		_heavy_ball.linear_velocity = Vector3.ZERO
+		_heavy_ball.angular_velocity = Vector3.ZERO
+		_heavy_ball.freeze = true
 	var mean := 0.0
 	for s in _heavy_walk_samples:
 		mean += s
@@ -314,11 +322,18 @@ func _s_shatter_test() -> void:
 
 ## Burst capture: fragments and snow cloud in mid-air.
 func _s_shatter_shot() -> void:
+	# Wait for the physical impact instead of sampling on a fixed timestamp. Vulkan stalls and
+	# slower frames can delay the drop by several physics steps; the old one-shot read sometimes
+	# captured `broken=false` and permanently failed the later fragment-count check.
+	var deadline := Time.get_ticks_msec() + 1500
+	while _shatter_ball != null and is_instance_valid(_shatter_ball) \
+			and Time.get_ticks_msec() < deadline:
+		await get_tree().physics_frame
 	var gone: bool = _shatter_ball == null or not is_instance_valid(_shatter_ball)
 	_shatter_frags_at_impact = SnowBurstScript.last_fragment_count
-	print("[PHYS] impact frame: ball broken=%s  fragments in the air=%d" % [
+	print("[PHYS] impact captured: ball broken=%s  fragments in the air=%d" % [
 		str(gone), _shatter_frags_at_impact])
-	_shot("12_shatter")
+	await _shot("12_shatter")
 
 func _s_shatter_check() -> void:
 	var gone: bool = _shatter_ball == null or not is_instance_valid(_shatter_ball)
@@ -544,6 +559,7 @@ func _s_report_stack() -> void:
 
 func _s_sculpt() -> void:
 	_before["sculpt"] = _height(Vector3(0.0, 0.0, 2.6))
+	_before["sculpt_profile"] = _sample_sculpt_profile()
 	# Chisel passes with a fine 3 cm cut along the mound
 	for i in range(6):
 		var z := 1.6 + float(i) * 0.22
@@ -552,9 +568,23 @@ func _s_sculpt() -> void:
 
 func _s_report_sculpt() -> void:
 	var after: float = _height(Vector3(0.0, 0.0, 2.6))
-	print("[PHYS] carving: height %.3f -> %.3f m (lowered %.3f m)" % [_before["sculpt"], after, float(_before["sculpt"]) - after])
-	_check("the blade carves thin slices", float(_before["sculpt"]) - after > 0.01)
+	var profile_after := _sample_sculpt_profile()
+	var max_cut := 0.0
+	var before_profile: PackedFloat32Array = _before["sculpt_profile"]
+	for i in range(mini(before_profile.size(), profile_after.size())):
+		max_cut = maxf(max_cut, float(before_profile[i]) - float(profile_after[i]))
+	print("[PHYS] carving: centre %.3f -> %.3f m (max local cut %.3f m)" % [
+		float(_before["sculpt"]), after, max_cut])
+	_check("the blade carves thin slices", max_cut > 0.01)
 	_shot("06_carving")
+
+
+func _sample_sculpt_profile() -> PackedFloat32Array:
+	var samples := PackedFloat32Array()
+	for i in range(31):
+		var z := 1.2 + float(i) * 0.06
+		samples.append(_height(Vector3(0.0, 0.0, z)))
+	return samples
 
 func _s_balance() -> void:
 	var mass := _terrain_mass()
@@ -632,13 +662,24 @@ func _s_player_push_stop() -> void:
 	_check("the cutting resistance is measurable", player.snow_resistance >= 0.0)
 	# GAMEPLAY regression: shovelling must slow the player, not crawl
 	_check("shovelling does not drag too much (mean > 2.2 m/s)", mean_speed > 2.2)
-	_before["terrain_dump"] = _terrain_mass()
 	_shot("07_loaded_shovel")
 
 func _s_player_dump_start() -> void:
 	if player == null:
 		return
+	# A shovel push is a ticketed GPU transfer. Let its receipts settle before taking the load/field
+	# baseline; otherwise a held push can still fill the blade after the pour check has started.
+	var pending: Dictionary = player.get("_pending_shovel_ops")
+	var deadline := Time.get_ticks_msec() + 2000
+	while not pending.is_empty() and Time.get_ticks_msec() < deadline:
+		await get_tree().physics_frame
+		pending = player.get("_pending_shovel_ops")
+	if not pending.is_empty():
+		_check("shovel push receipts settle before the pour phase", false)
+		return
+	_check("shovel push receipts settle before the pour phase", true)
 	_before["load1"] = player.shovel_current_load
+	_before["terrain_dump"] = _terrain_mass()
 	_before["pour_h"] = _height(_pour_point())
 	Input.action_press("shovel_toss")   # hold right button = tilt and pour
 	print("[PHYS] the player tilts the shovel and pours (height at the dump point %.3f m)" % _before["pour_h"])
@@ -664,6 +705,10 @@ func _s_player_dump_stop() -> void:
 func _s_player_tamp() -> void:
 	if player == null:
 		return
+	# This battery exercises the legacy tamp verb explicitly. LOAD_AND_PUSH is the product mode
+	# and intentionally ignores Q; its no-op contract is covered by --shovel-modes.
+	if player.has_method("set_shovel_mode"):
+		player.set_shovel_mode(0)
 	var target := _pour_point()
 	_before["tamp_h"] = _height(target)
 	_before["tamp_coh"] = snow_field.get_cohesion_at(target)

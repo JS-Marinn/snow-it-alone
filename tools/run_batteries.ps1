@@ -10,9 +10,8 @@ script runs them, reads their verdict and exits non-zero unless every battery pa
 A battery that crashes without reporting its verdict counts as a FAILURE, not as a
 skip. That is deliberate: a crash must never be mistaken for a pass.
 
-Four of the six batteries need a real graphics card, because the snow simulation
-runs on the GPU. Those cannot run under -Headless and cannot run on a hosted CI
-runner. Use -Headless to run the two that need no GPU.
+GPU-backed batteries need a real graphics device and cannot run under -Headless.
+Use -Headless to run the suites marked Gpu = $false.
 
 .PARAMETER Godot
 Path to the Godot executable. Defaults to $env:GODOT_BIN, then to the usual local
@@ -53,6 +52,7 @@ if (-not $Project) {
 # Kind 'result'     -> must print "RESULT: <n> OK / <m> FAIL(URES)", with m = 0.
 # Kind 'diagnostic' -> has no verdict of its own: it must finish and hold its budget.
 $batteries = @(
+    @{ Flag = 'domain-core'; Name = 'Domain contracts'; Kind = 'result'; Gpu = $false; Script = 'res://tools/test_domain_core.gd' },
     @{ Flag = 'save-roundtrip'; Name = 'Save slots';   Kind = 'result';     Gpu = $false },
     @{ Flag = 'ball-shape';     Name = 'Ball shape';   Kind = 'result';     Gpu = $false },
     @{ Flag = 'i18n-check';     Name = 'Translations'; Kind = 'result';     Gpu = $false },
@@ -65,6 +65,7 @@ $batteries = @(
     @{ Flag = 'beetle-roll';      Name = 'Dung beetle roll'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'contact-burst';    Name = 'Contact burst'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'hand-pack';        Name = 'Hand packing'; Kind = 'result'; Gpu = $true },
+    @{ Flag = 'blower-transport'; Name = 'Blower transport'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'disposal-machine'; Name = 'Disposal machine'; Kind = 'result'; Gpu = $true },
     @{ Flag = 'toon-shot';        Name = 'Cel shading';  Kind = 'result'; Gpu = $true },
     @{ Flag = 'tool-ownership';   Name = 'Tool ownership'; Kind = 'result'; Gpu = $true },
@@ -105,8 +106,6 @@ $summary = @()
 $failed = 0
 $totalChecks = 0
 
-Stop-Process -Name Godot -Force -ErrorAction SilentlyContinue
-
 foreach ($b in $batteries) {
     if ($Only.Count -gt 0 -and $Only -notcontains $b.Flag) { continue }
     if ($Headless -and $b.Gpu -and $Only.Count -eq 0) {
@@ -121,7 +120,13 @@ foreach ($b in $batteries) {
 
     $engineArgs = @()
     if ($Headless) { $engineArgs += '--headless' }
-    $engineArgs += @('--path', $Project, '--', "--$($b.Flag)")
+    $engineArgs += @('--path', $Project)
+    if ($b.Script) {
+        $engineArgs += @('--script', $b.Script)
+    }
+    else {
+        $engineArgs += @('--', "--$($b.Flag)")
+    }
 
     Write-Host ("  run   {0,-14} " -f $b.Flag) -NoNewline
     $started = Get-Date
@@ -222,7 +227,6 @@ foreach ($b in $batteries) {
     }
     $summary += [pscustomobject]@{ Battery = $b.Name; Checks = $checks; Verdict = $verdict; Note = $note }
     Start-Sleep -Seconds 1
-    Stop-Process -Name Godot -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host ""

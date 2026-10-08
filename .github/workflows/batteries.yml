@@ -1,13 +1,8 @@
 name: batteries
 
-# The snow simulation runs on the GPU, so four of the six diagnostic batteries cannot
-# run on a hosted runner. This workflow covers the two that need no graphics card:
-# the save-slot battery and the ball-shape battery. The other four are covered locally
-# by tools/run_batteries.ps1, which is the command that gates a change before it is
-# committed. The last step of this job prints exactly what is not covered here, so a
-# green run is never mistaken for full coverage.
-#
-# Written but not yet exercised: the first push that touches this file is its test.
+# The GPU-backed snow simulation needs a graphics device, so this workflow runs the
+# headless-safe domain, save, and ball-shape suites. GPU integration batteries remain a
+# separate local or self-hosted-runner gate and are not represented by this green check.
 
 on:
   push:
@@ -47,6 +42,9 @@ jobs:
       - name: Save slots
         run: ./godot --headless --path . -- --save-roundtrip 2>&1 | tee save.log
 
+      - name: Domain contracts
+        run: ./godot --headless --path . --script res://tools/test_domain_core.gd 2>&1 | tee domain.log
+
       - name: Ball shape
         run: ./godot --headless --path . -- --ball-shape 2>&1 | tee ball.log
 
@@ -54,12 +52,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" save.log ball.log; then
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script" save.log domain.log ball.log; then
             echo "::error::A script failed to load. See the log lines above."
             exit 1
           fi
 
-          for log in save.log ball.log; do
+          for log in save.log domain.log ball.log; do
             # A battery that crashes prints no verdict at all, which must fail rather
             # than pass silently.
             if ! grep -E "RESULT: [0-9]+ (checks )?OK / 0 (FAIL|failures)" "${log}"; then
@@ -76,13 +74,11 @@ jobs:
           name: battery-logs
           path: |
             save.log
+            domain.log
             ball.log
 
       - name: State what a hosted runner cannot cover
         run: |
           echo "Not covered by this job, because the snow simulation needs a GPU:"
-          echo "  --movement-lab   Movement"
-          echo "  --impact-lab     Ball impacts"
-          echo "  --phys-demo      Physics"
-          echo "  --carve-quality  Snow carving"
-          echo "Run tools/run_batteries.ps1 locally for all six."
+          echo "  movement, impacts, shovel/blower/ball physics, visuals, and snow-simulation suites"
+          echo "Run tools/run_batteries.ps1 locally for the GPU-backed integration suites."

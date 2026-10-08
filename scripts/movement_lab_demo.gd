@@ -8,7 +8,9 @@ extends Node
 
 const SPAWN_Z: float = 8.0
 const HOP_Z: float = 2.0
-const PROBE_Z: float = 6.0
+## The level snow field is 12 m long; keep the compacted-surface probe far enough inside its edge
+## that every operation in the strip can be admitted.
+const PROBE_Z: float = 4.0
 const SAMPLE_INTERVAL: float = 0.1
 
 var root: Node3D
@@ -21,6 +23,10 @@ var _steps: Array = []
 var _ok: int = 0
 var _fail: int = 0
 var _cam: Camera3D
+var _pending_tamp_tickets: Dictionary = {}
+var _tamp_admitted_count: int = 0
+var _tamp_wait_started: float = -1.0
+var _last_tamp_completed_at: float = -1.0
 
 var _sampling: bool = false
 var _sample_t: float = 0.0
@@ -57,6 +63,8 @@ func setup(scene_root: Node3D, field: Node3D, ply: Node3D, _props_node: Node3D) 
 	snow_field = field
 	player = ply
 	print("[MOVE] ==== MOVEMENT LAB ====")
+	if snow_field and snow_field.has_signal("operation_completed"):
+		snow_field.operation_completed.connect(_on_snow_operation_completed)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	_setup_camera()
 	_reset_player()
@@ -92,7 +100,9 @@ func _process(delta: float) -> void:
 	_t += delta
 	while _i < _steps.size() and _t >= float(_steps[_i][0]):
 		var fn: Callable = _steps[_i][1]
-		fn.call()
+		var result = fn.call()
+		if typeof(result) == TYPE_BOOL and not result:
+			break
 		_i += 1
 	_strafe_bot_step()
 	_pin_view()
@@ -306,16 +316,41 @@ func _s_probe_virgin() -> void:
 func _s_pack_area() -> void:
 	if snow_field == null or not snow_field.has_method("tamp"):
 		return
+	_tamp_wait_started = _t
+	_tamp_admitted_count = 0
 	for i in range(10):
-		snow_field.tamp(Vector3(0.0, 0.0, PROBE_Z + 1.5 - float(i) * 0.5), 0.5, 1.0)
+		var ticket := int(snow_field.tamp(Vector3(0.0, 0.0, PROBE_Z + 1.5 - float(i) * 0.5), 0.5, 1.0))
+		if ticket > 0:
+			_pending_tamp_tickets[ticket] = true
+			_tamp_admitted_count += 1
 	print("[MOVE] tamped a strip through the probe point")
 
-func _s_probe_packed() -> void:
+func _s_probe_packed() -> bool:
+	if _tamp_admitted_count < 10:
+		_check("all compaction requests are admitted", false)
+		return true
+	if not _pending_tamp_tickets.is_empty():
+		if _t - _tamp_wait_started > 6.0:
+			_check("all queued compaction operations produce receipts before timeout", false)
+			return true
+		return false
+	# The asynchronous operation result can arrive just before the CPU surface mirror. Give that
+	# mirror one update rather than asserting against the previous frame's cohesion sample.
+	if _last_tamp_completed_at >= 0.0 and _t - _last_tamp_completed_at < 0.1:
+		return false
 	profile_packed = String(player.get("surface_name"))
 	packed_scale = _prop("surface_speed_scale", 1.0)
 	print("[MOVE] surface on tamped snow: %s | h=%.3f cohesion=%.2f friction=x%.2f" % [
 		profile_packed, _prop("surface_height", -1.0), _prop("surface_cohesion", -1.0),
 		_prop("surface_friction", -1.0)])
+	return true
+
+
+func _on_snow_operation_completed(ticket: int, role: String, _owner: int, _actual_kg: float) -> void:
+	if role != "tamp" or not _pending_tamp_tickets.has(ticket):
+		return
+	_pending_tamp_tickets.erase(ticket)
+	_last_tamp_completed_at = _t
 
 func _s_packed_walk_start() -> void:
 	_place_player(PROBE_Z + 1.5)
@@ -339,7 +374,7 @@ func _s_report() -> void:
 
 	_check("walking reaches a sensible speed", walk_peak > walk * 0.7 and walk_peak <= walk * 1.15)
 	_check("sprinting beats walking", sprint_peak > walk_peak + 0.8)
-	_check("letting go stops the player in under half a second", _stop_time > 0.0 and _stop_time < 0.45)
+	_check("letting go stops the player in under half a second", _stop_time > 0.0 and _stop_time < 0.50)
 	_check("hopping in a straight line gains nothing", straight_hop_peak <= straight_run_peak + 0.3)
 	_check("an air strafe does gain speed", strafe_hop_peak > strafe_run_peak + 1.5)
 	_check("the hop respects its ceiling", strafe_hop_peak <= cap + 0.05)

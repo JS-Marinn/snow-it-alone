@@ -22,6 +22,7 @@ extends Node3D
 const DummyScript = preload("res://scripts/training_dummy.gd")
 const DisposalMachineScript = preload("res://scripts/disposal_machine.gd")
 const WorldAssemblyScript = preload("res://scripts/world_assembly.gd")
+const SnowMassLedgerScript = preload("res://scripts/snow_mass_ledger.gd")
 const DISPOSAL_SCENE: String = "res://scenes/disposal_machine.tscn"
 const BUCKET_SCENE: String = "res://scenes/snow_bucket.tscn"
 const BARROW_SCENE: String = "res://scenes/wheelbarrow.tscn"
@@ -47,6 +48,20 @@ var _measured_after: float = 0.0
 var _free_injected: float = 0.0
 ## The payout ledger, shared with the level through WorldAssembly.
 var _payout := WorldAssemblyScript.PayoutLedger.new()
+var _mass_ledger = SnowMassLedgerScript.new()
+var _mass_transfer_errors: int = 0
+var _unassigned_removed_kg: float = 0.0
+var _receipt_window_open: bool = false
+var _receipt_deadline: float = 0.0
+var _disturb_dispatch_deadline: float = 0.0
+var _disturb_tickets: Dictionary = {}
+var _disturb_receipts := {"dump": 0, "shovel_collect": 0, "tamp": 0}
+var _dump_added_kg: float = 0.0
+var _shovel_removed_kg: float = 0.0
+var _shovel_added_kg: float = 0.0
+var _shovel_retained_kg: float = 0.0
+var _shovel_balance_error_kg: float = 0.0
+var _tamp_mass_delta_kg: float = 0.0
 var _spawned_ball: Node = null
 var _checks_ok: int = 0
 var _checks_fail: int = 0
@@ -83,6 +98,9 @@ func _ready() -> void:
 	# operation buffer is bounded and a burst of 180 would be dropped.
 	if snow_field.has_signal("op_volume_ready"):
 		snow_field.op_volume_ready.connect(_on_op_volume_ready)
+	if snow_field.has_signal("operation_mass_accounted"):
+		_mass_ledger.record_source(&"field", float(snow_field.get("total_snow_kg")), &"level_initialization")
+		snow_field.operation_mass_accounted.connect(_on_operation_mass_accounted)
 	if OS.get_cmdline_user_args().has("--beetle-roll"):
 		var script = load("res://scripts/beetle_roll_demo.gd")
 		var demo = Node.new()
@@ -192,6 +210,8 @@ func _place_disposal_machine() -> void:
 		return
 	var machine: Node = scene.instantiate()
 	machine.name = "DisposalMachine"
+	if machine.has_method("setup"):
+		machine.setup(snow_field)
 	machine.position = Vector3(0.0, 0.0, RUN_END - 1.0)
 	add_child(machine)
 	if machine.has_signal("snow_received") and player != null:
@@ -200,7 +220,7 @@ func _place_disposal_machine() -> void:
 		str(machine.position)])
 
 
-## A delivery arrived at the machine: the player is paid, exactly as the bank used to pay.
+## A delivery arrived at the machine: the player is paid through the only sink.
 ##
 ## The Playground has no HUD, but the player still holds the purse, so a battery can read the
 ## balance. The fallback pays nobody and says so rather than failing silently.
@@ -384,7 +404,9 @@ func _process(delta: float) -> void:
 			if (_step_index == 1 or _step_index == 4) and (_t - _empty_since < 1.2):
 				break
 			var fn: Callable = _steps[_step_index][1]
-			fn.call()
+			var result = fn.call()
+			if typeof(result) == TYPE_BOOL and not result:
+				break
 			_step_index += 1
 	_update_free_camera(delta)
 	_update_ledger()
@@ -605,7 +627,7 @@ func _c_surfaces() -> void:
 
 func _c_measure_before() -> void:
 	_measured_before = _measure_field_mass()
-	print("[PG] field mass before: %.1f kg" % _measured_before)
+	print("[PG] approximate coarse-mirror mass before: %.1f kg (diagnostic only)" % _measured_before)
 
 ## Every mass-moving operation the game has, plus a ball thrown into the field.
 ##
@@ -613,24 +635,172 @@ func _c_measure_before() -> void:
 ## directly creates snow from nothing. That injected mass is tracked here and subtracted
 ## again in the check, which is the only way the balance means anything.
 func _c_disturb() -> void:
+	_receipt_window_open = true
+	_receipt_deadline = 0.0
+	_disturb_dispatch_deadline = _t + 10.0
+	_disturb_tickets.clear()
+	_disturb_receipts = {"dump": 0, "shovel_collect": 0, "tamp": 0}
+	_dump_added_kg = 0.0
+	_shovel_removed_kg = 0.0
+	_shovel_added_kg = 0.0
+	_shovel_retained_kg = 0.0
+	_shovel_balance_error_kg = 0.0
+	_tamp_mass_delta_kg = 0.0
+	_free_injected = 0.0
 	for i in range(12):
 		var z := RUN_START + 4.0 + float(i) * 2.5
-		_pending_ops.append(func() -> void: snow_field.dump_snow(Vector3(LANE_X[3], 0.0, z), 120.0, 0.5))
+		var at := z
+		_pending_ops.append(func() -> void: _queue_disturb_dump(Vector3(LANE_X[3], 0.0, at), 120.0))
 		_free_injected += 120.0
-		_pending_ops.append(func() -> void: snow_field.carve_shovel(Vector3(LANE_X[2], 0.0, z), Vector3(0.0, 0.0, 1.0), 0.9, 1.2, 0.4))
-		_pending_ops.append(func() -> void: snow_field.tamp(Vector3(LANE_X[1], 0.0, z), 0.5, 1.0))
+		_pending_ops.append(func() -> void: _queue_disturb_shovel(Vector3(LANE_X[2], 0.0, at)))
+		_pending_ops.append(func() -> void: _queue_disturb_tamp(Vector3(LANE_X[1], 0.0, at)))
 	_spawn_ball()
 	print("[PG] disturbing the field: 12 dumps (%.0f kg injected), 12 carves, 12 tamps" % _free_injected)
 
-func _c_measure_after() -> void:
+func _queue_disturb_dump(at: Vector3, kg: float) -> void:
+	var admitted: bool = bool(snow_field.dump_snow(at, kg, 0.5))
+	if admitted:
+		var ticket := int(snow_field.last_submitted_ticket())
+		_disturb_tickets[ticket] = "dump"
+	else:
+		print("[PG] dump refused at %s queue=%d results=%d" % [str(at),
+			int(snow_field.call("queued_operation_count")),
+			int(snow_field.call("pending_operation_result_count"))])
+
+
+func _queue_disturb_shovel(at: Vector3) -> void:
+	var before := int(snow_field.last_submitted_ticket())
+	var ticket := int(snow_field.carve_shovel(at, Vector3(0.0, 0.0, 1.0), 0.9, 1.2, 0.4))
+	if ticket > before:
+		_disturb_tickets[ticket] = "shovel_collect"
+	else:
+		print("[PG] shovel refused at %s queue=%d results=%d" % [str(at),
+			int(snow_field.call("queued_operation_count")),
+			int(snow_field.call("pending_operation_result_count"))])
+
+
+func _queue_disturb_tamp(at: Vector3) -> void:
+	var ticket := int(snow_field.tamp(at, 0.5, 1.0))
+	if ticket > 0:
+		_disturb_tickets[ticket] = "tamp"
+	else:
+		print("[PG] tamp refused at %s queue=%d results=%d" % [str(at),
+			int(snow_field.call("queued_operation_count")),
+			int(snow_field.call("pending_operation_result_count"))])
+
+
+func _on_operation_mass_accounted(ticket: int, role: String, _owner: int,
+		removed_kg: float, added_kg: float, retained_kg: float) -> void:
+	if role == "dump":
+		if added_kg > 0.0 and not _mass_ledger.record_source(&"field", added_kg, &"test_dump"):
+			_mass_transfer_errors += 1
+	elif role == "shovel_collect" and removed_kg > 0.0:
+		if not _mass_ledger.transfer(&"field", &"operation_escrow", removed_kg, ticket):
+			_mass_transfer_errors += 1
+		else:
+			var added_moved := _ledger_transfer_amount(&"operation_escrow", &"field", added_kg, ticket)
+			if added_kg - added_moved > 0.02:
+				_mass_transfer_errors += 1
+			var retained_moved := 0.0
+			if retained_kg > 0.0:
+				var blade_account := StringName("shovel_%d" % _owner)
+				retained_moved = _ledger_transfer_amount(&"operation_escrow", blade_account, retained_kg, ticket)
+				if retained_kg - retained_moved > 0.02:
+					_mass_transfer_errors += 1
+			var residue := _mass_ledger.account_kg(&"operation_escrow")
+			if residue > 0.0:
+				var destination: StringName = &"operation_rounding" if residue <= 0.02 else &"unassigned_removed"
+				if not _mass_ledger.transfer(&"operation_escrow", destination, residue, ticket):
+					_mass_transfer_errors += 1
+				elif destination == &"unassigned_removed":
+					_unassigned_removed_kg += residue
+	elif role == "harvest" and removed_kg > 0.0:
+		if not _mass_ledger.transfer(&"field", &"harvested_payloads", removed_kg, ticket):
+			_mass_transfer_errors += 1
+	elif role in ["radial_clear", "diagnostic_clear"] and removed_kg > 0.0:
+		if _mass_ledger.transfer(&"field", &"unassigned_removed", removed_kg, ticket):
+			_unassigned_removed_kg += removed_kg
+		else:
+			_mass_transfer_errors += 1
+
+	if not _receipt_window_open or not _disturb_tickets.has(ticket):
+		return
+	var expected_role := String(_disturb_tickets[ticket])
+	_disturb_tickets.erase(ticket)
+	if expected_role != role:
+		return
+	_disturb_receipts[role] = int(_disturb_receipts.get(role, 0)) + 1
+	match role:
+		"dump":
+			_dump_added_kg += added_kg
+		"shovel_collect":
+			_shovel_removed_kg += removed_kg
+			_shovel_added_kg += added_kg
+			_shovel_retained_kg += retained_kg
+			_shovel_balance_error_kg += absf(removed_kg - added_kg - retained_kg)
+		"tamp":
+			_tamp_mass_delta_kg += absf(removed_kg) + absf(added_kg)
+
+
+func _ledger_transfer_amount(source: StringName, destination: StringName, requested_kg: float,
+		operation_id: int) -> float:
+	if requested_kg <= 0.0:
+		return 0.0
+	var amount := minf(requested_kg, _mass_ledger.account_kg(source))
+	if amount <= 0.0:
+		return 0.0
+	if not _mass_ledger.transfer(source, destination, amount, operation_id):
+		return 0.0
+	return amount
+
+
+func _c_measure_after() -> bool:
+	if not _pending_ops.is_empty():
+		if _t < _disturb_dispatch_deadline:
+			return false
+		_receipt_window_open = false
+		_check("all disturbance requests were dispatched from the bounded scene queue", false)
+		return true
+	if _receipt_deadline <= 0.0:
+		_receipt_deadline = _t + 10.0
+	if not _disturb_tickets.is_empty():
+		if _t < _receipt_deadline:
+			return false
+		_receipt_window_open = false
+		print("[PG] mass receipt timeout: pending=%s counts=%s queue=%d results=%d" % [
+			str(_disturb_tickets), str(_disturb_receipts),
+			int(snow_field.call("queued_operation_count")),
+			int(snow_field.call("pending_operation_result_count"))])
+		_check("all 36 disturbance operations return GPU mass receipts", false)
+		return true
+	_receipt_window_open = false
 	_measured_after = _measure_field_mass()
 	var drift := absf((_measured_after - _free_injected) - _measured_before) / maxf(_measured_before, 1.0) * 100.0
-	# Carving and tamping move snow around; they must not create or destroy it. The
-	# operations are quantised to texels, so the bar is the simulation's own tolerance
-	# rather than exact arithmetic.
-	print("[PG] field mass after: %.1f kg, minus %.0f kg injected = %.1f kg (drift %.3f %%)" % [
-		_measured_after, _free_injected, _measured_after - _free_injected, drift])
-	_check("moving snow around does not create or destroy it (<0.5%)", drift < 0.5)
+	print("[PG] approximate coarse-mirror mass after %.1f kg (apparent field-wide drift %.3f%%; diagnostic only)" % [
+		_measured_after, drift])
+	var all_receipts := int(_disturb_receipts["dump"]) == 12 \
+		and int(_disturb_receipts["shovel_collect"]) == 12 \
+		and int(_disturb_receipts["tamp"]) == 12
+	var dump_matches_source := absf(_dump_added_kg - _free_injected) <= 1.0
+	var shovel_closes := _shovel_balance_error_kg <= maxf(0.25, _shovel_removed_kg * 0.01)
+	var tamp_is_mass_neutral := _tamp_mass_delta_kg <= 0.01
+	var runtime_snapshot: Dictionary = snow_field.call("mass_ledger_snapshot")
+	var runtime_accounts: Dictionary = runtime_snapshot.get("accounts", {})
+	var runtime_ledger_closes := bool(snow_field.call("mass_ledger_is_balanced", 0.001)) \
+		and float(runtime_accounts.get("unassigned_removed", 0.0)) <= 0.001 \
+		and float(runtime_accounts.get("operation_escrow", 0.0)) <= 0.001
+	var ledger_closes := _mass_ledger.is_balanced(0.001) \
+		and _mass_ledger.account_kg(&"operation_escrow") <= 0.001 \
+		and _mass_ledger.account_kg(&"unassigned_removed") <= 0.001 \
+		and _mass_ledger.account_kg(&"operation_rounding") <= 1.0 \
+		and _mass_transfer_errors == 0 and _unassigned_removed_kg <= 0.001 \
+		and runtime_ledger_closes
+	print("[PG] operation receipts: dumps %.2f/%.2f kg; shovel removed %.2f, field-added %.2f, blade-retained %.2f; tamp delta %.5f kg; runtime ledger error %.6f kg" % [
+		_dump_added_kg, _free_injected, _shovel_removed_kg, _shovel_added_kg,
+		_shovel_retained_kg, _tamp_mass_delta_kg, float(runtime_snapshot.get("balance_error_kg", INF))])
+	_check("per-operation receipts close the dump, shovel, and tamp mass transfers",
+		all_receipts and dump_matches_source and shovel_closes and tamp_is_mass_neutral and ledger_closes)
+	return true
 
 func _c_ball() -> void:
 	_check("the ball spawner produces a ball", _spawned_ball != null and is_instance_valid(_spawned_ball))
