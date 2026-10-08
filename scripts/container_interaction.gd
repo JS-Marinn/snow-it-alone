@@ -4,9 +4,8 @@ extends Node
 ##
 ## The containers themselves only count (`fill`, `take`, `empty_all` in `scripts/snow_bucket.gd`
 ## and `scripts/wheelbarrow.gd`). This file is the decision: which of the shovel, the hands,
-## the field or the bank is allowed to move snow in or out, and every path here is written so
-## that mass is conserved - snow that goes in came out of the field, and snow that goes out
-## ends up in the field or in the bank and nowhere else.
+## the field or the disposal machine is allowed to move snow in or out. The disposal machine is
+## the only sink; every other route returns snow to the field or retains it as a payload.
 ##
 ## Filling from the ground cannot be a synchronous subtraction: the field runs on the GPU and
 ## reports what it actually removed a few frames later, through `op_volume_ready`. So a fill
@@ -16,6 +15,7 @@ extends Node
 
 const PACK_HARVEST_RADIUS: float = 0.26
 const PACK_HARVEST_DEPTH: float = 0.30
+const SnowChunkScript = preload("res://scripts/snow_chunk.gd")
 ## The cut asked for is larger than the free space on purpose, so one request fills a bucket
 ## instead of leaving it a few grams short; the surplus is handed straight back to the field.
 const HARVEST_HEADROOM: float = 1.02
@@ -63,7 +63,7 @@ func container_action(player: Node3D, container: Node) -> bool:
 	# A tipped barrow has been emptied by gravity; the player is not asking for anything.
 	if container.get("is_tipped") == true:
 		return false
-	# Full container: the tap means "tip it out", onto the bank if there is one there.
+	# Full container: the tap means "tip it out" into the disposal machine or back onto the field.
 	if float(container.call("fill_ratio")) >= 1.0 and float(container.get("contents_kg")) > 0.0:
 		tip_out(player, container)
 		return true
@@ -103,13 +103,19 @@ func request_fill_from_ground(player: Node3D, container: Node) -> bool:
 	var depth := gross_kg / maxf(PI * radius * radius * LOOSE_DENSITY, 0.001)
 	depth = clampf(depth, 0.02, 0.30)
 	var owner_id := int(container.get_instance_id())
-	_pending.append({
+	var request: Dictionary = {
 		"owner": owner_id,
 		"container": container,
 		"player": player,
 		"at": at,
-	})
-	snow_field.request_harvest(container.get_instance_id(), at, at + Vector3(0.02, 0.0, 0.02), radius, depth)
+	}
+	_pending.append(request)
+	var accepted: bool = bool(snow_field.request_harvest(
+		container.get_instance_id(), at, at + Vector3(0.02, 0.0, 0.02), radius, depth))
+	if not accepted:
+		_pending.pop_back()
+		player.set("status_message", tr("STATUS_SNOW_QUEUE_BUSY"))
+		return true
 	if DEBUG:
 		print("[CONT] harvest asked for: container=%d free=%.3f kg depth=%.3f m at %s" % [
 			owner_id, free_kg, depth, str(at)])
@@ -136,7 +142,7 @@ func _apply_fill(entry: Dictionary, harvested_kg: float) -> void:
 		# The container died between the request and the answer. Its snow is not lost: it
 		# goes back where it came from.
 		if harvested_kg > 0.0:
-			_return_to_field(entry["at"], harvested_kg)
+			_return_to_field(entry["at"], harvested_kg, int(entry["owner"]))
 		return
 	var kg: float = maxf(harvested_kg, 0.0)
 	var accepted := 0.0
@@ -144,7 +150,7 @@ func _apply_fill(entry: Dictionary, harvested_kg: float) -> void:
 		accepted = float(container.call("fill", kg))
 	var surplus: float = kg - accepted
 	if surplus > 0.0:
-		_return_to_field(entry["at"], surplus)
+		_return_to_field(entry["at"], surplus, int(entry["owner"]))
 	kg_filled += accepted
 	if accepted > 0.0:
 		fills_done += 1
@@ -157,48 +163,88 @@ func _apply_fill(entry: Dictionary, harvested_kg: float) -> void:
 		print("[CONT] fill: harvested=%.4f accepted=%.4f returned=%.4f" % [kg, accepted, surplus])
 
 
-func _return_to_field(at: Vector3, kg: float) -> void:
-	if kg <= 0.0 or snow_field == null or not snow_field.has_method("dump_snow"):
-		return
-	snow_field.dump_snow(at, kg, RETURN_RADIUS)
+func _return_to_field(at: Vector3, kg: float, source_owner: int = -1) -> bool:
+	if kg <= 0.0:
+		return true
+	if snow_field and snow_field.has_method("dump_snow"):
+		var return_at := at
+		if snow_field.has_method("get_mass_return_position"):
+			return_at = snow_field.get_mass_return_position(at)
+		if snow_field.dump_snow(return_at, kg, RETURN_RADIUS, -1.0, source_owner):
+			return true
+	# A full operation queue refuses the deposit without changing the field. Keep the payload
+	# tangible as a chunk rather than silently deleting material already harvested from the field.
+	var world_root: Node = get_tree().current_scene if get_tree() else null
+	if world_root == null:
+		world_root = get_parent()
+	if world_root == null:
+		push_error("ContainerInteraction: no payload destination for %.4f kg" % kg)
+		return false
+	var chunk := SnowChunkScript.new()
+	chunk.kg_weight = kg
+	chunk.snow_field = snow_field
+	chunk.is_toss = false
+	if source_owner >= 0 and snow_field and snow_field.has_method("transfer_payload_mass"):
+		if not snow_field.transfer_payload_mass(source_owner, int(chunk.get_instance_id()), kg):
+			push_error("ContainerInteraction: could not transfer %.4f kg into fallback chunk" % kg)
+			return false
+		chunk.mass_ledger_managed = true
+	elif snow_field and snow_field.has_method("register_payload_mass"):
+		chunk.mass_ledger_managed = snow_field.register_payload_mass(
+			int(chunk.get_instance_id()), kg, -1, &"container_return_payload")
+	world_root.add_child(chunk)
+	var chunk_at := at
+	if snow_field and snow_field.has_method("get_mass_return_position"):
+		chunk_at = snow_field.get_mass_return_position(at)
+	chunk.global_position = chunk_at + Vector3.UP * 0.18
+	return true
 
 
 # ---------------------------------------------------------------------------------------
-# Emptying. Into the bank if the container was carried there, into the field otherwise.
+# Emptying. Into the disposal machine if it is nearby, back to the field otherwise.
 # ---------------------------------------------------------------------------------------
 ## Empties a container and accounts for every kilogram of it.
 ##
 ## Returns the mass that left the container, so a caller can assert on it.
 func tip_out(player: Node3D, container: Node) -> float:
-	var kg := float(container.call("empty_all"))
+	var kg := float(container.get("contents_kg"))
 	if kg <= 0.0:
 		return 0.0
-	kg_tipped += kg
-	tips_done += 1
-	if container.has_method("play_tip_sound"):
-		container.call("play_tip_sound")
 	var at := _dump_point(player, container)
 	var machine := _find_nearby_disposal_machine(at)
+	var taken := float(container.call("take", kg)) if container.has_method("take") else float(container.call("empty_all"))
+	if taken <= 0.0:
+		return 0.0
 	if machine != null and machine.has_method("accept"):
-		var accepted: float = float(machine.accept(kg, at))
+		var accepted: float = clampf(float(machine.accept(taken, at, int(container.get_instance_id()))), 0.0, taken)
+		var remainder := taken - accepted
+		if remainder > 0.000001:
+			var restored := float(container.call("fill", remainder)) if container.has_method("fill") else 0.0
+			if remainder - restored > 0.000001:
+				_return_to_field(at, remainder - restored, int(container.get_instance_id()))
+		kg_tipped += accepted
+		if accepted > 0.0:
+			tips_done += 1
+			if container.has_method("play_tip_sound"):
+				container.call("play_tip_sound")
 		if player != null and is_instance_valid(player):
-			player.set("status_message", tr("STATUS_BANK_PAID") % accepted)
+			player.set("status_message", tr("STATUS_DISPOSAL_PAID") % accepted)
 		if DEBUG:
 			print("[CONT] tip_out: %.4f kg into disposal machine %s" % [accepted, machine.name])
 		return accepted
-	var in_bank := _deposits_in_bank(at, kg)
-	if DEBUG:
-		print("[CONT] tip_out: %.4f kg, drop point %s, bank hit %s" % [kg, str(at), str(in_bank)])
-	if in_bank:
-		if player != null and is_instance_valid(player):
-			player.set("status_message", tr("STATUS_CONTAINER_TIPPED") % kg)
-		return kg
-	_return_to_field(at, kg)
+	if not _return_to_field(at, taken, int(container.get_instance_id())):
+		if container.has_method("fill"):
+			container.call("fill", taken)
+		return 0.0
+	kg_tipped += taken
+	tips_done += 1
+	if container.has_method("play_tip_sound"):
+		container.call("play_tip_sound")
 	if player != null and is_instance_valid(player):
-		player.set("status_message", tr("STATUS_CONTAINER_TIPPED") % kg)
+		player.set("status_message", tr("STATUS_CONTAINER_TIPPED") % taken)
 	if DEBUG:
-		print("[CONT] tipped %.4f kg onto the field at %s" % [kg, str(at)])
-	return kg
+		print("[CONT] tipped %.4f kg onto the field at %s" % [taken, str(at)])
+	return taken
 
 
 func _find_nearby_disposal_machine(at: Vector3) -> Node:
@@ -214,19 +260,6 @@ func _find_nearby_disposal_machine(at: Vector3) -> Node:
 	return null
 
 
-## True when dumping `kg` at `at` lands in a snow bank, and pays for it.
-##
-## The bank pays through the same `check_snowbank_hit` a thrown ball uses, which emits
-## `snow_tossed_in_bank` and is picked up by whoever holds the purse (the player controller
-## in the level, the HUD when there is no player). So a container is not a second currency:
-## it is the same snow, delivered the slow way. A bank that only paid for one of the two was
-## the soft-lock this project already fixed once, and this is the check that keeps it fixed.
-func _deposits_in_bank(at: Vector3, kg: float) -> bool:
-	if snow_field == null or not snow_field.has_method("check_snowbank_hit"):
-		return false
-	return snow_field.check_snowbank_hit(at, kg) == true
-
-
 # ---------------------------------------------------------------------------------------
 # Handing over what the player is already holding: a loaded shovel, or a full bucket.
 # ---------------------------------------------------------------------------------------
@@ -239,6 +272,11 @@ func _pour_from_player(player: Node3D, container: Node) -> bool:
 	var accepted := float(container.call("fill", load))
 	if accepted <= 0.0:
 		return false
+	if snow_field and snow_field.has_method("transfer_payload_mass"):
+		if not snow_field.transfer_payload_mass(int(player.get_instance_id()),
+				int(container.get_instance_id()), accepted):
+			container.call("take", accepted)
+			return false
 	player.set("shovel_current_load", maxf(load - accepted, 0.0))
 	kg_filled += accepted
 	fills_done += 1
@@ -263,12 +301,21 @@ func _pour_carried(player: Node3D, container: Node) -> bool:
 	if given <= 0.0:
 		return false
 	var accepted := float(container.call("fill", given))
+	if accepted > 0.0 and snow_field and snow_field.has_method("transfer_payload_mass"):
+		if not snow_field.transfer_payload_mass(int(carried.get_instance_id()),
+				int(container.get_instance_id()), accepted):
+			container.call("take", accepted)
+			carried.call("fill", given)
+			return false
 	var surplus: float = given - accepted
 	if surplus > 0.0:
-		# Handed it all over and it did not fit: the rest goes back to the ground rather than
-		# vanishing, which is what keeps the ledger true when a bucket is poured into a barrow
-		# that is nearly full.
-		_return_to_field(_dump_point(player, container), surplus)
+		# The source container was just emptied, so restore any amount the destination could not
+		# accept. Returning it to the field would turn a local ownership transfer into an async
+		# deposit that could be rejected by queue back-pressure.
+		var restored := float(carried.call("fill", surplus))
+		if surplus - restored > 0.000001:
+			_return_to_field(_dump_point(player, container), surplus - restored,
+				int(carried.get_instance_id()))
 	kg_filled += accepted
 	if accepted > 0.0:
 		fills_done += 1

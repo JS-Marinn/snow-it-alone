@@ -12,6 +12,7 @@ extends RigidBody3D
 # creates a real joint (packed snow) that a hard hit can break.
 
 const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
+const SnowChunkScript = preload("res://scripts/snow_chunk.gd")
 
 ## Density of loose snow in the field (kg/m3): reference for turning a
 ## terrain volume into mass when the ball absorbs it.
@@ -81,14 +82,17 @@ signal settled_on(ball: SnowBall)
 var radius: float = 0.12
 var snow_field: Node3D
 var is_carried: bool = false
-## Accretion efficiency: the share of harvested snow that sticks.
-@export var accretion_efficiency: float = 0.75
+## Accretion efficiency: the share of harvested snow that sticks to the ball. Any remainder is
+## emitted as an explicit loose-snow payload instead of disappearing.
+@export_range(0.0, 1.0) var accretion_efficiency: float = 1.0
 ## Impact speed (m/s) at which the ball BREAKS APART. Rolling and falling
 ## gently do not break it, a hard hit does.
 @export var break_speed_threshold: float = 7.0
 ## Diagnostic traces for the harvest loop.
 var debug_harvest: bool = false
 var _harvest_requests: int = 0
+## True after PropsSystem transfers or registers this ball's payload in the field ledger.
+var mass_ledger_managed: bool = false
 var _shattered: bool = false
 ## Guard ensuring a ball only ever applies one reaction across sweep and contact.
 var _hit_applied: bool = false
@@ -169,6 +173,13 @@ func _ready() -> void:
 	_collision = CollisionShape3D.new()
 	_collision.shape = _shape
 	add_child(_collision)
+	# The snow surface is resolved by the support spring below. Colliding with the SnowField's
+	# flat base as well would support the ball twice; keep collisions with world structures and
+	# other balls, but explicitly exclude that one terrain body.
+	if snow_field != null and snow_field.has_method("get_node_or_null"):
+		var snow_base := snow_field.get_node_or_null("SnowSupportBase")
+		if snow_base is CollisionObject3D:
+			add_collision_exception_with(snow_base)
 
 	# Collides with ground, structures and other balls, but NOT with the snow
 	# field: support comes from the elastic response to the deformable height
@@ -248,17 +259,46 @@ func _on_op_volume_ready(role: String, owner: int, kg: float) -> void:
 	if role != "harvest" or owner != _harvest_owner:
 		return
 	_harvest_pending = false
-	if kg <= 0.0 or is_carried:
-		return
-	_grow_by_mass(kg * accretion_efficiency)
-
-func _grow_by_mass(kg: float) -> void:
 	if kg <= 0.0:
 		return
-	# Absorbed snow is compacted to the consistency the ball already has
-	var dv := kg / density_for_radius(radius)
-	var r3 := radius * radius * radius + (3.0 * dv) / (4.0 * PI)
-	set_radius(pow(maxf(r3, 1e-9), 1.0 / 3.0))
+	if is_carried:
+		_spawn_mass_spill(kg)
+		return
+	var requested_accretion := kg * clampf(accretion_efficiency, 0.0, 1.0)
+	var absorbed := _grow_by_mass(requested_accretion)
+	var spill := maxf(kg - absorbed, 0.0)
+	if spill > 0.000001:
+		_spawn_mass_spill(spill)
+
+func _grow_by_mass(kg: float) -> float:
+	if kg <= 0.0:
+		return 0.0
+	# Invert the configured mass curve rather than assuming constant density. The previous R³
+	# shortcut used the old radius' density and drifted as density increased with ball size.
+	var before := packed_mass()
+	var maximum := mass_for_radius(MAX_RADIUS)
+	var target := minf(before + kg, maximum)
+	set_radius(radius_for_packed_mass(target))
+	return maxf(packed_mass() - before, 0.0)
+
+
+func _spawn_mass_spill(kg: float) -> void:
+	if kg <= 0.0 or get_parent() == null:
+		push_error("SnowBall: %.4f kg harvest has no payload destination" % kg)
+		return
+	var chunk := SnowChunkScript.new()
+	chunk.kg_weight = kg
+	chunk.snow_field = snow_field
+	chunk.is_toss = false
+	if snow_field and snow_field.has_method("transfer_payload_mass"):
+		if not snow_field.transfer_payload_mass(int(get_instance_id()), int(chunk.get_instance_id()), kg):
+			push_error("SnowBall: could not transfer %.4f kg into accretion spill" % kg)
+			chunk.free()
+			return
+		chunk.mass_ledger_managed = true
+	get_parent().add_child(chunk)
+	chunk.global_position = global_position + Vector3.UP * maxf(radius * 0.25, 0.05)
+	chunk.linear_velocity = linear_velocity * 0.25
 
 ## Equivalent radius after absorbing a VOLUME of loose field snow.
 func absorb_loose_volume(volume_m3: float) -> void:
@@ -310,12 +350,18 @@ func _try_harvest(_delta: float) -> void:
 	# The ball sinks partially: it harvests a strip as wide as its footprint and
 	# of limited depth (never more than half a ball).
 	var max_depth: float = clampf(height * 0.45, 0.01, radius * 0.6)
-	snow_field.request_harvest(_harvest_owner, _last_harvest_pos, pos, radius * 0.9, max_depth)
-	_harvest_pending = true
-	_harvest_requests += 1
-	if debug_harvest:
-		print("[BALL %d] harvest #%d  from=%s to=%s  depth=%.3f m  h=%.3f" % [
-			_harvest_owner, _harvest_requests, str(_last_harvest_pos), str(pos), max_depth, height])
+	var accepted: bool = bool(snow_field.request_harvest(
+		_harvest_owner, _last_harvest_pos, pos, radius * 0.9, max_depth))
+	if accepted:
+		_harvest_pending = true
+		_harvest_requests += 1
+		if debug_harvest:
+			print("[BALL %d] harvest #%d  from=%s to=%s  depth=%.3f m  h=%.3f" % [
+				_harvest_owner, _harvest_requests, str(_last_harvest_pos), str(pos), max_depth, height])
+	else:
+		# A rejected operation did not change the field. Drop this segment and let a later movement
+		# step request a fresh bounded sweep instead of leaving accretion permanently pending.
+		pass
 	_last_harvest_pos = pos
 
 # Physics
@@ -699,7 +745,8 @@ func _shatter(impact_velocity: Vector3 = Vector3.ZERO) -> void:
 		radius, str(global_position), impact_velocity.length(), origin])
 	_shattered = true
 	_break_weld()
-	SnowBurst.spawn(get_parent(), global_position, radius, packed_mass(), impact_velocity, snow_field)
+	SnowBurst.spawn(get_parent(), global_position, radius, packed_mass(), impact_velocity, snow_field,
+		0, int(get_instance_id()))
 	queue_free()
 
 ## Target rolling speed for this ball's current mass (the beetle scale).

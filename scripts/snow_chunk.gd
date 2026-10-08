@@ -6,16 +6,25 @@ extends RigidBody3D
 
 const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 
+signal reabsorbed(kg: float, world_pos: Vector3)
+
 var kg_weight: float = 2.0
 var snow_field: Node3D
 var has_hit: bool = false
 var lifetime: float = 0.0
 var bounce_count: int = 0
 var is_toss: bool = false
+var _reabsorb_queued: bool = false
+## Set by a gameplay spawner after it transfers mass into this chunk's owner account.
+var mass_ledger_managed: bool = false
 
 static var snow_mat: StandardMaterial3D
 
 func _ready() -> void:
+	mass = maxf(kg_weight, 0.05)
+	if not mass_ledger_managed and snow_field and snow_field.has_method("register_payload_mass"):
+		mass_ledger_managed = snow_field.register_payload_mass(
+			int(get_instance_id()), kg_weight, -1, &"external_chunk_spawn")
 	collision_layer = 4
 	collision_mask = 1 | 4
 	contact_monitor = true
@@ -62,10 +71,13 @@ func _process(delta: float) -> void:
 		_reabsorb()
 		return
 	if lifetime > 2.6:
-		var s = maxf(1.0 - (lifetime - 2.6) / 0.8, 0.01)
+		var s = maxf(1.0 - (lifetime - 2.6) / 0.8, 0.35)
 		scale = Vector3(s, s, s)
 	if lifetime > 3.4:
-		_reabsorb()
+		if not _reabsorb():
+			# Back-pressure or a missing field is not permission to delete the payload. Keep a
+			# visible remnant and retry when the field can accept the deposit.
+			lifetime = 3.4
 
 func is_on_floor_ish() -> bool:
 	if snow_field and snow_field.has_method("get_height_at"):
@@ -73,12 +85,24 @@ func is_on_floor_ish() -> bool:
 		return h >= 0.0 and global_position.y <= h + 0.25
 	return false
 
-## Gives the volume back to the terrain (strict mass conservation).
-func _reabsorb() -> void:
-	if snow_field and snow_field.has_method("dump_snow"):
-		var r := clampf(0.10 + kg_weight * 0.03, 0.10, 0.28)
-		snow_field.dump_snow(global_position, kg_weight, r)
+## Gives the exact payload back to the terrain. The chunk is freed only after the bounded
+## simulation queue has admitted the deposit; a rejected deposit is retried later.
+func _reabsorb() -> bool:
+	if _reabsorb_queued:
+		return true
+	if snow_field == null or not snow_field.has_method("dump_snow"):
+		push_error("SnowChunk: cannot reabsorb %.4f kg without a snow field" % kg_weight)
+		return false
+	var deposit_pos := global_position
+	if snow_field.has_method("get_mass_return_position"):
+		deposit_pos = snow_field.get_mass_return_position(global_position)
+	var r := clampf(0.10 + kg_weight * 0.03, 0.10, 0.28)
+	if not snow_field.dump_snow(deposit_pos, kg_weight, r, -1.0, int(get_instance_id())):
+		return false
+	_reabsorb_queued = true
+	reabsorbed.emit(kg_weight, deposit_pos)
 	queue_free()
+	return true
 
 func _on_body_entered(_body: Node) -> void:
 	bounce_count += 1

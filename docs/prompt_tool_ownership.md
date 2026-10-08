@@ -30,6 +30,11 @@ later and should need nothing but wiring.
 
 ## The blocker to solve first, or the game has no way to start
 
+> **Current implementation note:** this is a historical prompt section. The bank payout route
+> has since been removed; the disposal machine is the only snow sink and payout path. Do not
+> restore a bank sink to satisfy the old steps below; follow `docs/architecture.md` and the
+> supplied `GAME_SPEC.md` instead.
+
 The bank payout lives in `snow_chunk.gd:85`, which means **chunks**, not balls. A player who
 owns only the hand cannot blow chunks. So the question is: **can they earn anything at all?**
 

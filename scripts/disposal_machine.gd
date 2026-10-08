@@ -29,10 +29,9 @@ const SoundEffectsScript = preload("res://scripts/sound_effects.gd")
 
 ## Emitted once per delivery, with the mass that left the world and where it happened.
 ##
-## This is the ONLY money path out of this machine. It is deliberately the same shape as the
-## snow bank's `snow_tossed_in_bank`: whoever holds the purse (the player controller in the
-## level, the HUD when there is no player) decides what coins are worth. There is no second
-## currency here and this file knows nothing about coins.
+## This is the only payout path: whoever holds the purse (the player controller in the level,
+## the HUD when there is no player) decides what coins are worth. There is no second currency here
+## and this file knows nothing about coins.
 signal snow_received(kg: float, world_pos: Vector3)
 
 ## Placeholder price per kilogram. Higher than the bank's 1.5 on purpose: the bank paid for
@@ -43,6 +42,7 @@ const PAYOUT_PER_KG: float = 2.5
 const GROUP: String = "disposal_machines"
 
 @export var machine_name: String = "Snow Disposal Machine"
+var snow_field: Node3D
 ## Radius (m) of the reception zone in front of the mouth. Wide enough for a thrown ball.
 @export var reception_radius: float = 1.1
 ## How high above the machine's origin the reception zone sits (m).
@@ -105,6 +105,10 @@ func _build_reception() -> void:
 	reception_area.add_child(shape)
 	add_child(reception_area)
 	reception_area.body_entered.connect(_on_body_entered)
+
+
+func setup(field: Node3D) -> void:
+	snow_field = field
 
 
 func _physics_process(_delta: float) -> void:
@@ -179,6 +183,10 @@ func _swallow(body: Node, kg: float) -> void:
 	var id := int(body.get_instance_id())
 	if _handled.has(id):
 		return
+	if snow_field and snow_field.has_method("deliver_payload_mass"):
+		if not snow_field.deliver_payload_mass(id, kg, id):
+			push_error("DisposalMachine: refusing unaccounted payload %d (%.4f kg)" % [id, kg])
+			return
 	_handled.append(id)
 	var at: Vector3 = (body as Node3D).global_position if body is Node3D else global_position
 	body.queue_free()
@@ -193,10 +201,15 @@ func _swallow(body: Node, kg: float) -> void:
 ## Called by the container interaction code when a load is tipped with the machine in front of
 ## it. Returns the mass accepted, which is all of it: this machine never refuses snow and has
 ## no capacity, so a caller can rely on a full tip being a full delivery.
-func accept(kg: float, world_pos: Vector3) -> float:
+func accept(kg: float, world_pos: Vector3, source_owner: int = -1) -> float:
 	var taken := maxf(kg, 0.0)
 	if taken <= 0.0:
 		return 0.0
+	if source_owner >= 0 and snow_field and snow_field.has_method("deliver_payload_mass"):
+		if not snow_field.deliver_payload_mass(source_owner, taken, source_owner):
+			push_error("DisposalMachine: refusing unaccounted container payload %d (%.4f kg)" % [
+				source_owner, taken])
+			return 0.0
 	_credit(taken, world_pos)
 	return taken
 

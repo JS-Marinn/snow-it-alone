@@ -32,7 +32,8 @@ static var _puff_material: StandardMaterial3D
 
 ## Breaks a ball apart at `pos`. Returns the number of fragments launched.
 static func spawn(parent: Node, pos: Vector3, radius: float, mass_kg: float,
-		velocity: Vector3, snow_field: Node3D, fragments: int = 0) -> int:
+		velocity: Vector3, snow_field: Node3D, fragments: int = 0,
+		source_owner: int = -1) -> int:
 	if parent == null or not is_instance_valid(parent):
 		return 0
 	var n: int = fragments if fragments > 0 else clampi(int(6.0 + radius * 24.0), 6, 20)
@@ -40,8 +41,19 @@ static func spawn(parent: Node, pos: Vector3, radius: float, mass_kg: float,
 	var mass_fragments: float = maxf(mass_kg - mass_terrain, 0.0)
 
 	# 1) Most of the snow goes back to the snow field right where it hit
-	if snow_field and snow_field.has_method("dump_snow") and mass_terrain > 0.01:
-		snow_field.dump_snow(pos, mass_terrain, maxf(radius * 1.4, 0.24))
+	if mass_terrain > 0.0:
+		var deposited := false
+		if snow_field and snow_field.has_method("dump_snow"):
+			var deposit_pos := pos
+			if snow_field.has_method("get_mass_return_position"):
+				deposit_pos = snow_field.get_mass_return_position(pos)
+			deposited = snow_field.dump_snow(deposit_pos, mass_terrain,
+				maxf(radius * 1.4, 0.24), -1.0, source_owner)
+		if not deposited:
+			# A missing/full/out-of-bounds field queue cannot consume the payload. Route the
+			# intended terrain share into the same reabsorbable fragment pool instead.
+			mass_fragments += mass_terrain
+			mass_terrain = 0.0
 
 	# 2) Fragment burst carrying the remaining mass; each one reabsorbs on landing
 	var per_fragment: float = mass_fragments / float(n) if n > 0 else 0.0
@@ -49,7 +61,7 @@ static func spawn(parent: Node, pos: Vector3, radius: float, mass_kg: float,
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(pos.x * 1000.0) ^ int(pos.z * 7919.0) ^ n
 	for i in range(n):
-		var frag := _make_fragment(parent, pos, radius, per_fragment)
+		var frag := _make_fragment(parent, pos, radius, per_fragment, snow_field, source_owner)
 		if frag == null:
 			continue
 		last_fragment_count += 1
@@ -73,19 +85,39 @@ static func spawn(parent: Node, pos: Vector3, radius: float, mass_kg: float,
 	return n
 
 ## Creates ONE fragment. Single swap point for the final model; see the hook above.
-static func _make_fragment(parent: Node, pos: Vector3, radius: float, mass_kg: float) -> RigidBody3D:
+static func _make_fragment(parent: Node, pos: Vector3, radius: float, mass_kg: float,
+		snow_field: Node3D, source_owner: int) -> RigidBody3D:
 	if fragment_scene != null:
 		var node := fragment_scene.instantiate()
-		if node is RigidBody3D:
+		if node is RigidBody3D and "kg_weight" in node and "snow_field" in node:
+			node.set("kg_weight", maxf(mass_kg, 0.0))
+			node.set("snow_field", snow_field)
+			if snow_field and snow_field.has_method("register_payload_mass"):
+				var registered: bool = snow_field.register_payload_mass(
+					int(node.get_instance_id()), maxf(mass_kg, 0.0), source_owner, &"burst_fragment")
+				if not registered:
+					push_error("SnowBurst: custom fragment has no ledger mass transfer")
+					node.queue_free()
+					return null
+				if "mass_ledger_managed" in node:
+					node.set("mass_ledger_managed", true)
 			parent.add_child(node)
 			node.global_position = pos
 			return node as RigidBody3D
-		# Not a rigid body: it cannot be used, but a RigidBody3D must still be
-		# returned for physics.
+		# An art-only fragment cannot carry mass. Keep the placeholder SnowChunk, which can.
 		node.queue_free()
 	var chunk := SnowChunkScript.new() as RigidBody3D
-	chunk.set("kg_weight", maxf(mass_kg, 0.05))
+	chunk.set("kg_weight", maxf(mass_kg, 0.0))
+	chunk.set("snow_field", snow_field)
 	chunk.set("is_toss", false)
+	if snow_field and snow_field.has_method("register_payload_mass"):
+		var registered: bool = snow_field.register_payload_mass(int(chunk.get_instance_id()),
+			maxf(mass_kg, 0.0), source_owner, &"burst_fragment")
+		if not registered:
+			push_error("SnowBurst: could not assign %.4f kg to a fragment" % mass_kg)
+			chunk.free()
+			return null
+		chunk.set("mass_ledger_managed", true)
 	parent.add_child(chunk)
 	chunk.global_position = pos + Vector3(
 		randf_range(-radius, radius) * 0.5, randf_range(0.0, radius), randf_range(-radius, radius) * 0.5)

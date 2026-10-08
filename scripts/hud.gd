@@ -640,9 +640,6 @@ func init_hud(player: CharacterBody3D, snow_field: Node3D) -> void:
 		set_coins(player_ref.coins)
 	if snow_field and snow_field.has_signal("progress_updated"):
 		snow_field.progress_updated.connect(_on_progress_updated)
-		# The bank's payment is off (see `BANK_PAYS` in snow_field.gd) but the line is kept:
-		# switching the bank's payment back on restores it with no change here.
-		snow_field.snow_tossed_in_bank.connect(_on_snow_tossed)
 	_build_sent_counter()
 	# The machines pay whoever holds the purse; the HUD listens only for the counter and the
 	# sound, and never adds coins itself while a player is present: that would pay twice.
@@ -982,16 +979,6 @@ func _on_progress_updated(pct: float, kg_cleared: float, _kg_total: float) -> vo
 		has_won = true
 		_show_victory()
 		level_completed.emit(pct)
-
-func _on_snow_tossed(bonus: int, _pos: Vector3) -> void:
-	if not player_ref:
-		set_coins(coins + bonus)
-
-	var sfx = AudioStreamPlayer.new()
-	sfx.stream = SoundEffectsScript.get_sound("coin")
-	add_child(sfx)
-	sfx.play()
-	sfx.finished.connect(sfx.queue_free)
 
 func _show_victory() -> void:
 	if victory_panel:

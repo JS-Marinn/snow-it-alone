@@ -18,11 +18,11 @@ unit and carries the word `placeholder`.
 
 | Fact | Value | Source |
 |---|---|---|
-| The snow disposal machine (first real sink) | Payout for snow destroyed by the machine | `scripts/disposal_machine.gd` |
-| Disposal machine payout | `ceil(kg * 2.5)` coins per delivery (`PAYOUT_PER_KG = 2.5`) | `disposal_machine.gd:16` |
-| Rationale for 2.5 coins/kg | Higher than bank's legacy 1.5 coins/kg because carrying snow across the field to the machine requires more time and effort than tossing it to adjacent side banks | Design specification |
-| Legacy bank income | **Disabled** (`BANK_PAYS: bool = false`) | `scripts/snow_field.gd:719` |
-| Worked example (machine) | A 25 kg delivery yields 63 coins (was 38 coins at legacy bank rate) | Derived |
+| The snow disposal machine (only sink) | Payout for snow delivered to the machine | `scripts/disposal_machine.gd` |
+| Disposal machine payout | `ceil(kg * 2.5)` coins per delivery (`PAYOUT_PER_KG = 2.5`) | `disposal_machine.gd:41` |
+| Rationale for 2.5 coins/kg | Placeholder reward for delivering snow to the sole sink | Design specification |
+| Snow banks | Scenery only; no payout and no mass removal | `scripts/snow_field.gd` |
+| Worked example (machine) | A 25 kg delivery yields 63 coins | Derived |
 | Income per minute | **Unknown** | This is the missing number |
 
 ## Placeholder prices

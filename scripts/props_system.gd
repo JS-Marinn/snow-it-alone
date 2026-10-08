@@ -67,13 +67,20 @@ func spawn_prop(kind: PinProp.Kind, pos: Vector3, rot: Vector3 = Vector3.ZERO) -
 		prop.call_deferred("_rebuild_for_length")
 	return prop
 
-## Creates a snowball in the world. Its starting mass comes from the volume the
-## player has packed together with their hands.
-func spawn_snowball(pos: Vector3, radius: float = 0.12) -> SnowBall:
+## Creates a snowball in the world. Pass `source_owner` when its mass is transferred from an
+## existing payload; diagnostic/test spawns without an owner are recorded as explicit sources.
+func spawn_snowball(pos: Vector3, radius: float = 0.12, source_owner: int = -1) -> SnowBall:
 	var ball := SnowBallScript.new() as SnowBall
 	ball.snow_field = snow_field
 	add_child(ball)
 	ball.setup(radius)
+	if snow_field and snow_field.has_method("register_payload_mass"):
+		ball.mass_ledger_managed = snow_field.register_payload_mass(
+			int(ball.get_instance_id()), ball.packed_mass(), source_owner, &"fixture_snowball_spawn")
+		if not ball.mass_ledger_managed:
+			push_error("PropsSystem: could not assign %.4f kg to spawned snowball" % ball.packed_mass())
+			ball.queue_free()
+			return null
 	var h := 0.0
 	if snow_field and snow_field.has_method("get_height_at"):
 		h = maxf(snow_field.get_height_at(pos), 0.0)

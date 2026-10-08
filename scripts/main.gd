@@ -47,13 +47,14 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	var is_demo := args.has("--plow-demo")
 	var is_phys_demo := args.has("--phys-demo")
+	var is_blower_demo := args.has("--blower-transport")
 	var is_scripted := is_demo or is_phys_demo or args.has("--carve-quality") \
 		or args.has("--ball-shape") or args.has("--movement-lab") or args.has("--impact-lab") \
 		or args.has("--impact-matrix") or args.has("--contact-burst") or args.has("--hand-pack") \
 		or args.has("--toon-shot") or args.has("--toon-bisect") or args.has("--curve-flight") \
-		or args.has("--tool-ownership") or args.has("--reticle-act") or args.has("--reticle-aim") or args.has("--disposal-shot") or args.has("--pack-probe") or args.has("--throw-probe")
+		or args.has("--tool-ownership") or args.has("--reticle-act") or args.has("--reticle-aim") or args.has("--disposal-shot") or args.has("--pack-probe") or args.has("--throw-probe") or is_blower_demo
 	# Screenshots belong to diagnostics only; a normal session must not write files.
-	if is_scripted and not args.has("--toon-shot") and not args.has("--toon-bisect") and not args.has("--curve-flight") and not args.has("--tool-ownership") and not args.has("--reticle-act") and not args.has("--reticle-aim") and not args.has("--disposal-shot") and not args.has("--pack-probe"):
+	if is_scripted and not args.has("--toon-shot") and not args.has("--toon-bisect") and not args.has("--curve-flight") and not args.has("--tool-ownership") and not args.has("--reticle-act") and not args.has("--reticle-aim") and not args.has("--disposal-shot") and not args.has("--pack-probe") and not is_blower_demo:
 		get_tree().create_timer(9.5 if is_demo else 1.8).timeout.connect(capture_screenshot)
 	if is_demo:
 		get_tree().create_timer(11.0).timeout.connect(get_tree().quit)
@@ -93,6 +94,8 @@ func _ready() -> void:
 		_start_demo_script("res://scripts/throw_probe.gd")
 	if args.has("--pack-probe"):
 		_start_demo_script("res://scripts/pack_probe_demo.gd")
+	if is_blower_demo:
+		_start_demo_script("res://tools/blower_transport_demo.gd")
 
 ## Picks up the session started from the main menu: restores the money counter and
 ## starts tracking playtime for the save slot.
@@ -145,9 +148,8 @@ func _flush_save() -> void:
 ## past the banks, and it is somewhere the player has to walk to with the snow, which is the
 ## point of the machine.
 ##
-## The wiring is also the whole coin path: the machine emits the delivery and the PLAYER is
-## paid, exactly as the player was paid for the bank. There is no second currency and the
-## machine knows nothing about coins.
+## The wiring is also the whole coin path: the machine emits a delivery and the PLAYER is paid.
+## There is no second currency and the machine knows nothing about coins.
 func _place_disposal_machine() -> void:
 	var scene := load(DISPOSAL_SCENE)
 	if scene == null:
@@ -155,6 +157,8 @@ func _place_disposal_machine() -> void:
 		return
 	var machine: Node = scene.instantiate()
 	machine.name = "DisposalMachine"
+	if machine.has_method("setup"):
+		machine.setup(snow_field)
 	var length := 12.0
 	if snow_field and "field_length" in snow_field:
 		length = float(snow_field.field_length)
