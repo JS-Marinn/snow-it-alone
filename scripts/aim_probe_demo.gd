@@ -117,8 +117,8 @@ func _ph_read2() -> void:
 func _ph_carve() -> void:
 	if _state_time < 0.1:
 		return
-	if snow_field != null and snow_field.has_method("carve"):
-		snow_field.carve(BARE_GROUND, 1.2, 0.5)
+	if snow_field != null and snow_field.has_method("clear_for_diagnostics"):
+		snow_field.clear_for_diagnostics(BARE_GROUND, 1.2)
 		print("[AIM] (carved a 1.2 m disc at %s for the bare-ground case)" % str(BARE_GROUND))
 	_change(8)
 

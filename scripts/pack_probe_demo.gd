@@ -31,12 +31,12 @@ func _physics_process(delta: float) -> void:
 			if _step_time >= 0.5 and snow_field != null and snow_field.has_method("is_coarse_ready") and snow_field.is_coarse_ready():
 				print("[PACK_PROBE] Preparing terrain zones...")
 				# Zone A: Bare ground at (0, 0, 2.0)
-				snow_field.carve(Vector3(0.0, 0.0, 2.0), 1.2, 0.50)
+				snow_field.clear_for_diagnostics(Vector3(0.0, 0.0, 2.0), 1.2)
 				# Zone B: Shallow snow at (-1.5, 0.0, 1.5): dump 1.8 kg (leaves ~3.5 cm)
-				snow_field.carve(Vector3(-1.5, 0.0, 1.5), 1.0, 0.50)
+				snow_field.clear_for_diagnostics(Vector3(-1.5, 0.0, 1.5), 1.0)
 				snow_field.dump_snow(Vector3(-1.5, 0.0, 1.5), 1.8, 0.5)
 				# Zone C: Sunken shallow snow at (1.5, 0.0, 1.5): dump 1.2 kg (leaves ~2.5 cm)
-				snow_field.carve(Vector3(1.5, 0.0, 1.5), 1.0, 0.50)
+				snow_field.clear_for_diagnostics(Vector3(1.5, 0.0, 1.5), 1.0)
 				snow_field.dump_snow(Vector3(1.5, 0.0, 1.5), 1.2, 0.5)
 				_step = 1
 				_step_time = 0.0

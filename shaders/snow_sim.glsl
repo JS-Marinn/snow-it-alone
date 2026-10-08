@@ -41,6 +41,7 @@ layout(rgba32f, set = 0, binding = 5) uniform restrict writeonly image2D coarse_
 struct Op {
 	vec4 a; // xy = posición/segmento inicio (x,z), zw = dirección / segmento fin
 	vec4 b; // x = tipo, y = radio/medio ancho, z = largo/profundidad/volumen, w = libre
+	vec4 c; // x = fraction retained by shovel blade; remaining collected mass is redeposited
 };
 
 layout(set = 0, binding = 2, std140) uniform Params {
@@ -58,6 +59,10 @@ layout(set = 0, binding = 2, std140) uniform Params {
 layout(set = 0, binding = 3, std430) buffer Stats { uint v[]; } stats;
 layout(set = 0, binding = 4, std430) buffer Buckets { uint v[]; } buckets;
 
+// Operation-mass reductions are rounded once per workgroup rather than once per texel.
+// Per-texel fixed-point rounding was visibly inflating small deposit contributions.
+shared float wg_mass[64];
+
 layout(push_constant, std430) uniform Push {
 	int mode;
 	int op_index;
@@ -69,6 +74,7 @@ layout(push_constant, std430) uniform Push {
 const int TEX = 512;
 const int COARSE = 64;
 const int COARSE_BLOCK = TEX / COARSE;
+const int MAX_OPS = 12;
 const int BUCKETS = 192;
 const float BUCKET_W = 0.01;
 const float BUCKET_HALF = 0.96;
@@ -169,7 +175,6 @@ void mode_collect(ivec2 id) {
 	if (removed > 0.0) {
 		int k = clamp(int(floor((lat + BUCKET_HALF) / BUCKET_W)), 0, BUCKETS - 1);
 		atomicAdd(buckets.v[pc.op_index * BUCKETS + k], uint(removed * FIXED_SCALE + 0.5));
-		atomicAdd(stats.v[16 + pc.op_index], uint(removed * FIXED_SCALE + 0.5));
 	}
 	float h = s.r - removed;
 	float lo = s.g * (1.0 - m);
@@ -178,12 +183,21 @@ void mode_collect(ivec2 id) {
 		lo = 0.0;
 	}
 	imageStore(dst_img, id, vec4(h, min(lo, h), s.b, s.a));
+	wg_mass[gl_LocalInvocationIndex] = removed;
+	barrier();
+	for (int stride = 32; stride > 0; stride >>= 1) {
+		if (int(gl_LocalInvocationIndex) < stride) {
+			wg_mass[gl_LocalInvocationIndex] += wg_mass[gl_LocalInvocationIndex + uint(stride)];
+		}
+		barrier();
+	}
+	if (gl_LocalInvocationIndex == 0u) {
+		atomicAdd(stats.v[16 + pc.op_index], uint(wg_mass[0] * FIXED_SCALE + 0.5));
+	}
 }
 
 // ---------------------------------------------------------------- Modo 1
-void mode_deposit(ivec2 id) {
-	vec4 s = imageLoad(src_img, id);
-	Op op = P.ops[pc.op_index];
+float shovel_deposit_weight(ivec2 id, Op op, vec4 s) {
 	vec2 p = to_local(id);
 	vec2 f = normalize(op.a.zw);
 	vec2 r = vec2(f.y, -f.x);
@@ -191,30 +205,21 @@ void mode_deposit(ivec2 id) {
 	vec2 d = p - op.a.xy;
 	float lat = dot(d, r);
 	float x = dot(d, f) - hl;
-
-	// Altura del montón frente a la hoja sobre la base de nieve circundante
 	ivec2 c_face = clamp(ivec2(floor((op.a.xy + f * (hl + 0.04) + 0.5 * P.field.xy) / P.field.xy * float(TEX))), ivec2(0), ivec2(TEX - 1));
 	ivec2 c_far = clamp(ivec2(floor((op.a.xy + f * (hl + 0.9) + 0.5 * P.field.xy) / P.field.xy * float(TEX))), ivec2(0), ivec2(TEX - 1));
 	float pile_h = max(height_at(c_face) - height_at(c_far), 0.0) * P.field.z;
-
-	// Un montón alto necesita una base más ancha (ángulo de reposo) para ser estable
 	float slope_ref = max(P.sim3.w, 0.2);
 	float lambda = clamp(max(P.sim2.x, pile_h / slope_ref), P.sim2.x, 0.5);
 	float depth_len = max(P.sim2.y, 4.6 * lambda);
 	float sigma = clamp(0.4 * lambda, 0.07, 0.2);
-	// Cuanto más alto el montón, más nieve se desborda por los extremos de la hoja
 	float leak = clamp((pile_h - 0.10) / 0.25, 0.0, 0.92);
-
 	int kc = int(floor((lat + BUCKET_HALF) / BUCKET_W));
 	float cell = cell_area();
-	float added = 0.0;
+	float weight = 0.0;
 
 	if (x >= 0.0 && x < depth_len && abs(lat) < BUCKET_HALF - 0.2) {
-		// Perfil longitudinal exponencial: la nieve se amontona pegada a la hoja
 		float norm = 1.0 - exp(-depth_len / lambda);
 		float g = exp(-x / lambda) / lambda / norm;
-
-		// Dispersión lateral gaussiana (extremos redondeados del montón)
 		int win = int(ceil(3.2 * sigma / BUCKET_W));
 		float dens = 0.0;
 		for (int k = kc - win; k <= kc + win; k++) {
@@ -230,13 +235,9 @@ void mode_deposit(ivec2 id) {
 			float kl = exp(-0.5 * dl * dl) / (sigma * 2.5066283);
 			dens += (float(raw) / FIXED_SCALE) * kl;
 		}
-		float gain = dens * g * cell * (1.0 - leak);
-		s.r += gain;
-		s.g += gain;
-		added += gain;
+		weight += dens * g * cell * (1.0 - leak);
 	}
 
-	// Desborde lateral: bermas a ambos lados de la hoja
 	float hw = op.b.y * 0.5;
 	if (leak > 0.0 && x > -0.34 && x < 0.30) {
 		float wc = hw + 0.22;
@@ -250,18 +251,62 @@ void mode_deposit(ivec2 id) {
 				m_total += float(buckets.v[pc.op_index * BUCKETS + k]) / FIXED_SCALE;
 			}
 			float gw = smoothstep(-0.34, -0.30, x) * (1.0 - smoothstep(0.26, 0.30, x)) / 0.60;
-			float gain_w = m_total * kw * gw * cell * leak;
-			s.r += gain_w;
-			s.g += gain_w;
-			added += gain_w;
+			weight += m_total * kw * gw * cell * leak;
 		}
 	}
+	return weight * (1.0 - clamp(op.c.x, 0.0, 1.0));
+}
 
-	// La nieve vertida es húmeda: su cohesión entra en la media ponderada por masa
+
+// Pre-pass: measure the discrete deposit footprint so the next pass can normalize it to
+// exactly the source mass minus the fraction retained in the blade.
+void mode_deposit_measure(ivec2 id) {
+	Op op = P.ops[pc.op_index];
+	vec4 s = imageLoad(src_img, id);
+	float weight = in_rect(id) ? shovel_deposit_weight(id, op, s) : 0.0;
+	wg_mass[gl_LocalInvocationIndex] = weight;
+	barrier();
+	for (int stride = 32; stride > 0; stride >>= 1) {
+		if (int(gl_LocalInvocationIndex) < stride) {
+			wg_mass[gl_LocalInvocationIndex] += wg_mass[gl_LocalInvocationIndex + uint(stride)];
+		}
+		barrier();
+	}
+	if (gl_LocalInvocationIndex == 0u) {
+		atomicAdd(stats.v[16 + MAX_OPS + pc.op_index], uint(wg_mass[0] * FIXED_SCALE + 0.5));
+	}
+}
+
+
+void mode_deposit(ivec2 id) {
+	vec4 s = imageLoad(src_img, id);
+	Op op = P.ops[pc.op_index];
+	float retained = clamp(op.c.x, 0.0, 1.0);
+	float source_norm = float(stats.v[16 + pc.op_index]) / FIXED_SCALE;
+	float deposit_norm = source_norm * (1.0 - retained);
+	float measured_weight = float(stats.v[16 + MAX_OPS + pc.op_index]) / FIXED_SCALE;
+	float scale = deposit_norm / max(measured_weight, 1e-9);
+	float added = 0.0;
+	if (in_rect(id)) {
+		added = shovel_deposit_weight(id, op, s) * scale;
+	}
 	if (added > 1e-6 && s.r > 1e-6) {
+		s.r += added;
+		s.g = min(s.g + added, s.r);
 		s.b = clamp((s.r - added) * s.b / s.r + added * clamp(P.sim2.z, 0.0, 1.0) / s.r, 0.0, 1.0);
 	}
 	imageStore(dst_img, id, vec4(s.r, min(s.g, s.r), s.b, s.a));
+	wg_mass[gl_LocalInvocationIndex] = added;
+	barrier();
+	for (int stride = 32; stride > 0; stride >>= 1) {
+		if (int(gl_LocalInvocationIndex) < stride) {
+			wg_mass[gl_LocalInvocationIndex] += wg_mass[gl_LocalInvocationIndex + uint(stride)];
+		}
+		barrier();
+	}
+	if (gl_LocalInvocationIndex == 0u) {
+		atomicAdd(stats.v[16 + MAX_OPS * 2 + pc.op_index], uint(wg_mass[0] * FIXED_SCALE + 0.5));
+	}
 }
 
 // ---------------------------------------------------------------- Modo 2
@@ -272,69 +317,100 @@ void mode_stamp(ivec2 id) {
 	vec2 p = to_local(id);
 
 	if (type == 2) {
-		// Huella de bota comprimida: hunde y compacta la nieve pisada
+		// A footprint changes material state, not mass. The former height dent discarded
+		// snow without a destination; visible impressions belong in a decal layer.
 		vec2 q = (p - op.a.xy) / op.b.y;
 		float d2 = dot(q, q);
 		if (d2 < 1.0 && s.r > 0.08) {
-			float dent = op.b.z / P.field.z;
 			float w = 1.0 - d2;
-			float before = s.r;
-			s.r = max(s.r - w * dent, min(s.r, 0.02));
-			atomicAdd(stats.v[16 + pc.op_index], uint(max(before - s.r, 0.0) * FIXED_SCALE + 0.5));
 			s.g = min(s.g, s.r) * (1.0 - 0.65 * w);
 			s.b = min(1.0, s.b + 0.22 * w);
 		}
 	} else if (type == 3) {
-		// Limpieza radial (soplador / sal) con bisel Hermite suave
-		float dist = length(p - op.a.xy) / op.b.y;
-		if (dist <= 0.55) {
-			atomicAdd(stats.v[16 + pc.op_index], uint(s.r * FIXED_SCALE + 0.5));
-			s.r = 0.0;
-			s.g = 0.0;
-		} else if (dist < 1.0) {
-			float t = (dist - 0.55) / 0.45;
-			float sm = t * t * (3.0 - 2.0 * t);
-			float nh = min(s.r, sm);
-			atomicAdd(stats.v[16 + pc.op_index], uint(max(s.r - nh, 0.0) * FIXED_SCALE + 0.5));
-			s.r = nh;
-			s.g = min(s.g, s.r);
-		}
-		// La sal reduce la cohesión: la nieve tratada fluye como arena seca
-		if (int(op.b.w + 0.5) == 1) {
-			s.b = 0.0;
+		// Salt changes cohesion only. It is not a snow-removal operation.
+		if (op.b.w > 0.5) {
+			float salt_distance = length(p - op.a.xy) / op.b.y;
+			if (salt_distance < 1.0) {
+				float influence = 1.0 - smoothstep(0.55, 1.0, salt_distance);
+				s.b = mix(s.b, 0.0, influence);
+			}
 		}
 	}
 	imageStore(dst_img, id, vec4(s.r, min(s.g, s.r), s.b, s.a));
 }
 
+// ---------------------------------------------------------------- Modo 11
+// Destructive fixture reset. Kept separate from gameplay operations so an ordinary radial
+// carve can no longer bypass snow ownership and remove mass without producing a payload.
+void mode_clear_diagnostic(ivec2 id) {
+	vec4 s = imageLoad(src_img, id);
+	Op op = P.ops[pc.op_index];
+	vec2 p = to_local(id);
+	float removed = 0.0;
+	float dist = length(p - op.a.xy) / max(op.b.y, 0.001);
+	if (dist <= 0.55) {
+		removed = s.r;
+		s.r = 0.0;
+		s.g = 0.0;
+	} else if (dist < 1.0) {
+		float t = (dist - 0.55) / 0.45;
+		float sm = t * t * (3.0 - 2.0 * t);
+		float nh = min(s.r, sm);
+		removed = max(s.r - nh, 0.0);
+		s.r = nh;
+		s.g = min(s.g, s.r);
+	}
+	imageStore(dst_img, id, vec4(s.r, min(s.g, s.r), s.b, s.a));
+	wg_mass[gl_LocalInvocationIndex] = removed;
+	barrier();
+	for (int stride = 32; stride > 0; stride >>= 1) {
+		if (int(gl_LocalInvocationIndex) < stride) {
+			wg_mass[gl_LocalInvocationIndex] += wg_mass[gl_LocalInvocationIndex + uint(stride)];
+		}
+		barrier();
+	}
+	if (gl_LocalInvocationIndex == 0u) {
+		atomicAdd(stats.v[16 + pc.op_index], uint(wg_mass[0] * FIXED_SCALE + 0.5));
+	}
+}
+
 // ---------------------------------------------------------------- Modo 3
-// Inyección libre de volumen: forma un montículo cónico estable por sí solo.
-//   op.a.xy = centro (local), op.b.y = radio (m), op.b.z = volumen a añadir (kg)
+// Inject a uniformly distributed loose-snow footprint. This is only the contact area of the
+// deposit; granular relaxation, not a baked cone profile, determines the resulting pile.
+//   op.a.xy = local centre, op.b.y = footprint radius (m), op.b.z = requested mass (kg)
 void mode_dump(ivec2 id) {
 	vec4 s = imageLoad(src_img, id);
 	Op op = P.ops[pc.op_index];
 	vec2 p = to_local(id);
 	float radius = max(op.b.y, 0.02);
 	float d = length(p - op.a.xy) / radius;
-	if (d >= 1.0) {
-		imageStore(dst_img, id, s);
-		return;
-	}
-	// Perfil cónico suave (1 - d^2)^1.5 ; su integral sobre el disco vale 0.4*pi*r^2
-	float prof = pow(max(1.0 - d * d, 0.0), 1.5);
-	float volume_m3 = op.b.z / max(P.sim2.w, 1.0);
-	float height_m = volume_m3 * prof / (0.4 * PI * radius * radius);
-	float dh = height_m / P.field.z;
-
-	float before = s.r;
-	s.r += dh;
-	s.g = min(s.g + dh, s.r);
-	// Media ponderada por masa de la humedad propia de esta operación (op.b.w)
-	float wet = op.b.w > 0.0 ? clamp(op.b.w, 0.0, 1.0) : clamp(P.sim2.z, 0.0, 1.0);
-	if (s.r > 1e-6) {
-		s.b = clamp((before * s.b + dh * wet) / s.r, 0.0, 1.0);
+	float added_height = 0.0;
+	if (d < 1.0) {
+		float volume_m3 = op.b.z / max(P.sim2.w, 1.0);
+		float height_m = op.c.x > 0.0 ? op.c.x : volume_m3 / (PI * radius * radius);
+		float dh = height_m / P.field.z;
+		float before = s.r;
+		s.r += dh;
+		s.g = min(s.g + dh, s.r);
+		added_height = dh;
+		// Weighted by the material mass added by this operation.
+		float wet = op.b.w > 0.0 ? clamp(op.b.w, 0.0, 1.0) : clamp(P.sim2.z, 0.0, 1.0);
+		if (s.r > 1e-6) {
+			s.b = clamp((before * s.b + dh * wet) / s.r, 0.0, 1.0);
+		}
 	}
 	imageStore(dst_img, id, vec4(s.r, s.g, s.b, s.a));
+	wg_mass[gl_LocalInvocationIndex] = added_height;
+	barrier();
+	for (int stride = 32; stride > 0; stride >>= 1) {
+		if (int(gl_LocalInvocationIndex) < stride) {
+			wg_mass[gl_LocalInvocationIndex] += wg_mass[gl_LocalInvocationIndex + uint(stride)];
+		}
+		barrier();
+	}
+	if (gl_LocalInvocationIndex == 0u) {
+		atomicAdd(stats.v[16 + MAX_OPS * 2 + pc.op_index], uint(wg_mass[0] * FIXED_SCALE + 0.5));
+	}
 }
 
 // ---------------------------------------------------------------- Modo 4
@@ -471,6 +547,7 @@ void mode_harvest(ivec2 id) {
 	vec2 b = op.a.zw;
 	vec2 p = to_local(id);
 	float radius = max(op.b.y, 0.02);
+	float cut = 0.0;
 	float d;
 	float seg_len2 = dot(b - a, b - a);
 	if (seg_len2 < 1e-8) {
@@ -479,19 +556,27 @@ void mode_harvest(ivec2 id) {
 		float t = clamp(dot(p - a, b - a) / seg_len2, 0.0, 1.0);
 		d = length(p - (a + (b - a) * t)) / radius;
 	}
-	if (d >= 1.0) {
-		imageStore(dst_img, id, s);
-		return;
+	if (d < 1.0) {
+		float w = 1.0 - smoothstep(0.35, 1.0, d);
+		float max_cut = op.b.z / P.field.z;
+		cut = min(s.r, max_cut) * w;
+		float h = max(s.r - cut, 0.0);
+		float g = min(s.g, h);
+		s.r = h;
+		s.g = g;
 	}
-	float w = 1.0 - smoothstep(0.35, 1.0, d);
-	float max_cut = op.b.z / P.field.z;
-	float cut = min(s.r, max_cut) * w;
-	float h = max(s.r - cut, 0.0);
-	float g = min(s.g, h);
-	if (cut > 0.0) {
-		atomicAdd(stats.v[16 + pc.op_index], uint(cut * FIXED_SCALE + 0.5));
+	imageStore(dst_img, id, s);
+	wg_mass[gl_LocalInvocationIndex] = cut;
+	barrier();
+	for (int stride = 32; stride > 0; stride >>= 1) {
+		if (int(gl_LocalInvocationIndex) < stride) {
+			wg_mass[gl_LocalInvocationIndex] += wg_mass[gl_LocalInvocationIndex + uint(stride)];
+		}
+		barrier();
 	}
-	imageStore(dst_img, id, vec4(h, g, s.b, s.a));
+	if (gl_LocalInvocationIndex == 0u) {
+		atomicAdd(stats.v[16 + pc.op_index], uint(wg_mass[0] * FIXED_SCALE + 0.5));
+	}
 }
 
 // ---------------------------------------------------------------- Modo 9
@@ -558,6 +643,10 @@ void main() {
 		mode_coarse(ivec2(gl_GlobalInvocationID.xy));
 		return;
 	}
+	if (pc.mode == 10) {
+		mode_deposit_measure(ivec2(gl_GlobalInvocationID.xy));
+		return;
+	}
 	ivec2 id = ivec2(gl_GlobalInvocationID.xy);
 	if (id.x >= TEX || id.y >= TEX) {
 		return;
@@ -571,5 +660,6 @@ void main() {
 		case 5: mode_relax_flow(id); break;
 		case 7: mode_tamp(id); break;
 		case 8: mode_harvest(id); break;
+		case 11: mode_clear_diagnostic(id); break;
 	}
 }

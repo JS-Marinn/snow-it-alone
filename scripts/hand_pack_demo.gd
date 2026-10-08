@@ -76,7 +76,7 @@ func _physics_process(delta: float) -> void:
 				# Prepare Phase 1: Cleared ground. Clear 4.6m radius at (0.0, 0.0, 2.5)
 				# Radial clear clears completely up to 0.55 * R = 2.53m, covering extended reach (2.4m)
 				print("[PACK] Phase 1 setup: clearing 4.6m circle at (0.0, 0.0, 2.5)")
-				snow_field.carve(Vector3(0.0, 0.0, 2.5), 4.6, 0.50)
+				snow_field.clear_for_diagnostics(Vector3(0.0, 0.0, 2.5), 4.6)
 				_change_state(1)
 
 		1:
@@ -170,7 +170,7 @@ func _physics_process(delta: float) -> void:
 				# Clear 2.35m radius at (0.0, 0.0, -2.2). Completely cleared up to 1.29m (strict reach).
 				# Untouched snow remains at 1.7m facing -Z.
 				print("[PACK] Phase 3 setup: clearing 2.35m circle at (0.0, 0.0, -2.2)")
-				snow_field.carve(Vector3(0.0, 0.0, -2.2), 2.35, 0.50)
+				snow_field.clear_for_diagnostics(Vector3(0.0, 0.0, -2.2), 2.35)
 				_change_state(5)
 
 		5:
@@ -215,7 +215,7 @@ func _physics_process(delta: float) -> void:
 				# Prepare Phase 4: Scarce snow regression
 				# Clear 4.6m at (0.0, 0.0, 2.5) (completely cleared up to 2.53m)
 				print("[PACK] Phase 4 setup: clearing 4.6m at (0.0, 0.0, 2.5) then dumping 0.12 kg")
-				snow_field.carve(Vector3(0.0, 0.0, 2.5), 4.6, 0.50)
+				snow_field.clear_for_diagnostics(Vector3(0.0, 0.0, 2.5), 4.6)
 				_change_state(7)
 
 		7:

@@ -36,7 +36,7 @@ const TEST_AT: Vector3 = Vector3(-4.2, 0.0, 6.2)
 ## Where the player stands to work on it: one reach in front of the test snow.
 const WORK_AT: Vector3 = Vector3(-4.2, 0.0, 7.3)
 ## A pile this tall is over the blade wall (0.30 m) on purpose.
-const TALL_PILE_KG: float = 60.0
+const TALL_PILE_KG: float = 100.0
 const HARD_TIMEOUT: float = 150.0
 ## The step the loading loop is driven with. Larger than a frame so the test is quick, but the
 ## per-step kilograms stay small enough to see the rate rather than the cap.
@@ -62,12 +62,14 @@ var _mass_before: float = 0.0
 var _yield_before: float = 0.0
 var _load_before: float = 0.0
 var _load_after: float = 0.0
+var _load_request_count: int = 0
 var _cap: float = 25.0
 var _push_kg: float = 0.0
 var _push_seconds: float = 0.0
 var _push_expected_rate: float = 0.0
 var _front_before: float = 0.0
 var _front_after: float = 0.0
+var _tall_mass_before: float = 0.0
 var _behind_before: float = 0.0
 var _behind_after: float = 0.0
 var _jam_load_before: float = 0.0
@@ -160,6 +162,11 @@ func _ph_prepare() -> void:
 		return
 	if not snow_field.has_method("is_coarse_ready") or not snow_field.is_coarse_ready():
 		return
+	var queued_before := int(snow_field.call("queued_operation_count"))
+	var legacy_clear_result := float(snow_field.call("carve", TEST_AT, 3.0, 0.5))
+	var queued_after := int(snow_field.call("queued_operation_count"))
+	_check("legacy radial carve is refused without queueing destructive work",
+		legacy_clear_result == 0.0 and queued_after == queued_before)
 	# Clear a working box and make a modest pack in the middle of it.
 	#
 	# The first two versions of this hard-coded the amount of snow to dump and assumed a height.
@@ -167,8 +174,8 @@ func _ph_prepare() -> void:
 	# packs of 0.34 m -- over the blade wall, so the load test measured the JAM. So the amount is
 	# not guessed. The box is cleared, a little is dumped, and the height is MEASURED. If it is
 	# still too tall, this reports a failure rather than quietly testing the wrong rule.
-	snow_field.carve(TEST_AT, 3.0, 0.5)
-	snow_field.carve(Vector3(TEST_AT.x, 0.0, TEST_AT.z + 6.0), 3.0, 0.5)
+	snow_field.clear_for_diagnostics(TEST_AT, 3.0)
+	snow_field.clear_for_diagnostics(Vector3(TEST_AT.x, 0.0, TEST_AT.z + 6.0), 3.0)
 	player.global_position = Vector3(WORK_AT.x, 0.0, WORK_AT.z)
 	player.velocity = Vector3.ZERO
 	player.rotation.y = 0.0
@@ -198,16 +205,21 @@ func _ph_load() -> void:
 			var h_now := _height(TEST_AT)
 			if h_now > 0.12:
 				break
-			snow_field.dump_snow(TEST_AT, 6.0, 2.4)
+			# The dump now injects a uniform footprint and lets repose relaxation shape it. Keep
+			# this fixture bucket-sized: a 2.4 m radius spreads 6 kg below the blade's loadable depth.
+			snow_field.dump_snow(TEST_AT, 6.0, 0.35)
 			print("[SHOVEL]   pack %.4f m -> topping up (attempt %d)" % [h_now, attempt])
 	# The settle the dump above needs before any of it counts.
 	if _phase_t < 4.0:
 		return
 	var pack_h := _height(TEST_AT)
+	var base_h := float(snow_field.get("snow_depth"))
+	var mound_height := maxf(pack_h - base_h, 0.0)
 	var wall: float = float(player.get("BLADE_WALL_HEIGHT"))
-	print("[SHOVEL] test pack height %.4f m, blade wall %.2f m" % [pack_h, wall])
-	if pack_h <= 0.02 or pack_h > wall:
-		_check("the test pack is loadable: above nothing and below the wall (%.4f m vs %.2f m)" % [pack_h, wall], false)
+	print("[SHOVEL] test snow height %.4f m, mound above local pack %.4f m, blade wall %.2f m" % [
+		pack_h, mound_height, wall])
+	if pack_h <= 0.02 or mound_height > wall:
+		_check("the test pack is loadable: snow is present and its mound is below the wall (%.4f m vs %.2f m)" % [mound_height, wall], false)
 		_report()
 		return
 	_next()
@@ -226,29 +238,23 @@ func _ph_read_prepare() -> void:
 	# RATE rather than whatever the cap happens to be.
 	var rate := float(player.get("fill_rate"))
 	var steps := maxi(1, int(minf(_cap, 8.0) / maxf(rate, 0.001) / LOAD_STEP))
-	# What the field hands back per step, printed so a zero can be told apart from a slow trickle.
-	var first_out := -1.0
-	var aim_now: Vector3 = player.get("reticle_aim_pt")
-	var probe_h := float(snow_field.get_height_at(aim_now)) if bool(player.get("reticle_has_hit")) else -99.0
+	# Each request returns a ticket, not an invented synchronous mass estimate. The player receives
+	# the blade load only after the matching GPU receipt arrives.
+	var first_ticket := 0
+	_load_request_count = 0
 	for i in range(steps):
 		_aim_at(TEST_AT)
-		aim_now = player.get("reticle_aim_pt")
-		var accepted := float(player.call("_load_blade_from_aim", LOAD_STEP))
+		var ticket := int(player.call("_load_blade_from_aim", LOAD_STEP))
+		if ticket > 0:
+			_load_request_count += 1
+			if first_ticket == 0:
+				first_ticket = ticket
 		if i < 3:
-			first_out = accepted
-			print("[SHOVEL]   step %d: accepted=%.4f blade_now=%.4f stuck=%s" % [
-				i, accepted, float(player.get("shovel_current_load")),
+			print("[SHOVEL]   step %d: ticket=%d blade_now=%.4f stuck=%s" % [
+				i, ticket, float(player.get("shovel_current_load")),
 				str(player.get("is_stuck"))])
-	_load_after = float(player.get("shovel_current_load"))
-	var gained := _load_after - _load_before
-	print("[SHOVEL] load: blade %.3f -> %.3f kg (+%.3f) over %d steps, declared rate=%.1f kg/s" % [
-		_load_before, _load_after, gained, steps, rate])
-	_check("loading fills the blade", gained > 0.5)
-	_check("loading does not overflow the blade", _load_after <= _cap + 0.001)
-	# The exact-loss verdict is taken in the NEXT phase, after the field's operation has had time
-	# to land. Reading the mass here returned the same number every time -- the carve is a queued
-	# GPU operation, so at this instant nothing has left yet, and the check was measuring the
-	# queue rather than the world.
+	print("[SHOVEL] queued %d of %d load requests (first ticket %d), declared rate=%.1f kg/s" % [
+		_load_request_count, steps, first_ticket, rate])
 	_next()
 
 
@@ -257,10 +263,19 @@ func _ph_read_prepare() -> void:
 ## MASS IS THE POINT of this project: every kilogram in the blade must have left the field. So
 ## this waits, then compares. The wait is why it is its own phase.
 func _ph_read_load() -> void:
+	var pending: Dictionary = player.get("_pending_shovel_ops")
+	if pending.size() > 0 and _phase_t < 8.0:
+		return
 	if _phase_t < 2.5:
 		return
-	var lost := _blade_yield() - _yield_before
+	_load_after = float(player.get("shovel_current_load"))
 	var gained := _load_after - _load_before
+	print("[SHOVEL] load: blade %.3f -> %.3f kg (+%.3f) over %d admitted requests" % [
+		_load_before, _load_after, gained, _load_request_count])
+	_check("loading requests were admitted", _load_request_count > 0)
+	_check("loading fills the blade", gained > 0.5)
+	_check("loading does not overflow the blade", _load_after <= _cap + 0.001)
+	var lost := _blade_yield() - _yield_before
 	var err := absf(lost - gained) / maxf(gained, 0.001)
 	print("[SHOVEL] load exact-loss: field lost %.3f kg, blade gained %.3f kg, error %.3f%%" % [
 		lost, gained, err * 100.0])
@@ -275,9 +290,10 @@ func _ph_push() -> void:
 	if _phase_t < 0.2:
 		return
 	# A fresh strip to push into, so the front is made by THIS push and not by the fill above.
-	snow_field.carve(Vector3(TEST_AT.x, 0.0, TEST_AT.z + 8.0), 3.0, 0.5)
+	snow_field.clear_for_diagnostics(Vector3(TEST_AT.x, 0.0, TEST_AT.z + 8.0), 3.0)
 	snow_field.dump_snow(Vector3(TEST_AT.x, 0.0, TEST_AT.z - 2.0), 200.0, 3.0)
 	player.set("shovel_current_load", 0.0)
+	player.set("shovel_push_total_kg", 0.0)
 	# ADVANCE. The timer above makes this phase idempotent; without the `_next` it re-ran every
 	# frame and re-issued the carve and the dump, so the setup kept feeding the ledger and the
 	# verdict read 137 kg of "field loss" for a 13.7 kg blade. A phase that sets something up and
@@ -335,16 +351,22 @@ func _ph_read_push() -> void:
 	var dt := 1.0 / 60.0
 	_push_seconds = 0.0
 	for i in range(120):
+		# Move the blade along the strip. Repeating every operation at one point only measures
+		# the first scoop; later requests hit the hole left by the earlier ones.
+		player.global_position.z -= 2.4 * dt
+		var aimed_snow := player.global_position - Vector3(0.0, 0.0, 0.9)
+		aimed_snow.y = _height(aimed_snow)
+		player.set("reticle_aim_pt", aimed_snow)
+		player.set("reticle_has_hit", true)
+		player.set("reticle_aim_distance", 0.9)
 		Input.action_press("shovel_push")
 		player.call("_process_shovel", dt, 0.0)
 		_push_seconds += dt
 	Input.action_release("shovel_push")
-	_load_after = float(player.get("shovel_current_load"))
-	_push_kg = _load_after
 	var residue_rate: float = float(player.call("push_residue_rate"))
 	_push_expected_rate = residue_rate
-	print("[SHOVEL] push: blade +%.3f kg over %.2f s (%.2f kg/s), declared residue %.2f kg/s" % [
-		_push_kg, _push_seconds, _push_kg / maxf(_push_seconds, 0.001), residue_rate])
+	print("[SHOVEL] push queued over %.2f s, declared residue %.2f kg/s" % [
+		_push_seconds, residue_rate])
 	_next()
 
 
@@ -355,6 +377,14 @@ func _ph_read_push() -> void:
 func _ph_push_verdict() -> void:
 	if _phase_t < 2.5:
 		return
+	if not player.get("_pending_shovel_ops").is_empty():
+		if _phase_t < 5.0:
+			return
+		_check("all queued shovel receipts completed before timeout", false)
+		_report()
+		return
+	_load_after = float(player.get("shovel_current_load"))
+	_push_kg = _load_after - _load_before
 	# The push's own ledger, from the player. See shovel_push_total_kg for why the field cannot
 	# answer this: the battery clears a strip and then pushes along it, and the field only knows
 	# the sum.
@@ -389,25 +419,36 @@ func _ph_tall_pile() -> void:
 	if _phase_t < 0.2:
 		return
 	# A pile well over the blade wall, and a clear area beside it for the control case.
-	snow_field.carve(Vector3(TEST_AT.x + 3.0, 0.0, TEST_AT.z), 2.0, 0.5)
-	snow_field.carve(Vector3(TEST_AT.x + 3.0, 0.0, TEST_AT.z - 3.0), 2.0, 0.5)
-	snow_field.dump_snow(Vector3(TEST_AT.x + 3.0, 0.0, TEST_AT.z), TALL_PILE_KG, 0.55)
+	var queue_before := int(snow_field.call("queued_operation_count"))
+	_tall_mass_before = float(snow_field.measure_total_mass())
+	snow_field.clear_for_diagnostics(Vector3(TEST_AT.x + 3.0, 0.0, TEST_AT.z), 1.0)
+	snow_field.clear_for_diagnostics(Vector3(TEST_AT.x + 3.0, 0.0, TEST_AT.z - 3.0), 1.0)
+	# A high-mass compact fixture stays above the side wall after granular settling.
+	var dump_admitted: bool = snow_field.dump_snow(Vector3(TEST_AT.x + 3.0, 0.0, TEST_AT.z), TALL_PILE_KG, 0.35)
+	print("[SHOVEL] tall-pile setup queue %d -> %d, dump admitted=%s" % [
+		queue_before, int(snow_field.call("queued_operation_count")), str(dump_admitted)])
 	player.set("shovel_current_load", 0.0)
 	_next()
 
 
 func _ph_read_jam() -> void:
-	if _phase_t < 2.0:
+	if _phase_t < 3.0:
 		return
 	var tall := Vector3(TEST_AT.x + 3.0, 0.0, TEST_AT.z)
 	var clear := Vector3(TEST_AT.x + 3.0, 0.0, TEST_AT.z - 3.0)
 	var tall_h := _height(tall)
-	print("[SHOVEL] tall pile height %.4f m, wall is %.2f m" % [tall_h, float(player.get("BLADE_WALL_HEIGHT"))])
+	var peak_info := _highest_point_in_radius(tall, 1.5)
+	var tall_peak := float(peak_info["height"])
+	var tall_peak_pos: Vector3 = peak_info["position"]
+	var field_mass_after: float = float(snow_field.measure_total_mass())
+	print("[SHOVEL] tall pile height %.4f m, local peak %.4f m, field delta %.2f kg, wall %.2f m, queued %d" % [
+		tall_h, tall_peak, field_mass_after - _tall_mass_before, float(player.get("BLADE_WALL_HEIGHT")),
+		int(snow_field.call("queued_operation_count"))])
 	# The jam: aim at the tall pile and try to load.
-	player.global_position = Vector3(tall.x, 0.0, tall.z + 1.1)
+	player.global_position = Vector3(tall_peak_pos.x, 0.0, tall_peak_pos.z + 1.1)
 	player.rotation.y = 0.0
 	player.set("shovel_current_load", 0.0)
-	_aim_at(tall)
+	_aim_at(tall_peak_pos)
 	_jam_mass_before = _field_mass()
 	for i in range(20):
 		_aim_at(tall)
@@ -416,7 +457,7 @@ func _ph_read_jam() -> void:
 	_jam_mass_after = _field_mass()
 	print("[SHOVEL] into the tall pile: blade +%.3f kg, field lost %.3f kg" % [
 		_jam_load_after, _jam_mass_before - _jam_mass_after])
-	_check("the pile is taller than the blade wall", tall_h > float(player.get("BLADE_WALL_HEIGHT")))
+	_check("the pile is taller than the blade wall", tall_peak > float(player.get("BLADE_WALL_HEIGHT")))
 	_check("a pile over the wall does not load the blade", _jam_load_after <= 0.001)
 
 	# CONTROL: the same routine on cleared ground must ALSO load nothing, so the check above is
@@ -713,6 +754,22 @@ func _height(at: Vector3) -> float:
 		count += 1
 	total += maxf(float(snow_field.get_height_at(at)), 0.0)
 	return total / float(count + 1)
+
+
+func _highest_point_in_radius(center: Vector3, radius: float) -> Dictionary:
+	var peak := 0.0
+	var peak_pos := center
+	for z_step in range(-10, 11):
+		for x_step in range(-10, 11):
+			var offset := Vector2(float(x_step) * radius / 10.0, float(z_step) * radius / 10.0)
+			if offset.length() > radius:
+				continue
+			var sample_pos := center + Vector3(offset.x, 0.0, offset.y)
+			var sample_height := float(snow_field.get_height_at(sample_pos))
+			if sample_height > peak:
+				peak = sample_height
+				peak_pos = sample_pos
+	return {"height": peak, "position": peak_pos}
 
 
 func _check(label: String, ok: bool) -> void:

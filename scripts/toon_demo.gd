@@ -69,7 +69,7 @@ func _physics_process(delta: float) -> void:
 			# State 0: Wait for GPU sim & scene init, carve a test trench and spawn a snowball
 			if _state_time >= 0.5 and snow_field != null and snow_field.has_method("is_coarse_ready") and snow_field.is_coarse_ready():
 				print("[TOON] Carving sample trench and spawning test snowball for visual comparison...")
-				snow_field.carve(Vector3(0.0, 0.0, 0.0), 2.2, 0.25)
+				snow_field.clear_for_diagnostics(Vector3(0.0, 0.0, 0.0), 2.2)
 				if props and props.has_method("spawn_snowball"):
 					props.spawn_snowball(Vector3(0.1, 0.4, 0.8), 0.38)
 				_change_state(1)

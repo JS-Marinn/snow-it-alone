@@ -2,9 +2,8 @@ extends Node
 ##
 ## ShovelModes: the load-and-push shovel, as a module that knows nothing about any scene.
 ##
-## WHAT THIS IS. A self-contained description of two behaviours for the shovel, and the values
-## that define the new one, so that turning the new shovel on somewhere is a one-line statement
-## and turning it off again is another.
+## WHAT THIS IS. The shared mode identifiers and behavior constants for the shovel. The product
+## mode is LOAD_AND_PUSH; LEGACY remains only for transition tests and compatibility.
 ##
 ## WHY IT IS A MODULE AND NOT A FLAG INSIDE A SCENE. The owner asked for the new shovel to be
 ## tried in the test scene first and moved to the real game later "easily". A behaviour written
@@ -22,8 +21,8 @@ extends Node
 ##   * It does not reference the test scene, its script, or ANY scene path at all. A module that
 ##     asks for one particular scene file is not portable whatever that scene is called. That is
 ##     the whole point.
-##   * It does not change the main game. `Mode.LEGACY` is the default everywhere, and this file
-##     does not touch a default of any kind.
+##   * It does not select a mode from a scene. The player defaults to LOAD_AND_PUSH; a test that
+##     needs the transition behavior opts into LEGACY explicitly.
 ##   * It does not hold per-scene state. The mode is one enum value; everything else is a constant.
 ##
 ## ON THE SELF-CHECK AND ITS OWN TEXT. The needles below are assembled from pieces so that this
@@ -32,8 +31,8 @@ extends Node
 
 ## The two behaviours the shovel can have.
 ##
-## LEGACY is what the game has always done and what the main game still does: the left button
-## drives a front of snow forward and also flattens (tamping), the right button pours and tosses.
+## LEGACY is retained for transition tests: the left button drives a front of snow forward and
+## also flattens (tamping), the right button pours and tosses.
 ##
 ## LOAD_AND_PUSH splits the mouse the way a shovel actually works: one button bites snow and
 ## loads the blade, the other drives a front forward and picks up the residue of doing so. There
@@ -60,7 +59,9 @@ const PUSH_RESIDUE_FACTOR: float = 0.25
 ##
 ## This is the "high pile jams it" rule, and it applies to the deliberate load as well as to the
 ## pushing front, because it is a property of the blade and not of the button.
-const BLADE_WALL_HEIGHT: float = 0.30
+## The default field is 0.32 m deep; at 0.30 m the shovel jammed on untouched snow, so the
+## working side-wall clearance is 0.34 m. A mound above that height still jams and spills.
+const BLADE_WALL_HEIGHT: float = 0.34
 
 ## The file this module lives in, so the portability check can read it back.
 const SELF_PATH: String = "res://scripts/shovel_modes.gd"

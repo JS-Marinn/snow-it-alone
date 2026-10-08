@@ -115,10 +115,10 @@ func _s_trench_report() -> void:
 	_shot("trench")
 	_profile("shovel trench", Vector3(0.0, 0.0, 2.4), Vector3(1.0, 0.0, 0.0), -0.55, 0.55, 0.02)
 
-## Turbine/salt crater: radial clearing with a bevel.
+## Diagnostic crater: a bevelled fixture reset, not a gameplay mass-removal operation.
 func _s_crater() -> void:
-	snow_field.carve(Vector3(1.7, 0.0, 2.0), 1.05, 0.40, Vector3.ZERO)
-	print("[CARVE] radial crater cut (turbine)")
+	snow_field.clear_for_diagnostics(Vector3(1.7, 0.0, 2.0), 1.05)
+	print("[CARVE] diagnostic crater reset")
 
 func _s_crater_report() -> void:
 	_shot("crater")

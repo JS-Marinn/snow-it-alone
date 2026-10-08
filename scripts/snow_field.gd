@@ -9,9 +9,15 @@ extends Node3D
 # pinning) read real snow height without pulling the whole texture every frame.
 
 signal progress_updated(percent_cleared: float, kg_cleared: float, kg_total: float)
-signal snow_tossed_in_bank(bonus_coins: int, world_pos: Vector3)
 ## Real volume removed or added by one operation, already converted to kg.
 signal op_volume_ready(role: String, owner: int, kg: float)
+## Completion of an admitted GPU operation. `ticket` remains stable from admission through readback.
+signal operation_completed(ticket: int, role: String, owner: int, actual_kg: float)
+## Per-operation GPU mass receipts. Retained shovel mass is separate from field-to-field deposit mass.
+signal operation_mass_accounted(ticket: int, role: String, owner: int, removed_kg: float,
+		added_kg: float, retained_kg: float)
+## A request that could not enter the bounded queue changed no snow.
+signal operation_rejected(role: String, owner: int, reason: String)
 
 @export var field_width: float = 8.0    # meters
 @export var field_length: float = 12.0  # meters
@@ -31,22 +37,33 @@ signal op_volume_ready(role: String, owner: int, kg: float)
 @export_range(0.0, 20.0) var repose_hysteresis_deg: float = 8.0
 ## Bulk density of the field snow (kg/m3), for volume to mass conversion.
 @export var snow_density: float = 150.0
+## Optional diagnostic trace for matching asynchronous result batches to their operation tickets.
+@export var trace_operation_receipts: bool = false
 ## Wetness/cohesion given to snow dumped by the blade or the piles.
 @export_range(0.0, 1.0) var deposit_wetness: float = 0.45
-## Cohesion added by each tamp (compacting with the flat face of the blade).
-@export_range(0.0, 1.0) var tamp_cohesion_gain: float = 0.35
+## Cohesion added by each tamp. 0.35 produced a 0.43 coarse sample and failed the 0.45 packed
+## surface threshold in movement-lab; 0.75 makes the stamped strip classify as packed.
+@export_range(0.0, 1.0) var tamp_cohesion_gain: float = 0.75
 
 # Tool
-## Height of the blade front wall (m): taller snow spills over the top.
-@export var blade_wall_height: float = 0.30
+## Height of the blade front wall (m): 0.34 leaves clearance over the 0.32 m virgin pack; 0.30
+## jammed the untouched starting field before the blade could work it.
+@export var blade_wall_height: float = 0.34
 
 const TEX_SIZE: int = 512
 const COARSE_SIZE: int = 64
 const MAX_OPS: int = 12
+const MAX_QUEUED_OPS: int = 256
+const STATS_UINTS: int = 16 + MAX_OPS * 3
 const BUCKETS: int = 192
 const RELAX_ITERATIONS: int = 8
 const SETTLE_TIME: float = 2.5
 const SIM_SHADER_PATH: String = "res://shaders/snow_sim.glsl"
+const SnowOperationQueueScript = preload("res://scripts/snow_operation_queue.gd")
+const SnowMassLedgerScript = preload("res://scripts/snow_mass_ledger.gd")
+const FIELD_MASS_ACCOUNT: StringName = &"field"
+const OPERATION_ESCROW_ACCOUNT: StringName = &"operation_escrow"
+const ROUNDING_MASS_ACCOUNT: StringName = &"operation_rounding"
 
 # Blade transport parameters
 const DEPOSIT_LAMBDA: float = 0.16
@@ -66,7 +83,7 @@ const P_BLADE0: int = 16
 const P_BLADE1: int = 20
 const P_PROBES: int = 24
 const P_OPS: int = 40
-const PARAM_FLOATS: int = 160
+const PARAM_FLOATS: int = 192
 
 var snow_texture: Texture2DRD
 var shader_material: ShaderMaterial
@@ -97,13 +114,18 @@ var _coarse: PackedFloat32Array = PackedFloat32Array()
 var _coarse_valid: bool = false
 var _coarse_in_flight: bool = false
 
-# Per-frame operation queue
+# GPU dispatch batch, populated only by draining the bounded FIFO below.
 var _ops: Array[PackedFloat32Array] = []
 var _op_meta: Array = []           # one {role, owner} pair per queued op
-var _stats_queue: Array = []       # metadata of each in-flight stats read
+var _pending_stats_readbacks: int = 0
+var _operation_queue = SnowOperationQueueScript.new(MAX_QUEUED_OPS)
+var _last_submitted_ticket: int = 0
 var _rect_log: Array = []
 var _time: float = 0.0
 var _frame: int = 0
+## Authoritative runtime ownership ledger. It records sources and operation receipts, never
+## estimates from the coarse gameplay mirror.
+var mass_ledger = SnowMassLedgerScript.new()
 
 # Blade state
 var _blade_ttl: float = 0.0
@@ -126,6 +148,8 @@ var _demo_last: Vector3 = Vector3.INF
 func _ready() -> void:
 	total_pixels = TEX_SIZE * TEX_SIZE
 	total_snow_kg = field_width * field_length * snow_depth * snow_density
+	if not mass_ledger.record_source(FIELD_MASS_ACCOUNT, total_snow_kg, &"level_initialization"):
+		push_error("SnowField: could not register initial field mass in the runtime ledger")
 	_demo = OS.get_cmdline_user_args().has("--plow-demo")
 
 	_setup_collision()
@@ -141,6 +165,7 @@ func _exit_tree() -> void:
 
 func _setup_collision() -> void:
 	var static_body = StaticBody3D.new()
+	static_body.name = "SnowSupportBase"
 	var col = CollisionShape3D.new()
 	var box = BoxShape3D.new()
 	box.size = Vector3(field_width + 12.0, 0.4, field_length + 12.0)
@@ -240,7 +265,7 @@ func _init_sim_rd() -> void:
 	_coarse_rid = rd.texture_create(cfmt, RDTextureView.new(), [])
 
 	_params_buf = rd.uniform_buffer_create(PARAM_FLOATS * 4)
-	_stats_buf = rd.storage_buffer_create((16 + MAX_OPS) * 4)
+	_stats_buf = rd.storage_buffer_create(STATS_UINTS * 4)
 	_buckets_buf = rd.storage_buffer_create(MAX_OPS * BUCKETS * 4)
 
 	_uset_rids.clear()
@@ -304,8 +329,6 @@ func _process(delta: float) -> void:
 	_blade_ttl = maxf(_blade_ttl - delta, 0.0)
 	_update_probes()
 
-	var n_ops: int = mini(_ops.size(), MAX_OPS)
-
 	# Active relaxation region = union of the areas touched recently
 	var active_rect := Vector4i(TEX_SIZE, TEX_SIZE, -1, -1)
 	var i := _rect_log.size() - 1
@@ -319,12 +342,35 @@ func _process(delta: float) -> void:
 		i -= 1
 	var relax_iters: int = RELAX_ITERATIONS if active_rect.z >= 0 else 0
 
-	var want_full: bool = (_frame % 3 == 0)
-	# Every operation must be able to attribute the volume it removes, so a stats
-	# buffer read is queued on any frame that has operations (112 bytes, cheap),
-	# while the full field reduction only runs every 3 frames (progress and probes).
-	var want_op_read: bool = (n_ops > 0 or want_full) and _stats_queue.size() < 8
+	# A GPU operation is not removed from the FIFO until there is room to record its result.
+	# The previous per-frame array simply refused the 13th request; callers could not tell that
+	# the operation had been dropped and could still update their own mass state.
+	var stats_slot_available: bool = _pending_stats_readbacks < 8
+	var n_ops: int = 0
+	if sim_ready and stats_slot_available:
+		n_ops = mini(_operation_queue.pending_count(), MAX_OPS)
+	var want_full: bool = (_frame % 3 == 0) and stats_slot_available
+	# Every admitted mass operation needs its matching asynchronous readback. Full-field
+	# progress/probe data is less frequent and shares the same bounded readback queue.
+	var want_op_read: bool = n_ops > 0 or want_full
 	var want_coarse: bool = not _coarse_in_flight
+	_ops.clear()
+	_op_meta.clear()
+	if n_ops > 0:
+		var batch: Array[Dictionary] = _operation_queue.drain(n_ops)
+		for entry in batch:
+			var a: Vector4 = entry["a"]
+			var b: Vector4 = entry["b"]
+			var c: Vector4 = entry["c"]
+			_ops.append(PackedFloat32Array([
+				a.x, a.y, a.z, a.w, b.x, b.y, b.z, b.w, c.x, c.y, c.z, c.w]))
+			_op_meta.append({
+				"ticket": int(entry["ticket"]),
+				"role": String(entry["role"]),
+				"owner": int(entry["owner"]),
+				"retained_fraction": c.x if String(entry["role"]) == "shovel_collect" else 0.0,
+				"requested_kg": b.z if String(entry["role"]) == "dump" else 0.0,
+			})
 
 	if sim_ready and (n_ops > 0 or relax_iters > 0 or want_full or want_coarse):
 		var params := _pack_params(n_ops)
@@ -332,10 +378,10 @@ func _process(delta: float) -> void:
 		for k in range(n_ops):
 			types.append(int(_ops[k][4] + 0.5))
 		if want_op_read:
-			_stats_queue.append({"meta": _op_meta.duplicate(), "full": want_full})
-		RenderingServer.call_on_render_thread(_sim_step.bind(params, types, relax_iters, active_rect, want_full, want_coarse, want_op_read))
-	_ops.clear()
-	_op_meta.clear()
+			_pending_stats_readbacks += 1
+		RenderingServer.call_on_render_thread(_sim_step.bind(
+			params, types, relax_iters, active_rect, want_full, want_coarse, want_op_read,
+			_op_meta.duplicate(true)))
 
 	if _stats_pending:
 		_stats_pending = false
@@ -381,16 +427,17 @@ func _pack_params(n_ops: int) -> PackedByteArray:
 	# ops
 	for k in range(n_ops):
 		var o := _ops[k]
-		for j in range(8):
-			f[P_OPS + k * 8 + j] = o[j]
+		for j in range(12):
+			f[P_OPS + k * 12 + j] = o[j]
 	return f.to_byte_array()
 
-func _sim_step(params: PackedByteArray, types: PackedInt32Array, relax_iters: int, rect: Vector4i, want_full: bool, want_coarse: bool, want_op_read: bool) -> void:
+func _sim_step(params: PackedByteArray, types: PackedInt32Array, relax_iters: int, rect: Vector4i,
+		want_full: bool, want_coarse: bool, want_op_read: bool, stats_meta: Array) -> void:
 	if not sim_ready:
 		return
 	rd.buffer_update(_params_buf, 0, params.size(), params)
 	rd.buffer_clear(_buckets_buf, 0, MAX_OPS * BUCKETS * 4)
-	rd.buffer_clear(_stats_buf, 0, (16 + MAX_OPS) * 4)
+	rd.buffer_clear(_stats_buf, 0, STATS_UINTS * 4)
 
 	var cl := rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(cl, _pipeline_rid)
@@ -399,15 +446,18 @@ func _sim_step(params: PackedByteArray, types: PackedInt32Array, relax_iters: in
 		match types[k]:
 			1:
 				_dispatch(cl, 0, k, rect, true)   # collect under the plate
+				_dispatch(cl, 10, k, rect, false) # measure the discrete deposit footprint
 				_dispatch(cl, 1, k, rect, true)   # deposit in front of the blade
 			2, 3:
-				_dispatch(cl, 2, k, rect, true)   # footprint / radial clear
+				_dispatch(cl, 2, k, rect, true)   # footprint / salt (no snow removal)
 			4:
 				_dispatch(cl, 3, k, rect, true)   # free dump
 			5:
 				_dispatch(cl, 7, k, rect, true)   # tamp / compaction
 			6:
 				_dispatch(cl, 8, k, rect, true)   # cylindrical harvest (accretion)
+			11:
+				_dispatch(cl, 11, k, rect, true)  # explicit destructive diagnostic fixture setup
 
 	for it in range(relax_iters):
 		_dispatch(cl, 4, 0, rect, true)
@@ -423,7 +473,7 @@ func _sim_step(params: PackedByteArray, types: PackedInt32Array, relax_iters: in
 	snow_texture.texture_rd_rid = _tex_rids[_cur]
 
 	if want_op_read:
-		rd.buffer_get_data_async(_stats_buf, _on_stats_ready)
+		rd.buffer_get_data_async(_stats_buf, _on_stats_ready.bind(stats_meta, want_full))
 	if want_coarse:
 		_coarse_in_flight = true
 		rd.texture_get_data_async(_coarse_rid, 0, _on_coarse_ready)
@@ -447,15 +497,16 @@ func _on_coarse_ready(data: PackedByteArray) -> void:
 	_coarse = data.to_float32_array()
 	_coarse_valid = true
 
-func _on_stats_ready(data: PackedByteArray) -> void:
-	if _stats_queue.is_empty():
-		return
-	var entry: Dictionary = _stats_queue.pop_front()
-	if data.size() < (16 + MAX_OPS) * 4:
+func _on_stats_ready(data: PackedByteArray, meta: Array, full: bool) -> void:
+	_pending_stats_readbacks = maxi(_pending_stats_readbacks - 1, 0)
+	if trace_operation_receipts:
+		print("[SNOWOP] readback bytes=%d operations=%d full=%s pending=%d" % [
+			data.size(), meta.size(), str(full), _pending_stats_readbacks])
+	if data.size() < STATS_UINTS * 4:
 		return
 	# Progress counters and probes are only valid if the full field reduction
 	# (mode 6) ran during that frame.
-	if bool(entry.get("full", false)):
+	if full:
 		cleared_pixels = int(data.decode_u32(0))
 		snow_volume_norm = float(data.decode_u32(4)) / 1024.0
 		for p in range(4):
@@ -466,27 +517,171 @@ func _on_stats_ready(data: PackedByteArray) -> void:
 	# Real volume removed by each operation of the frame just read
 	var cell_v := (field_width / float(TEX_SIZE)) * (field_length / float(TEX_SIZE))
 	var kg_per_unit := cell_v * snow_depth * snow_density
-	var meta: Array = entry.get("meta", [])
 	for k in range(meta.size()):
 		if k >= MAX_OPS:
 			break
 		var fixed := float(data.decode_u32((16 + k) * 4)) / 4096.0
+		var added_fixed := float(data.decode_u32((16 + MAX_OPS * 2 + k) * 4)) / 4096.0
 		var op_entry: Dictionary = meta[k]
 		var role: String = String(op_entry.get("role", ""))
-		if role.is_empty() and fixed <= 0.0:
-			continue
-		op_volume_ready.emit(role, int(op_entry.get("owner", -1)), maxf(fixed, 0.0) * kg_per_unit)
+		var owner := int(op_entry.get("owner", -1))
+		var ticket := int(op_entry.get("ticket", 0))
+		var actual_kg := maxf(fixed, 0.0) * kg_per_unit
+		var added_kg := maxf(added_fixed, 0.0) * kg_per_unit
+		var retained_kg := actual_kg * clampf(float(op_entry.get("retained_fraction", 0.0)), 0.0, 1.0)
+		if role == "dump":
+			var requested_kg := float(op_entry.get("requested_kg", 0.0))
+			if absf(added_kg - requested_kg) > maxf(0.25, requested_kg * 0.01):
+				push_error("SnowField: dump receipt %d requested %.3f kg but measured %.3f kg" % [
+					ticket, requested_kg, added_kg])
+		_record_mass_receipt(ticket, role, owner, actual_kg, added_kg, retained_kg)
+		if trace_operation_receipts:
+			print("[SNOWOP] ticket=%d role=%s removed=%.4f added=%.4f retained=%.4f" % [
+				ticket, role, actual_kg, added_kg, retained_kg])
+		if role == "shovel_collect":
+			_shovel_yield_kg += actual_kg
+			_total_yield_kg += actual_kg
+		elif role == "diagnostic_clear":
+			_total_yield_kg += actual_kg
+		operation_completed.emit(ticket, role, owner, actual_kg)
+		operation_mass_accounted.emit(ticket, role, owner, actual_kg, added_kg, retained_kg)
+		if not role.is_empty():
+			op_volume_ready.emit(role, owner, actual_kg)
 
 # Tool API
 func _local_xz(world_pos: Vector3) -> Vector2:
 	var l := to_local(world_pos)
 	return Vector2(l.x, l.z)
 
-func _queue_op(a: Vector4, b: Vector4, role: String = "", owner: int = -1) -> void:
-	if _ops.size() >= MAX_OPS:
+## Queues work without claiming that it has already changed the field.
+## A zero ticket means back-pressure rejected the operation and no mutation will occur.
+func _queue_op(a: Vector4, b: Vector4, role: String = "", owner: int = -1,
+		c: Vector4 = Vector4.ZERO) -> int:
+	var admission: Dictionary = _operation_queue.submit(a, b, role, owner, c)
+	if not bool(admission.get("accepted", false)):
+		operation_rejected.emit(role, owner, String(admission.get("reason", "rejected")))
+		return 0
+	_last_submitted_ticket = int(admission["ticket"])
+	return _last_submitted_ticket
+
+
+## A stable account name for a physical entity carrying snow.
+func payload_mass_account(owner_id: int) -> StringName:
+	return StringName("payload_%d" % owner_id)
+
+
+## Register an externally created payload, or transfer existing snow into its account.
+func register_payload_mass(owner_id: int, kg: float, source_owner: int = -1,
+		source: StringName = &"external_payload") -> bool:
+	if owner_id < 0 or kg <= 0.0:
+		return false
+	var destination := payload_mass_account(owner_id)
+	if source_owner >= 0:
+		return transfer_payload_mass(source_owner, owner_id, kg)
+	return mass_ledger.record_source(destination, kg, source)
+
+
+func transfer_payload_mass(source_owner: int, destination_owner: int, kg: float,
+		operation_id: int = -1) -> bool:
+	if source_owner < 0 or destination_owner < 0:
+		return false
+	return mass_ledger.transfer(payload_mass_account(source_owner),
+		payload_mass_account(destination_owner), kg, operation_id)
+
+
+func deliver_payload_mass(owner_id: int, kg: float, operation_id: int = -1) -> bool:
+	if owner_id < 0:
+		return false
+	return mass_ledger.deliver(payload_mass_account(owner_id), kg, operation_id)
+
+
+func payload_mass_kg(owner_id: int) -> float:
+	return mass_ledger.account_kg(payload_mass_account(owner_id)) if owner_id >= 0 else 0.0
+
+
+func mass_ledger_snapshot() -> Dictionary:
+	return mass_ledger.snapshot()
+
+
+func mass_ledger_is_balanced(tolerance_kg: float = 0.0001) -> bool:
+	return mass_ledger.is_balanced(tolerance_kg)
+
+
+func _record_mass_receipt(ticket: int, role: String, owner: int, removed_kg: float,
+		added_kg: float, retained_kg: float) -> void:
+	if removed_kg <= 0.000001:
 		return
-	_ops.append(PackedFloat32Array([a.x, a.y, a.z, a.w, b.x, b.y, b.z, b.w]))
-	_op_meta.append({"role": role, "owner": owner})
+	match role:
+		"shovel_collect":
+			if not mass_ledger.transfer(FIELD_MASS_ACCOUNT, OPERATION_ESCROW_ACCOUNT,
+					removed_kg, ticket):
+				_record_unassigned_removal(ticket, role, owner, removed_kg)
+				return
+			var field_share := minf(maxf(added_kg, 0.0), mass_ledger.account_kg(OPERATION_ESCROW_ACCOUNT))
+			if field_share > 0.000001:
+				if not mass_ledger.transfer(OPERATION_ESCROW_ACCOUNT, FIELD_MASS_ACCOUNT,
+						field_share, ticket):
+					push_error("SnowField: could not return shovel deposit to the field for ticket %d" % ticket)
+			# The field deposit is measured; the player/chunk receives the exact remainder so the two
+			# destinations close even if fixed-point readback differs slightly from the requested split.
+			var kept := mass_ledger.account_kg(OPERATION_ESCROW_ACCOUNT)
+			if kept > 0.000001:
+				var destination: StringName
+				if owner >= 0:
+					destination = payload_mass_account(owner)
+				elif kept <= maxf(0.25, removed_kg * 0.01):
+					destination = ROUNDING_MASS_ACCOUNT
+				else:
+					destination = &"unassigned_removed"
+					push_error("SnowField: ownerless shovel receipt %d left %.4f kg" % [ticket, kept])
+				if not mass_ledger.transfer(OPERATION_ESCROW_ACCOUNT, destination, kept, ticket):
+					push_error("SnowField: could not assign shovel payload for ticket %d" % ticket)
+			if owner >= 0 and absf(kept - maxf(retained_kg, 0.0)) > 0.02:
+				push_error("SnowField: shovel receipt %d retained %.4f kg but measured remainder %.4f kg" % [
+					ticket, retained_kg, kept])
+			var residue := mass_ledger.account_kg(OPERATION_ESCROW_ACCOUNT)
+			if residue > 0.000001:
+				if residue > 0.02:
+					push_error("SnowField: shovel receipt %d left %.4f kg unassigned" % [ticket, residue])
+				mass_ledger.transfer(OPERATION_ESCROW_ACCOUNT, ROUNDING_MASS_ACCOUNT, residue, ticket)
+		"harvest", "blower_intake":
+			if owner >= 0:
+				if not mass_ledger.transfer(FIELD_MASS_ACCOUNT, payload_mass_account(owner),
+						removed_kg, ticket):
+					_record_unassigned_removal(ticket, role, owner, removed_kg)
+			else:
+				_record_unassigned_removal(ticket, role, owner, removed_kg)
+		"diagnostic_clear":
+			if not mass_ledger.transfer(FIELD_MASS_ACCOUNT, &"diagnostic_fixture", removed_kg, ticket):
+				push_error("SnowField: could not record diagnostic reset for ticket %d" % ticket)
+		"radial_clear":
+			_record_unassigned_removal(ticket, role, owner, removed_kg)
+		_:
+			_record_unassigned_removal(ticket, role, owner, removed_kg)
+
+
+func _record_unassigned_removal(ticket: int, role: String, owner: int, kg: float) -> void:
+	if not mass_ledger.transfer(FIELD_MASS_ACCOUNT, &"unassigned_removed", kg, ticket):
+		push_error("SnowField: could not account for %.4f kg removed by %s (%d)" % [kg, role, owner])
+	else:
+		push_error("SnowField: %.4f kg from %s (%d) has no payload destination" % [kg, role, owner])
+
+
+## Current FIFO depth, exposed for tests and development instrumentation.
+func queued_operation_count() -> int:
+	return _operation_queue.pending_count()
+
+
+func operation_queue_capacity() -> int:
+	return _operation_queue.capacity()
+
+
+func pending_operation_result_count() -> int:
+	return _pending_stats_readbacks
+
+
+func last_submitted_ticket() -> int:
+	return _last_submitted_ticket
 
 func _mark_active(center: Vector2, radius_m: float) -> void:
 	var half := Vector2(field_width, field_length) * 0.5
@@ -503,25 +698,16 @@ func _inside_field(local: Vector2, margin: float = 0.0) -> bool:
 	var half_l := field_length * 0.5 + margin
 	return absf(local.x) <= half_w and absf(local.y) <= half_l
 
-# Shovel: collects and piles snow while conserving mass
+# Shovel: queues a directional collect-and-deposit operation.
 # max_cut_m > 0 caps the thickness cut away: the blade then works like a chisel
 # and can shave thin sheets off a ball or a pile (block 4.3).
-## Cumulative kilograms `carve_shovel` has handed to a blade.
-##
-## WHY THIS EXISTS, and it is measured rather than theoretical: the whole-field integral drifts by
-## several kilograms while the granular solver relaxes -- 23199.15 and then 23202.04 for the same
-## untouched world, a drift an order of magnitude larger than a bucket-sized carve. Subtracting
-## two of those numbers to adjudicate mass gave the shovel battery -0.070 kg of field loss for a
-## 6.300 kg load, and -11.562 kg for a 13.717 kg one. A mass check cannot be built on that.
-##
-## This is an exact record of what the field HANDED OVER, so it needs no integral and cannot
-## drift. Read it with `shovel_yield_kg()`; reset it with `reset_shovel_yield()`.
+## Exact shovel removal total accumulated from per-operation GPU receipts.
 var _shovel_yield_kg: float = 0.0
-## The same, for every route out of the field. See carve_yield_kg.
+## Diagnostic total of measured shovel and fixture-clear removals.
 var _total_yield_kg: float = 0.0
 
 
-## The blade ledger: total kilograms handed to blades since the last reset.
+## Exact mass removed by admitted shovel operations, accumulated from asynchronous GPU receipts.
 func shovel_yield_kg() -> float:
 	return _shovel_yield_kg
 
@@ -531,14 +717,7 @@ func reset_shovel_yield() -> void:
 	_shovel_yield_kg = 0.0
 
 
-## EVERY kilogram this field has given up, by any route, since the last reset.
-##
-## `shovel_yield_kg` counts only `carve_shovel`, which is the right ledger for a blade. This one
-## also counts `carve` -- the radial clearing used for tests, lanes and pits -- because a test that
-## clears a strip and then pushes along it needs to measure the push WITHOUT the clearing in the
-## sum. Measured reason: the shovel battery's push verdict read -90.979 kg of field loss for a
-## 17.000 kg blade, because the battery reset the blade ledger while its own setup clearing went
-## through `carve` and was never in that number at all.
+## Diagnostic sum of measured tool removals. It is not a field-wide mass integral.
 func carve_yield_kg() -> float:
 	return _total_yield_kg
 
@@ -548,17 +727,55 @@ func reset_carve_yield() -> void:
 	_total_yield_kg = 0.0
 
 
-func carve_shovel(scoop_pos: Vector3, forward_dir: Vector3, blade_w: float = 0.76, blade_l: float = 0.32, max_cut_m: float = 0.0) -> float:
+## Admits a rate- and capacity-bounded shovel transfer. The shader moves the unretained share
+## into a berm and reports the collected source mass through `operation_completed`.
+func request_shovel(owner: int, scoop_pos: Vector3, forward_dir: Vector3, blade_w: float,
+		blade_l: float, max_total_cut_kg: float, max_cut_m: float = 0.0,
+		retained_fraction: float = 0.25) -> int:
+	var local := _local_xz(scoop_pos)
+	if not _inside_field(local, 1.2) or max_total_cut_kg <= 0.0:
+		return 0
+	var fwd := Vector2(forward_dir.x, forward_dir.z)
+	if fwd.length_squared() < 0.01:
+		fwd = Vector2(0.0, -1.0)
+	fwd = fwd.normalized()
+	var area_bound := maxf((blade_w + 0.10) * (blade_l + 0.04), 0.001)
+	var depth_bound := max_total_cut_kg / maxf(snow_density * area_bound, 0.001)
+	if max_cut_m > 0.0:
+		depth_bound = minf(depth_bound, max_cut_m)
+	var ticket := _queue_op(
+		Vector4(local.x, local.y, fwd.x, fwd.y),
+		Vector4(1.0, blade_w, blade_l, depth_bound),
+		"shovel_collect", owner,
+		Vector4(clampf(retained_fraction, 0.0, 1.0), 0.0, 0.0, 0.0))
+	if ticket == 0:
+		return 0
+	_mark_active(local, 2.8)
+	_blade_pos = local
+	_blade_dir = fwd
+	_blade_half_w = blade_w * 0.5
+	_blade_half_l = blade_l * 0.5
+	_blade_ttl = 0.12
+	_probe_pos[1] = local + fwd * (blade_l * 0.5 + 0.1)
+	return ticket
+
+
+func carve_shovel(scoop_pos: Vector3, forward_dir: Vector3, blade_w: float = 0.76, blade_l: float = 0.32, max_cut_m: float = 0.0) -> int:
 	var local := _local_xz(scoop_pos)
 	if not _inside_field(local, 1.2):
-		return 0.0
+		return 0
 
 	var fwd := Vector2(forward_dir.x, forward_dir.z)
 	if fwd.length_squared() < 0.01:
 		fwd = Vector2(0.0, -1.0)
 	fwd = fwd.normalized()
 
-	_queue_op(Vector4(local.x, local.y, fwd.x, fwd.y), Vector4(1.0, blade_w, blade_l, max_cut_m), "shovel_collect")
+	var ticket := _queue_op(
+		Vector4(local.x, local.y, fwd.x, fwd.y),
+		Vector4(1.0, blade_w, blade_l, max_cut_m),
+		"shovel_collect")
+	if ticket == 0:
+		return 0
 	_mark_active(local, 2.8)
 
 	_blade_pos = local
@@ -569,66 +786,153 @@ func carve_shovel(scoop_pos: Vector3, forward_dir: Vector3, blade_w: float = 0.7
 
 	# Probe 1 tracks the blade and reports, with latency, whether snow is there
 	_probe_pos[1] = local + fwd * (blade_l * 0.5 + 0.1)
-	if _probe_h[1] > 0.05:
-		var kg := blade_w * minf(_probe_h[1], 1.5) * 3.0
-		# THE LEDGER. See `carve_shovel_yield`: the whole-field integral drifts by kilograms while
-		# the granular solver relaxes, so it cannot adjudicate a small carve. This counter is an
-		# exact record of what this function HANDED OVER, and it is what a mass test should read.
-		_shovel_yield_kg += kg
-		_total_yield_kg += kg
-		return kg
-	return 0.0
+	return ticket
 
-# Radial clearing (turbine / salt spreader)
-func carve(world_pos: Vector3, radius_meters: float, _depth_cut: float, _push_dir: Vector3 = Vector3.ZERO, desalinate: bool = false) -> float:
+## Salt is a cohesion-only field mutation. It cannot remove or create snow.
+func apply_salt(world_pos: Vector3, radius_meters: float) -> int:
 	var local := _local_xz(world_pos)
 	if not _inside_field(local, radius_meters):
-		return 0.0
+		return 0
 
-	_queue_op(Vector4(local.x, local.y, 0.0, -1.0), Vector4(3.0, radius_meters, 0.0, 1.0 if desalinate else 0.0), "radial_clear")
+	var ticket := _queue_op(
+		Vector4(local.x, local.y, 0.0, -1.0),
+		Vector4(3.0, radius_meters, 0.0, 1.0),
+		"salt")
+	if ticket == 0:
+		return 0
 	_mark_active(local, radius_meters + 0.4)
-	_probe_pos[2] = local
-	if _probe_h[2] > 0.05:
-		var kg_out := radius_meters * minf(_probe_h[2], 1.0) * 5.0
-		_total_yield_kg += kg_out
-		return kg_out
+	return ticket
+
+
+## Destructive reset for explicitly named test/demo fixture setup only.
+## Gameplay must transfer harvested mass to a payload with `request_harvest` instead.
+func clear_for_diagnostics(world_pos: Vector3, radius_meters: float) -> int:
+	var local := _local_xz(world_pos)
+	if not _inside_field(local, radius_meters):
+		return 0
+	var ticket := _queue_op(
+		Vector4(local.x, local.y, 0.0, -1.0),
+		Vector4(11.0, radius_meters, 0.0, 0.0),
+		"diagnostic_clear")
+	if ticket > 0:
+		_mark_active(local, radius_meters + 0.4)
+	return ticket
+
+
+## Compatibility guard for old callers: salt is preserved, while the former radial clear is
+## rejected because it silently deleted snow without a destination.
+func carve(world_pos: Vector3, radius_meters: float, _depth_cut: float,
+		_push_dir: Vector3 = Vector3.ZERO, desalinate: bool = false) -> float:
+	if desalinate:
+		apply_salt(world_pos, radius_meters)
+	else:
+		operation_rejected.emit("radial_clear", -1, "use_clear_for_diagnostics_or_request_harvest")
 	return 0.0
 
-# FREE DUMP (block 1.2): injects mass as loose snow
-# Dumped snow enters marked as loose (G) and wet (B), so the granular solver
-# spreads it into stable conical mounds on its own.
-func dump_snow(world_pos: Vector3, kg: float, radius: float = 0.22, wetness: float = -1.0) -> void:
+# FREE DUMP: injects a uniform loose-snow footprint; the repose solver determines the final pile.
+## Returns true only when the field queue admitted the deposit. Payload-owned dumps transfer the
+## source account to the field at admission; external fixture dumps register an explicit source.
+func dump_snow(world_pos: Vector3, kg: float, radius: float = 0.22, wetness: float = -1.0,
+		source_owner: int = -1) -> bool:
 	if kg <= 0.0:
-		return
+		return false
 	var local := _local_xz(world_pos)
 	if not _inside_field(local, 0.5):
-		return
+		return false
+	var safe_radius := maxf(radius, 0.04)
+	var dump_height := _uniform_dump_height_per_cell(local, safe_radius, kg)
+	if dump_height <= 0.0:
+		return false
+	if source_owner >= 0 and payload_mass_kg(source_owner) + 0.000001 < kg:
+		operation_rejected.emit("dump", source_owner, "insufficient_payload_mass")
+		return false
 	var wet := wetness if wetness >= 0.0 else deposit_wetness
-	_queue_op(Vector4(local.x, local.y, 0.0, -1.0), Vector4(4.0, maxf(radius, 0.04), kg, clampf(wet, 0.0, 1.0)), "dump")
+	var ticket := _queue_op(
+		Vector4(local.x, local.y, 0.0, -1.0),
+		Vector4(4.0, safe_radius, kg, clampf(wet, 0.0, 1.0)),
+		"dump", source_owner, Vector4(dump_height, 0.0, 0.0, 0.0))
+	if ticket == 0:
+		return false
+	if source_owner >= 0:
+		if not mass_ledger.transfer(payload_mass_account(source_owner), FIELD_MASS_ACCOUNT, kg, ticket):
+			push_error("SnowField: dump ticket %d was admitted without a valid payload transfer" % ticket)
+	else:
+		if not mass_ledger.record_source(FIELD_MASS_ACCOUNT, kg, &"external_dump"):
+			push_error("SnowField: could not record external dump source for ticket %d" % ticket)
 	_mark_active(local, radius + 1.2)
+	return true
+
+
+## Computes a per-cell injection height using the exact texel-centre footprint used by mode_dump.
+## This keeps rasterized deposits at the requested mass even when the circle clips at a field edge.
+func _uniform_dump_height_per_cell(center: Vector2, radius: float, kg: float) -> float:
+	var cell_w := field_width / float(TEX_SIZE)
+	var cell_l := field_length / float(TEX_SIZE)
+	var half_w := field_width * 0.5
+	var half_l := field_length * 0.5
+	var min_x := clampi(int(floor((center.x - radius + half_w) / cell_w)) - 1, 0, TEX_SIZE - 1)
+	var max_x := clampi(int(ceil((center.x + radius + half_w) / cell_w)) + 1, 0, TEX_SIZE - 1)
+	var min_y := clampi(int(floor((center.y - radius + half_l) / cell_l)) - 1, 0, TEX_SIZE - 1)
+	var max_y := clampi(int(ceil((center.y + radius + half_l) / cell_l)) + 1, 0, TEX_SIZE - 1)
+	var radius_sq := radius * radius
+	var texel_count := 0
+	for y in range(min_y, max_y + 1):
+		var z := (float(y) + 0.5) * cell_l - half_l
+		for x in range(min_x, max_x + 1):
+			var local_x := (float(x) + 0.5) * cell_w - half_w
+			if Vector2(local_x - center.x, z - center.y).length_squared() < radius_sq:
+				texel_count += 1
+	if texel_count <= 0:
+		return 0.0
+	var area := float(texel_count) * cell_w * cell_l
+	return (kg / maxf(snow_density, 1.0)) / area
+
+
+## Safe in-bounds return point for snow bodies that leave the simulation footprint.
+## Mass may be moved back to the field edge, but is never deleted because a deposit was out of bounds.
+func get_mass_return_position(world_pos: Vector3, edge_margin: float = 0.12) -> Vector3:
+	var margin := clampf(edge_margin, 0.01, minf(field_width, field_length) * 0.25)
+	var local := _local_xz(world_pos)
+	local.x = clampf(local.x, -field_width * 0.5 + margin, field_width * 0.5 - margin)
+	local.y = clampf(local.y, -field_length * 0.5 + margin, field_length * 0.5 - margin)
+	var result := to_global(Vector3(local.x, 0.0, local.y))
+	result.y += maxf(get_height_at(result), 0.0) + 0.02
+	return result
 
 # TAMPING / COMPACTION (blocks 1.3 and 2.3)
 # Flattens by conservative diffusion (peaks give mass to valleys through a
 # plastic settle) and turns loose snow into packed, cohesive snow.
-func tamp(world_pos: Vector3, radius: float = 0.34, strength: float = 1.0) -> void:
+func tamp(world_pos: Vector3, radius: float = 0.34, strength: float = 1.0) -> int:
 	var local := _local_xz(world_pos)
 	if not _inside_field(local, 0.5):
-		return
-	_queue_op(Vector4(local.x, local.y, 0.0, -1.0), Vector4(5.0, maxf(radius, 0.05), clampf(strength, 0.0, 1.0), 0.0), "tamp")
-	_mark_active(local, radius + 0.6)
+		return 0
+	var ticket := _queue_op(
+			Vector4(local.x, local.y, 0.0, -1.0),
+			Vector4(5.0, maxf(radius, 0.05), clampf(strength, 0.0, 1.0), 0.0),
+			"tamp")
+	if ticket > 0:
+		_mark_active(local, radius + 0.6)
+	return ticket
 
 # CYLINDRICAL HARVEST (blocks 3.2 and 4.3)
 # Removes snow along a segment and reports the real volume harvested through
 # the op_volume_ready(role, owner, kg) signal. Used by rolling balls
 # (accretion) and by the blade while carving.
-func request_harvest(owner: int, from_world: Vector3, to_world: Vector3, radius: float, max_depth: float) -> void:
+func request_harvest(owner: int, from_world: Vector3, to_world: Vector3, radius: float,
+		max_depth: float, role: String = "harvest") -> bool:
 	var a := _local_xz(from_world)
 	var b := _local_xz(to_world)
 	if not _inside_field(a, 0.5) and not _inside_field(b, 0.5):
-		return
-	_queue_op(Vector4(a.x, a.y, b.x, b.y), Vector4(6.0, maxf(radius, 0.03), maxf(max_depth, 0.005), 0.0), "harvest", owner)
+		return false
+	var ticket := _queue_op(
+		Vector4(a.x, a.y, b.x, b.y),
+		Vector4(6.0, maxf(radius, 0.03), maxf(max_depth, 0.005), 0.0),
+		role, owner)
+	if ticket == 0:
+		return false
 	_mark_active(a, radius + 0.4)
 	_mark_active(b, radius + 0.4)
+	return true
 
 func _emit_progress() -> void:
 	var pct = (float(cleared_pixels) / float(total_pixels)) * 100.0
@@ -639,7 +943,7 @@ func _emit_progress() -> void:
 func is_coarse_ready() -> bool:
 	return _coarse_valid and not _coarse.is_empty()
 
-## Real total snow mass (kg) currently present on the field, integrated from the GPU coarse mirror.
+## Approximate diagnostic mass (kg) from the reduced GPU mirror. Never use this for accounting.
 func measure_total_mass() -> float:
 	if not is_coarse_ready():
 		return total_snow_kg
@@ -756,31 +1060,10 @@ func stamp_footprint(world_pos: Vector3, radius_m: float = 0.20, depth_dent: flo
 		return
 	_queue_op(Vector4(local.x, local.y, 0.0, -1.0), Vector4(2.0, radius_m, depth_dent, 0.0), "footprint")
 
-## The snow bank used to pay for snow thrown into it. IT DOES NOT ANY MORE.
-##
-## The disposal machine is the real sink now: it is the only thing in the game that destroys
-## snow, and paying for both meant two places paid for the same job while only one of them
-## finished it. The bank is scenery.
-##
-## The code is kept, not deleted, behind this flag. The bank's payment can be switched back on
-## by setting it to true, and everything downstream of it (the signal, the chunk that reports
-## a landing, the HUD and the player controller that listen for it) is intact and still wired.
-## Deleting it would have thrown away a mechanic somebody may want back.
-const BANK_PAYS: bool = false
-
-func check_snowbank_hit(world_pos: Vector3, kg_tossed: float) -> bool:
-	var local = to_local(world_pos)
-	var half_w = field_width * 0.5
-	var half_l = field_length * 0.5
-
-	if absf(local.x) > half_w and absf(local.x) < half_w + 6.0 and absf(local.z) <= half_l + 3.0:
-		# Still reports the hit: the bank is a real place and snow landing in it is still a
-		# fact. What it no longer does is PAY.
-		if not BANK_PAYS:
-			return true
-		var bonus = int(ceil(kg_tossed * 1.5))
-		snow_tossed_in_bank.emit(bonus, world_pos)
-		return true
+## Compatibility query retained for thrown snow bodies. Banks are scenery, never a snow sink.
+func check_snowbank_hit(_world_pos: Vector3, _kg_tossed: float) -> bool:
+	# Kept for old callers, but neither the bank nor this predicate may consume snow. The disposal
+	# machine is the sole sink and payment path.
 	return false
 
 # Visual verification demo (godot --path . -- --plow-demo)
