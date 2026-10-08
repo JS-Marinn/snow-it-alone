@@ -32,3 +32,4 @@ Thumbs.db
 *.uid
 /disp_verify.txt
 /HANDOVER_*.md
+.mcp/

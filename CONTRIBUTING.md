@@ -57,6 +57,7 @@ Run these before every commit that touches physics, snow, balls or saves.
 | `--impact-lab` | 18: the three ball tiers against body and face, state durations, immunity, the manual wipe, the dummy |
 | `--phys-demo` | 36: mass conservation, tools, carrying, throwing, ground push and shatter |
 | `--playground-check` | 11: the measuring bench - runway length, the four lane surfaces, mass balance after a scripted disturbance, spawner, dummies, free camera |
+| `--blower-transport` | GPU integration: close-aim intake, removed mass equals visible payload mass, and landed payloads are admitted back to the field |
 | `--playground` | Not a battery: boots the Playground scene itself, with [B] spawn ball, [N] ball size, [V] free camera, [L] measure field mass, [C] run its battery, [R] restart |
 | `--carve-quality` | Terrain quality after carving and mesh performance |
 | `--ball-shape` | Balls stay spherical, density scaling, no phantom furrows |
@@ -65,7 +66,11 @@ Run these before every commit that touches physics, snow, balls or saves.
 `--movement-lab`, `--impact-lab`, `--phys-demo` and `--carve-quality` need a real
 GPU. They report false failures under `--headless` because the snow simulation
 cannot run there, so run them windowed. `--ball-shape` and `--save-roundtrip` are
-safe headless.
+safe headless. The mass ledger, operation queue, aim policy, and movement-math checks are also GPU-free:
+
+```powershell
+tools/run_batteries.ps1 -Headless -Only domain-core
+```
 
 `--menu-shot` renders the main menu, saves `main_menu.png` at the project root
 and exits; it is the UI smoke test.
@@ -88,10 +93,9 @@ machine; anywhere else pass `-Godot <path>` or set `GODOT_BIN`.
 
 ### What CI covers, and what it cannot
 
-`.github/workflows/batteries.yml` runs the two batteries that need no graphics card on
-every push and pull request. The four that need a GPU cannot run on a hosted runner, so
-they are covered locally only. The workflow's final step prints that limitation into the
-log on purpose, so a green run is never mistaken for full coverage.
+`.github/workflows/batteries.yml` runs the GPU-free save, mass-transaction, and ball-shape
+checks on every push and pull request. GPU integration suites are not run on a hosted runner;
+the workflow states that limitation explicitly so a green run is never mistaken for full coverage.
 
 ## Repository layout
 

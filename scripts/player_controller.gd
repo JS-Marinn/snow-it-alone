@@ -2,6 +2,10 @@ extends CharacterBody3D
 
 const SessionModeScript = preload("res://scripts/session_mode.gd")
 const SettingsSystemScript = preload("res://scripts/settings_system.gd")
+const PlayerAimRulesScript = preload("res://scripts/player_aim_rules.gd")
+const PlayerMovementModelScript = preload("res://scripts/player_movement_model.gd")
+const PlayerSnowballPackerScript = preload("res://scripts/player_snowball_packer.gd")
+const ShovelModesScript = preload("res://scripts/shovel_modes.gd")
 ## Controller look: speed at full deflection, and how far the stick must move first.
 const STICK_LOOK_SPEED: float = 2.4
 const STICK_DEADZONE: float = 0.18
@@ -85,7 +89,7 @@ enum HitState { NORMAL = 0, STAGGERED = 1, KNOCKED_DOWN = 2 }
 ## genuinely massive pile should stop the player.
 @export var stuck_resistance: float = 140.0
 ## Snow height in front of the blade (m) that jams the shovel (pile taller than the blade).
-@export var stuck_height_m: float = 0.58
+@export var stuck_height_m: float = BLADE_WALL_HEIGHT
 ## Speed factor applied while the shovel is jammed.
 @export_range(0.1, 1.0) var stuck_speed_factor: float = 0.32
 ## Drag per meter of snow in front of the blade (fraction of speed lost).
@@ -99,26 +103,24 @@ enum HitState { NORMAL = 0, STAGGERED = 1, KNOCKED_DOWN = 2 }
 ## Maximum fill rate while scooping (kg/s): the shovel does not fill in one hit.
 @export var fill_rate: float = 34.0
 @export var tamp_radius: float = 0.36
+## Snow intake is rate-limited before the GPU harvest is queued; the returned mass becomes
+## physical payloads and is never discarded by the blower.
+@export var blower_intake_rate_kg_s: float = 18.0
+@export var blower_intake_radius_m: float = 0.28
+@export var blower_chunk_max_kg: float = 1.2
+const BLOWER_MAX_SWEEP_STEP: float = 0.45
+const BLOWER_MAX_RATE_CARRY: float = 0.25
 ## Minimum snow mass for hand-packing a ball (kg).
 const PACK_MIN_KG: float = 0.435
 const PACK_REACH_STRICT: float = 1.3
 const PACK_REACH_EXTENDED: float = 2.4
-const PACK_HARVEST_RADIUS: float = 0.22
-const PACK_HARVEST_DEPTH: float = 0.10
-## Shovel behaviour modes. These are plain integers ON PURPOSE, and this file must not import
-## `scripts/shovel_modes.gd`: the module exists to let a caller pick a mode, and if the game
-## itself imported it then the module would no longer be a portable extra -- it would be part of
-## the game's own wiring, which is the opposite of what was asked for.
-##
-## The values match `ShovelModes.Mode`. `set_shovel_mode` refuses anything else.
-const SHOVEL_MODE_LEGACY: int = 0
-const SHOVEL_MODE_LOAD_AND_PUSH: int = 1
-## Fraction of the deliberate load rate the blade picks up while pushing. The authority for this
-## number is `PUSH_RESIDUE_FACTOR` in `scripts/shovel_modes.gd`; it is repeated here so the
-## default build behaves identically whether or not that module is ever loaded.
-const PUSH_RESIDUE_FACTOR: float = 0.25
-## Snow taller than this jams the blade (metres): the height of the shovel's side wall.
-const BLADE_WALL_HEIGHT: float = 0.30
+const PACK_HARVEST_RADIUS: float = PlayerSnowballPackerScript.PACK_HARVEST_RADIUS
+const PACK_HARVEST_DEPTH: float = PlayerSnowballPackerScript.PACK_HARVEST_DEPTH
+## Shovel tuning and mode values have one source in the scene-independent ShovelModes module.
+const SHOVEL_MODE_LEGACY: int = ShovelModesScript.Mode.LEGACY
+const SHOVEL_MODE_LOAD_AND_PUSH: int = ShovelModesScript.Mode.LOAD_AND_PUSH
+const PUSH_RESIDUE_FACTOR: float = ShovelModesScript.PUSH_RESIDUE_FACTOR
+const BLADE_WALL_HEIGHT: float = ShovelModesScript.BLADE_WALL_HEIGHT
 @export var pack_min_kg: float = PACK_MIN_KG
 @export var carry_distance: float = 1.15
 ## Throw: reference speed for the reference light ball. Speed falls with mass
@@ -307,13 +309,15 @@ var is_tossing: bool = false
 var toss_timer: float = 0.0
 var is_dumping: bool = false
 var is_tamping: bool = false
-## Which shovel behaviour is active. LEGACY by default everywhere, so the main game is unchanged
-## unless something asks for the other one. See `set_shovel_mode`.
-var shovel_mode: int = SHOVEL_MODE_LEGACY
+## LOAD_AND_PUSH is the product behavior; LEGACY remains available for transition tests.
+var shovel_mode: int = SHOVEL_MODE_LOAD_AND_PUSH
 ## Everything the PUSH has handed the blade, cumulative (kg). The push's own ledger:
 ## the only place that knows what the push removed, as opposed to what the field removed for any
 ## reason. Read and reset by the shovel battery.
 var shovel_push_total_kg: float = 0.0
+## Capacity reserved for accepted shovel operations whose GPU results have not arrived yet.
+var _shovel_reserved_kg: float = 0.0
+var _pending_shovel_ops: Dictionary = {}
 var tamp_timer: float = 0.0
 var snow_resistance: float = 0.0
 ## Normalized advance drag (0 = free). Drives the shoveling speed.
@@ -383,9 +387,9 @@ var _right_hold: float = 0.0
 var _thrown_this_press: bool = false
 var _player_owner: int = 0
 var _pending_pack: bool = false
-var _pending_pack_time: float = 0.0
 var _pack_harvest_pt: Vector3 = Vector3.ZERO
 var last_pack_harvest_kg: float = 0.0
+var _snowball_packer: RefCounted
 var status_message: String = ""
 ## Diagnostic traces for the shovel cycle.
 var debug_shovel: bool = false
@@ -398,6 +402,9 @@ var blower_audio: AudioStreamPlayer3D
 var scrape_audio: AudioStreamPlayer3D
 var step_audio: AudioStreamPlayer3D
 var wind_player: AudioStreamPlayer
+var _blower_intake_pending: bool = false
+var _blower_rate_time: float = 0.0
+var _blower_last_intake: Vector3 = Vector3.INF
 
 var hand_base_pos: Vector3 = Vector3(0.0, -0.20, -0.18)
 var mouse_input: Vector2 = Vector2.ZERO
@@ -418,6 +425,7 @@ func _ready() -> void:
 	# the settings screen actually changes the game and not just a file.
 	SettingsSystemScript.ensure_loaded()
 	snow_face_auto_clear = SettingsSystemScript.face_snow_auto_clear
+	_snowball_packer = PlayerSnowballPackerScript.new()
 
 	_setup_audio()
 	_build_tools_visuals()
@@ -429,12 +437,20 @@ func set_snow_field(sf: Node3D) -> void:
 	_connect_snow_field()
 
 func _connect_snow_field() -> void:
-	if snow_field and snow_field.has_signal("snow_tossed_in_bank"):
-		if not snow_field.snow_tossed_in_bank.is_connected(_on_snow_bank_hit):
-			snow_field.snow_tossed_in_bank.connect(_on_snow_bank_hit)
+	if _snowball_packer != null:
+		_snowball_packer.setup(self, snow_field)
+	if snow_field and snow_field.has_signal("op_volume_ready"):
+		if not snow_field.op_volume_ready.is_connected(_on_op_volume_ready):
+			snow_field.op_volume_ready.connect(_on_op_volume_ready)
+	if snow_field and snow_field.has_signal("operation_mass_accounted"):
+		if not snow_field.operation_mass_accounted.is_connected(_on_snow_mass_accounted):
+			snow_field.operation_mass_accounted.connect(_on_snow_mass_accounted)
+	if snow_field and snow_field.has_signal("operation_rejected"):
+		if not snow_field.operation_rejected.is_connected(_on_snow_operation_rejected):
+			snow_field.operation_rejected.connect(_on_snow_operation_rejected)
 	# The bucket and the wheelbarrow are filled and emptied through one shared piece of
-	# gameplay code, which needs the field to measure what a fill actually removed and to
-	# pay for what is tipped into a bank or machine. It lives as a child of this node so it goes away
+	# gameplay code, which needs the field to measure what a fill actually removed and route each
+	# load to the field or the disposal machine. It lives as a child of this node so it goes away
 	# with the player and never outlives the field it points at.
 	if snow_field and container_interaction == null:
 		var tracker := Node.new()
@@ -445,14 +461,35 @@ func _connect_snow_field() -> void:
 		if tracker.has_method("setup"):
 			tracker.setup(snow_field)
 
-## The bank used to pay for snow thrown into it, and this is where that money arrived.
-##
-## The disposal machine is the sink now (see `scripts/disposal_machine.gd`), so the bank is
-## scenery: `snow_field.gd` reports bank hits but no longer emits the payment. The connection
-## is deliberately LEFT IN PLACE -- set `BANK_PAYS` back to true there and the bank pays again,
-## with nothing to re-wire here.
-func _on_snow_bank_hit(bonus: int, _world_pos: Vector3) -> void:
-	add_coins(bonus)
+func _on_snow_operation_rejected(_role: String, owner: int, _reason: String) -> void:
+	if owner == _player_owner:
+		status_message = tr("STATUS_SNOW_QUEUE_BUSY")
+
+
+func _on_snow_mass_accounted(ticket: int, role: String, owner: int, removed_kg: float,
+		field_added_kg: float, retained_kg: float) -> void:
+	if role != "shovel_collect" or owner != _player_owner or not _pending_shovel_ops.has(ticket):
+		return
+	var request: Dictionary = _pending_shovel_ops[ticket]
+	_pending_shovel_ops.erase(ticket)
+	var reserved: float = float(request.get("blade_allow_kg", 0.0))
+	_shovel_reserved_kg = maxf(_shovel_reserved_kg - reserved, 0.0)
+	var blade_mass := minf(maxf(removed_kg - field_added_kg, 0.0), reserved)
+	var free_capacity := maxf(shovel_capacity_max - shovel_current_load, 0.0)
+	var blade_take := minf(blade_mass, free_capacity)
+	if blade_take > 0.0:
+		shovel_current_load += blade_take
+		if bool(request.get("is_push", false)):
+			shovel_push_total_kg += blade_take
+		_update_shovel_snow_visual()
+	var unassigned := removed_kg - field_added_kg - blade_take
+	if unassigned < -0.02:
+		push_error("Shovel operation %d deposited %.4f kg more than it removed" % [
+			ticket, -unassigned])
+	var spill := maxf(unassigned, 0.0)
+	if spill > 0.000001:
+		var return_at: Vector3 = request.get("position", global_position)
+		_spawn_return_chunk(spill, return_at)
 
 func _setup_audio() -> void:
 	scrape_audio = AudioStreamPlayer3D.new()
@@ -717,11 +754,6 @@ func _physics_process(delta: float) -> void:
 			wish_dir = wish_dir.normalized()
 
 	_time += delta
-	if _pending_pack:
-		_pending_pack_time += delta
-		if _pending_pack_time > 1.0:
-			_pending_pack = false
-			_pending_pack_time = 0.0
 	_refresh_surface()
 
 	# Jump input is read BEFORE the movement, exactly like Quake's PM_WalkMove
@@ -914,17 +946,8 @@ func _apply_stick_look(delta: float) -> void:
 	camera.rotation.x = clampf(camera.rotation.x, deg_to_rad(-75.0), deg_to_rad(80.0))
 
 func _apply_ground_friction(delta: float) -> void:
-	var flat := Vector2(velocity.x, velocity.z)
-	var speed := flat.length()
-	if speed < 0.1:
-		velocity.x = 0.0
-		velocity.z = 0.0
-		return
-	var control := maxf(speed, ground_stop_speed)
-	var drop := control * ground_friction * surface_friction * delta
-	var newspeed := maxf(speed - drop, 0.0) / speed
-	velocity.x *= newspeed
-	velocity.z *= newspeed
+	velocity = PlayerMovementModelScript.apply_ground_friction(
+		velocity, ground_friction, surface_friction, ground_stop_speed, delta)
 
 ## Quake's PM_Accelerate. The speed added is capped by how far the wish speed is
 ## ahead of the velocity *along the wish direction*, which is what lets sideways
@@ -933,14 +956,8 @@ func _apply_ground_friction(delta: float) -> void:
 ## `speed_for_accel` overrides the speed the term is scaled by, which is how
 ## QuakeWorld keeps a fast strafe from losing its bite.
 func _accelerate(wish_dir: Vector3, wishspeed: float, accel: float, delta: float, speed_for_accel: float = -1.0) -> void:
-	var current := velocity.x * wish_dir.x + velocity.z * wish_dir.z
-	var add := wishspeed - current
-	if add <= 0.0:
-		return
-	var scale_speed := speed_for_accel if speed_for_accel > 0.0 else wishspeed
-	var accelspeed := minf(accel * delta * scale_speed, add)
-	velocity.x += accelspeed * wish_dir.x
-	velocity.z += accelspeed * wish_dir.z
+	velocity = PlayerMovementModelScript.accelerate(
+		velocity, wish_dir, wishspeed, accel, delta, speed_for_accel)
 
 ## Horizontal motion.
 ##
@@ -965,12 +982,8 @@ func _move_horizontal(wish_dir: Vector3, target_speed: float, delta: float, want
 		_apply_ground_friction(delta)
 		_accelerate(wish_dir, target_speed, ground_accelerate * control, delta)
 
-	var flat := Vector2(velocity.x, velocity.z)
-	if flat.length() > cap:
-		flat = flat.normalized() * cap
-		velocity.x = flat.x
-		velocity.z = flat.y
-	horizontal_speed = flat.length()
+	velocity = PlayerMovementModelScript.cap_horizontal_speed(velocity, cap)
+	horizontal_speed = Vector2(velocity.x, velocity.z).length()
 
 ## Launches the player. Vertical only: the reward for hopping is skipping the
 ## ground friction on the frames it is airborne, so there is no speed bonus here.
@@ -1182,6 +1195,8 @@ func _update_reticle_aim() -> void:
 			reticle_state = ReticleState.CAN_PACK
 		else:
 			reticle_state = ReticleState.OFF
+	elif current_tool == ToolType.BLOWER:
+		reticle_state = ReticleState.CAN_CARVE if _aim_allows_blower() else ReticleState.OFF
 	else:
 		var depth := 0.0
 		if snow_field and snow_field.has_method("get_height_at"):
@@ -1197,9 +1212,21 @@ func _update_reticle_aim() -> void:
 ## CAN_PACK while a tap does nothing -- or a tap that packs while the reticle says OFF -- is
 ## exactly the class of mismatch this bug was.
 func _aim_within_pack_reach() -> bool:
-	return reticle_has_hit and reticle_aim_pt != Vector3.INF \
-		and reticle_aim_distance >= 0.0 and reticle_aim_distance <= PACK_REACH_STRICT \
-		and _estimate_available_snow_kg(reticle_aim_pt) >= pack_min_kg
+	var snow_height := float(snow_field.get_height_at(reticle_aim_pt)) \
+		if snow_field and snow_field.has_method("get_height_at") and reticle_aim_pt != Vector3.INF else -1.0
+	var available_kg := _estimate_available_snow_kg(reticle_aim_pt) if snow_height > 0.015 else 0.0
+	return PlayerAimRulesScript.pack_target_valid(
+		reticle_has_hit, reticle_aim_pt, reticle_aim_distance, PACK_REACH_STRICT,
+		snow_height, available_kg, pack_min_kg)
+
+
+## The blower and its reticle share this close-ground gate. Looking forward at a distant patch
+## of snow does not let the intake reach across the field.
+func _aim_allows_blower() -> bool:
+	var snow_height := float(snow_field.get_height_at(reticle_aim_pt)) \
+		if snow_field and snow_field.has_method("get_height_at") and reticle_aim_pt != Vector3.INF else -1.0
+	return PlayerAimRulesScript.close_snow_target_valid(
+		reticle_has_hit, reticle_aim_pt, reticle_aim_distance, PACK_REACH_STRICT, snow_height)
 
 func _get_target_ground_pos() -> Vector3:
 	if reticle_aim_pt != Vector3.INF:
@@ -1320,9 +1347,7 @@ func _process_shovel(delta: float, _horiz_speed: float) -> void:
 			scoop_pt.y = get_snow_surface_y(scoop_pt)
 
 		# Frontal resistance (physical readout for the HUD and the jam decision)
-		blade_snow_height = 0.0
-		if snow_field.has_method("get_height_at"):
-			blade_snow_height = maxf(snow_field.get_height_at(scoop_pt + forward_flat * 0.25), 0.0)
+		blade_snow_height = _blade_front_height(scoop_pt, forward_flat)
 		var bite := 0.35 + 0.65 * bite_factor
 		snow_resistance = cut_resistance_per_m * 0.76 * blade_snow_height * bite \
 			+ 9.81 * shovel_current_load * load_resistance_factor
@@ -1334,87 +1359,45 @@ func _process_shovel(delta: float, _horiz_speed: float) -> void:
 		push_drag = plow_drag_per_m * blade_snow_height * bite + load_drag_per_kg * shovel_current_load
 		is_stuck = blade_snow_height > stuck_height_m or snow_resistance > stuck_resistance
 
-		var kg_cut = 0.0
-		# HOW MUCH THE FIELD MAY GIVE UP THIS FRAME. The fill rate is a rate on the CUT, which is
-		# the only place it can be honest: applied afterwards, to what the blade keeps, it becomes
-		# a deletion (see the note below). The blade's remaining room is the other cap, and when
-		# there is no room nothing is cut at all -- so a full blade stops taking snow out of the
-		# world instead of quietly removing it and dropping it.
-		var room := maxf(shovel_capacity_max - shovel_current_load, 0.0)
-		# NO PER-FRAME FLOOR. There used to be a `+ 0.35` here, which was a guard against a frame
-		# granting nothing -- but on a rate it is a distortion: 0.35 kg per frame is 21 kg/s, and
-		# multiplying it by the residue fraction alone is 5.25 kg/s of the declared 8.50. Measured
-		# with the floor in, pushing fed 12.49 kg/s against a declared 8.50.
-		var allow := minf(fill_rate * delta, room)
-		# In LOAD_AND_PUSH the residue is a rule about how much the push FEEDS, so it scales what
-		# is cut. The blade then keeps all of what the field actually gave up.
-		if shovel_mode == SHOVEL_MODE_LOAD_AND_PUSH:
-			allow *= _push_residue_fraction()
-		if allow > 0.001:
-			if prev_scoop_pos != Vector3.INF and prev_scoop_pos.distance_squared_to(scoop_pt) > 0.005:
-				var dist_travel = prev_scoop_pos.distance_to(scoop_pt)
-				var steps = clampi(int(dist_travel / 0.08) + 1, 1, 4)
-				for step_i in range(steps):
-					var lerp_pt = prev_scoop_pos.lerp(scoop_pt, float(step_i + 1) / float(steps))
-					kg_cut += snow_field.carve_shovel(lerp_pt, forward_flat, 0.76, 0.30, max_cut)
-			else:
-				kg_cut = snow_field.carve_shovel(scoop_pt, forward_flat, 0.76, 0.30, max_cut)
-			kg_cut = minf(kg_cut, allow)
+		# The rate budget is computed before removal. A push transfers most of its collected
+		# material back into the berm in the GPU operation; only the residue fraction is reserved
+		# in the blade account. Reservation prevents several asynchronous requests from exceeding
+		# blade capacity before their results return.
+		var room := maxf(shovel_capacity_max - shovel_current_load - _shovel_reserved_kg, 0.0)
+		var retained_fraction := _push_residue_fraction()
+		var blade_allow := minf(fill_rate * delta, room) * retained_fraction
+		var total_cut_allow := blade_allow / maxf(retained_fraction, 0.001)
+		var scoop_points: Array[Vector3] = []
+		if prev_scoop_pos != Vector3.INF and prev_scoop_pos.distance_squared_to(scoop_pt) > 0.005:
+			var dist_travel := prev_scoop_pos.distance_to(scoop_pt)
+			var steps := clampi(int(dist_travel / 0.08) + 1, 1, 4)
+			for step_i in range(steps):
+				scoop_points.append(prev_scoop_pos.lerp(scoop_pt, float(step_i + 1) / float(steps)))
+		else:
+			scoop_points.append(scoop_pt)
 
-		# THE PUSH'S OWN LEDGER, kept here because this is the only place that knows.
-		#
-		# The battery that measures the push tried to derive this from the field: total mass before
-		# minus after, or the field's own carve ledger. Both failed for the same reason -- a test
-		# that clears a strip and then pushes along it cannot separate the clearing from the push
-		# when it asks the FIELD, because the field only knows the sum. Measured across four
-		# attempts: 137.171 kg of "field loss" against a 17.000 kg blade, identical to the kilogram
-		# whichever window was chosen, because the clearing's queued operations are not a tail that
-		# can be waited out.
-		#
-		# This counter is the number itself: what the blade was actually handed by the push. It
-		# accumulates the same `kg_cut` the blade receives, so the two cannot disagree.
-		shovel_push_total_kg += kg_cut
+		var queued_shovel_op := false
+		if not is_stuck and blade_allow > 0.001:
+			var blade_allow_per_op := blade_allow / float(scoop_points.size())
+			var cut_allow_per_op := total_cut_allow / float(scoop_points.size())
+			for cut_point in scoop_points:
+				var ticket: int = int(snow_field.call("request_shovel", _player_owner, cut_point,
+					forward_flat, 0.76, 0.30, cut_allow_per_op, max_cut, retained_fraction))
+				if ticket <= 0:
+					continue
+				_pending_shovel_ops[ticket] = {
+					"blade_allow_kg": blade_allow_per_op,
+					"retained_fraction": retained_fraction,
+					"is_push": true,
+					"position": cut_point,
+				}
+				_shovel_reserved_kg += blade_allow_per_op
+				queued_shovel_op = true
 
 		prev_scoop_pos = scoop_pt
-
-		# THE MASS THE FIELD GAVE UP IS THE MASS THE BLADE RECEIVES.
-		#
-		# `carve_shovel` has ALREADY removed these kilograms from the field: it queues the
-		# operation and returns what it handed over. So the blade must take all of it, and the
-		# only thing that may reduce it is the blade being full -- which is handled above, by not
-		# cutting more than there is room for.
-		#
-		# This used to be `minf(kg_cut * 0.4, fill_rate * delta + 0.35)`, which meant the field
-		# lost a kilogram and the blade gained 400 grams: SIXTY PER CENT of the snow was deleted
-		# from the world every frame the shovel touched it, silently, with nothing accounting for
-		# it. In LOAD_AND_PUSH the same line scaled it again by the residue fraction, so the blade
-		# kept TEN per cent and ninety per cent vanished -- measured by the shovel battery as
-		# "field lost -90.979 kg, blade gained 13.717 kg", a 763% error that was blamed on the
-		# battery's measurement window. It was not the window. It was this arithmetic.
-		#
-		# The 0.4 was almost certainly meant as "the shovel does not fill in one hit". That is now
-		# true because the CUT is rate-limited, which is the only version of it that does not
-		# destroy snow. Mass is sacred in this project, and a factor applied after the removal is
-		# an unaccounted deletion.
-		if kg_cut > 0.0:
+		if queued_shovel_op:
 			if shovel_spray_particles and not shovel_spray_particles.emitting:
 				shovel_spray_particles.emitting = true
-			shovel_current_load = minf(shovel_current_load + kg_cut, shovel_capacity_max)
-			_update_shovel_snow_visual()
-
-			if randf() < 0.28:
-				var clump = SnowChunkScript.new()
-				clump.kg_weight = randf_range(0.6, 1.8)
-				clump.snow_field = snow_field
-				clump.is_toss = false
-				get_parent().add_child(clump)
-				var side_mult = -1.0 if randf() < 0.5 else 1.0
-				var right_dir = camera.global_transform.basis.x
-				var scoop_edge_origin = scoop_pt + right_dir * (side_mult * 0.38) + Vector3(0, 0.15, 0)
-				clump.global_position = scoop_edge_origin
-				var roll_vel = (right_dir * (side_mult * 0.8) + forward_flat * 0.35 + Vector3(0, 0.45, 0)).normalized()
-				clump.linear_velocity = roll_vel * randf_range(2.0, 3.5)
-
 			if not scrape_audio.playing:
 				scrape_audio.stream = SoundEffectsScript.get_shovel_scrape()
 				scrape_audio.pitch_scale = randf_range(0.95, 1.05)
@@ -1466,6 +1449,23 @@ func _push_residue_fraction() -> float:
 	return clampf(PUSH_RESIDUE_FACTOR, 0.0, 1.0)
 
 
+## Height that can actually jam the blade is the pile rising above its local shoulders, not the
+## uniform 32 cm virgin layer (which is slightly taller than the 30 cm side wall by design).
+func _blade_front_height(position: Vector3, forward: Vector3) -> float:
+	if snow_field == null or not snow_field.has_method("get_height_at"):
+		return 0.0
+	var front_point := position + forward * 0.25
+	var side_dir := Vector3(-forward.z, 0.0, forward.x)
+	var front_height := maxf(float(snow_field.get_height_at(front_point)), 0.0)
+	var side_a := float(snow_field.get_height_at(front_point + side_dir * 0.52))
+	var side_b := float(snow_field.get_height_at(front_point - side_dir * 0.52))
+	if side_a < 0.0:
+		side_a = front_height
+	if side_b < 0.0:
+		side_b = front_height
+	return maxf(front_height - (side_a + side_b) * 0.5, 0.0)
+
+
 ## Empties the blade where it is pointed, all at once: the release.
 ##
 ## WHAT IT DOES WITH THE SNOW. It goes back into the field at the aim point through
@@ -1479,6 +1479,9 @@ func _push_residue_fraction() -> float:
 ##
 ## Returns the kilograms released.
 func _release_blade_load() -> float:
+	if not _pending_shovel_ops.is_empty():
+		status_message = tr("STATUS_SNOW_QUEUE_BUSY")
+		return 0.0
 	if snow_field == null or not snow_field.has_method("dump_snow"):
 		return 0.0
 	var kg := shovel_current_load
@@ -1492,7 +1495,9 @@ func _release_blade_load() -> float:
 	if dist > 2.2 or dist < 0.4:
 		drop_pt = global_position + forward_flat * clampf(dist, 0.6, 2.2)
 	drop_pt.y = get_snow_surface_y(drop_pt)
-	snow_field.dump_snow(drop_pt, kg, 0.26)
+	if not snow_field.dump_snow(drop_pt, kg, 0.26, -1.0, _player_owner):
+		status_message = tr("STATUS_SNOW_QUEUE_BUSY")
+		return 0.0
 	shovel_current_load = 0.0
 	_update_shovel_snow_visual()
 	print("[SHOVEL] released %.3f kg at %s" % [kg, str(drop_pt)])
@@ -1510,52 +1515,46 @@ func blade_is_over_wall() -> bool:
 	return blade_snow_height > BLADE_WALL_HEIGHT
 
 
-## Deliberate loading: bite the snow at the aim point and fill the blade, at the declared rate,
-## and only while the aim point is close enough to reach by hand.
+## Deliberate loading: request a bite from the field at the declared rate, and only while the aim
+## point is close enough to reach by hand. The GPU receipt, not this request, fills the blade.
 ##
-## ALL OR NOTHING is the rule, and it is enforced by asking the field for the mass it is about to
-## remove and then adding exactly that to the blade. The field is the authority on how much left
-## it; the blade never invents a number of its own. That is what keeps `--hand-pack`'s exact-loss
-## check meaningful here: no holes in the field with nothing in the blade, and no load in the
-## blade that the field never lost.
+## The field is the authority on how much left it; no CPU probe or speculative return value fills
+## the blade. The per-operation receipt is the only path that credits this payload.
 ##
-## Returns the kilograms that entered the blade this frame.
-func _load_blade_from_aim(delta: float) -> float:
-	if snow_field == null or not snow_field.has_method("carve_shovel"):
-		return 0.0
-	if shovel_current_load >= shovel_capacity_max:
-		return 0.0
+## Returns the admitted operation ticket, or zero if the request was refused.
+func _load_blade_from_aim(delta: float) -> int:
+	if snow_field == null or not snow_field.has_method("request_shovel"):
+		return 0
 	# LOOKING AT THE SNOW, and close. The reach rule is the same one gathering by hand uses, so a
 	# player looking at the horizon loads nothing, and the reticle and the blade agree.
 	if not _aim_supports_loading():
-		return 0.0
+		return 0
 	var aim: Vector3 = reticle_aim_pt
 	# A pile above the side wall is not carried, it spills: the blade jams and takes nothing.
-	if snow_field.has_method("get_height_at"):
-		blade_snow_height = maxf(float(snow_field.get_height_at(aim)), 0.0)
+	blade_snow_height = _blade_front_height(aim, _forward_flat())
 	if blade_is_over_wall():
 		is_stuck = true
-		return 0.0
+		return 0
 	is_stuck = false
 	var forward_flat := _forward_flat()
-	# The drill bit: a narrow bite in the direction the blade faces.
-	var want := minf(fill_rate * delta, shovel_capacity_max - shovel_current_load)
+	# Reserve room while the GPU operation is in flight. A stale CPU probe is not a mass receipt and
+	# must never be used to create load in the blade.
+	var free_capacity := maxf(shovel_capacity_max - shovel_current_load - _shovel_reserved_kg, 0.0)
+	var want := minf(fill_rate * delta, free_capacity)
 	if want <= 0.0:
-		return 0.0
-	var kg_out: float = float(snow_field.carve_shovel(aim, forward_flat, 0.35, 0.30, want))
-	if kg_out <= 0.0:
-		return 0.0
-	# Exactly what the field gave up, capped by what the blade can still hold.
-	var accepted := minf(kg_out, shovel_capacity_max - shovel_current_load)
-	shovel_current_load += accepted
-	# If the field lost more than the blade could take, the excess goes back: mass is sacred and
-	# a full blade must not eat snow that nothing accounts for.
-	if kg_out > accepted:
-		snow_field.dump_snow(aim, kg_out - accepted, 0.22)
-	_update_shovel_snow_visual()
-	if shovel_spray_particles and not shovel_spray_particles.emitting:
-		shovel_spray_particles.emitting = true
-	return accepted
+		return 0
+	var ticket := int(snow_field.call("request_shovel", _player_owner, aim, forward_flat,
+		0.35, 0.30, want, 0.0, 1.0))
+	if ticket <= 0:
+		return 0
+	_pending_shovel_ops[ticket] = {
+		"blade_allow_kg": want,
+		"retained_fraction": 1.0,
+		"is_push": false,
+		"position": aim,
+	}
+	_shovel_reserved_kg += want
+	return ticket
 
 
 ## True when the aim point is on snow and close enough for the blade to bite it.
@@ -1580,6 +1579,9 @@ func _aim_supports_loading() -> bool:
 ## Gradual pour: the shovel tilts and snow falls in a continuous stream under
 ## the blade, transferring its mass to the terrain in real time.
 func _pour_shovel_load(delta: float) -> void:
+	if not _pending_shovel_ops.is_empty():
+		status_message = tr("STATUS_SNOW_QUEUE_BUSY")
+		return
 	if shovel_current_load <= 0.05:
 		is_dumping = false
 		return
@@ -1593,7 +1595,9 @@ func _pour_shovel_load(delta: float) -> void:
 	if pour_dist > 2.2 or pour_dist < 0.4:
 		pour_pt = global_position + forward_flat * clampf(pour_dist, 0.6, 2.2)
 	pour_pt.y = get_snow_surface_y(pour_pt)
-	snow_field.dump_snow(pour_pt, kg, 0.26)
+	if not snow_field.dump_snow(pour_pt, kg, 0.26, -1.0, _player_owner):
+		status_message = tr("STATUS_SNOW_QUEUE_BUSY")
+		return
 	shovel_current_load = maxf(shovel_current_load - kg, 0.0)
 	_pour_ops += 1
 	if debug_shovel and _pour_ops <= 6:
@@ -1623,6 +1627,12 @@ func _perform_shovel_toss() -> void:
 		chunk.kg_weight = kg_per_chunk
 		chunk.snow_field = snow_field
 		chunk.is_toss = true
+		if snow_field and snow_field.has_method("transfer_payload_mass"):
+			if not snow_field.transfer_payload_mass(_player_owner, int(chunk.get_instance_id()), kg_per_chunk):
+				push_error("Player: could not transfer %.4f kg into tossed shovel chunk" % kg_per_chunk)
+				chunk.free()
+				continue
+			chunk.mass_ledger_managed = true
 		get_parent().add_child(chunk)
 
 		var spawn_pos = camera.global_position + (-camera.global_transform.basis.z * 0.8) + (camera.global_transform.basis.x * randf_range(-0.2, 0.2))
@@ -1652,29 +1662,89 @@ func _perform_tamp() -> void:
 	sfx.finished.connect(sfx.queue_free)
 
 # Blower tool.
-func _process_blower(_delta: float) -> void:
-	var active = Input.is_action_pressed("shovel_push") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-	if active and snow_field and not is_carrying():
-		if not blower_audio.playing:
-			blower_audio.play()
-
-		var target_pt = _get_target_ground_pos()
-		var forward_flat = _forward_flat()
-
-		var kg_blown = snow_field.carve(target_pt, 1.05, 0.40, forward_flat)
-
-		if kg_blown > 0.0 and randf() < 0.3:
-			var chunk = SnowChunkScript.new()
-			chunk.kg_weight = kg_blown * 0.3
-			chunk.snow_field = snow_field
-			get_parent().add_child(chunk)
-
-			var chute_dir = (camera.global_transform.basis.x * 0.8 + Vector3(0, 0.55, 0) - camera.global_transform.basis.z * 0.3).normalized()
-			chunk.global_position = camera.global_position + chute_dir * 0.7
-			chunk.linear_velocity = chute_dir * randf_range(9.0, 13.0)
-	else:
+func _process_blower(delta: float) -> void:
+	var active := Input.is_action_pressed("shovel_push") or Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	if not active or snow_field == null or is_carrying() or not _aim_allows_blower():
+		_blower_rate_time = 0.0
+		_blower_last_intake = Vector3.INF
 		if blower_audio.playing:
 			blower_audio.stop()
+		return
+
+	if not blower_audio.playing:
+		blower_audio.play()
+
+	var intake_point := _get_target_ground_pos()
+	intake_point.y = get_snow_surface_y(intake_point)
+	if _blower_last_intake == Vector3.INF:
+		_blower_last_intake = intake_point
+		_blower_rate_time = minf(_blower_rate_time + delta, BLOWER_MAX_RATE_CARRY)
+		return
+
+	if _blower_intake_pending:
+		# Do not create an unbounded path while the GPU result is in flight. Snow in the skipped
+		# segment remains on the field and can be collected on a later pass.
+		_blower_rate_time = minf(_blower_rate_time + delta, BLOWER_MAX_RATE_CARRY)
+		_blower_last_intake = intake_point
+		return
+
+	var sweep_distance := _blower_last_intake.distance_to(intake_point)
+	if sweep_distance > BLOWER_MAX_SWEEP_STEP:
+		_blower_last_intake = intake_point
+		_blower_rate_time = minf(_blower_rate_time + delta, BLOWER_MAX_RATE_CARRY)
+		return
+
+	var elapsed := minf(_blower_rate_time + delta, BLOWER_MAX_RATE_CARRY)
+	var allowed_kg := maxf(blower_intake_rate_kg_s, 0.0) * elapsed
+	if allowed_kg <= 0.001:
+		_blower_rate_time = elapsed
+		_blower_last_intake = intake_point
+		return
+
+	# Harvest uses a per-texel depth cap. Divide by a padded footprint area so discretization
+	# cannot make the operation remove more than the rate budget.
+	var radius := maxf(blower_intake_radius_m, 0.03)
+	var field_density := float(snow_field.get("snow_density")) if snow_field.get("snow_density") != null else 150.0
+	var padded_area := PI * pow(radius + 0.04, 2.0)
+	var max_depth := allowed_kg / maxf(field_density * padded_area, 0.001)
+	var accepted: bool = bool(snow_field.call("request_harvest",
+		_player_owner, _blower_last_intake, intake_point, radius, max_depth, "blower_intake"))
+	if accepted:
+		_blower_intake_pending = true
+		_blower_rate_time = 0.0
+		_blower_last_intake = intake_point
+	else:
+		# Queue back-pressure is a refusal, not a partial cut. Keep a bounded rate allowance and
+		# retry later without changing the field or inventing payload mass.
+		_blower_rate_time = elapsed
+		_blower_last_intake = intake_point
+
+
+func _spawn_blower_payload(total_kg: float) -> void:
+	if total_kg <= 0.0 or get_parent() == null:
+		return
+	var max_payload := maxf(blower_chunk_max_kg, 0.05)
+	var count := maxi(int(ceil(total_kg / max_payload)), 1)
+	var kg_each := total_kg / float(count)
+	var forward := _forward_flat()
+	var right := camera.global_transform.basis.x
+	var chute_direction := (forward * 0.62 + right * 0.22 + Vector3.UP * 0.68).normalized()
+	var chute_origin := camera.global_position + forward * 0.54 + right * 0.38 + Vector3.UP * 0.08
+	for index in range(count):
+		var chunk := SnowChunkScript.new()
+		chunk.kg_weight = kg_each
+		chunk.snow_field = snow_field
+		chunk.is_toss = true
+		if snow_field and snow_field.has_method("transfer_payload_mass"):
+			if not snow_field.transfer_payload_mass(_player_owner, int(chunk.get_instance_id()), kg_each):
+				push_error("Player: could not transfer %.4f kg into blower payload" % kg_each)
+				chunk.free()
+				continue
+			chunk.mass_ledger_managed = true
+		get_parent().add_child(chunk)
+		var spread := right * (float(index) - float(count - 1) * 0.5) * 0.06
+		chunk.global_position = chute_origin + spread
+		chunk.linear_velocity = (chute_direction + right * randf_range(-0.06, 0.06)).normalized() * randf_range(7.5, 8.5)
 
 # Salt tool.
 func _process_salt(_delta: float) -> void:
@@ -1691,16 +1761,13 @@ func _process_salt(_delta: float) -> void:
 
 		var target_pt = _get_target_ground_pos()
 		# Salt breaks cohesion: treated snow flows like dry sand
-		snow_field.carve(target_pt, 1.6, 0.50, Vector3.ZERO, true)
+		snow_field.apply_salt(target_pt, 1.6)
 
 # Ball packing, prop pickup, stacking and pinning.
 func is_carrying() -> bool:
 	return carried != null
 
 func _process_interaction(delta: float) -> void:
-	if snow_field and snow_field.has_signal("op_volume_ready") and not snow_field.op_volume_ready.is_connected(_on_op_volume_ready):
-		snow_field.op_volume_ready.connect(_on_op_volume_ready)
-
 	# With a face full of snow, [E] wipes it off instead of doing anything else.
 	if face_snow_timer > 0.0:
 		_push_target = null
@@ -2034,41 +2101,22 @@ func _update_carried(delta: float) -> void:
 
 ## Samples average snow depth around a point over an area.
 func _sample_area_snow_height(pos: Vector3, sample_radius: float = PACK_HARVEST_RADIUS) -> float:
-	if snow_field == null or not snow_field.has_method("get_height_at"):
+	if _snowball_packer == null:
 		return 0.0
-	var h0: float = maxf(float(snow_field.get_height_at(pos)), 0.0)
-	var sum := h0 * 2.0
-	var count := 2.0
-	var r := sample_radius * 0.7
-	for i in range(8):
-		var angle := float(i) * TAU / 8.0
-		var offset := Vector3(cos(angle) * r, 0.0, sin(angle) * r)
-		var h: float = maxf(float(snow_field.get_height_at(pos + offset)), 0.0)
-		sum += h
-		count += 1.0
-	return sum / count
+	return float(_snowball_packer.sample_area_snow_height(pos, sample_radius))
 
 ## Returns the harvest radius for a given snow depth, slightly widening in shallow snow
 ## (2-4 cm) so enough mass can be gathered to form a snowball (>= 0.435 kg).
 func _harvest_radius_for_depth(depth: float) -> float:
-	if depth <= 0.0 or depth >= 0.06:
+	if _snowball_packer == null:
 		return PACK_HARVEST_RADIUS
-	# In shallow snow (2-4 cm), expand harvest radius (up to 0.31m)
-	return clampf(sqrt(0.48 / (150.0 * 1.76 * maxf(depth, 0.018))), PACK_HARVEST_RADIUS, 0.31)
+	return float(_snowball_packer.harvest_radius_for_depth(depth))
 
 ## Estimates available snow mass (kg) at a world position using area sampling.
 func _estimate_available_snow_kg(pos: Vector3, harvest_radius: float = PACK_HARVEST_RADIUS) -> float:
-	if snow_field == null or not snow_field.has_method("get_height_at"):
+	if _snowball_packer == null:
 		return 0.0
-	var h_avg := _sample_area_snow_height(pos, harvest_radius)
-	# Bare ground / residual dust threshold (below 1.8 cm is bare ground)
-	if h_avg < 0.018:
-		return 0.0
-	var r_harvest := _harvest_radius_for_depth(h_avg)
-	var cut_depth := minf(PACK_HARVEST_DEPTH, maxf(h_avg, 0.02))
-	var eff_area: float = 1.76 * r_harvest * r_harvest
-	var density: float = float(snow_field.get("snow_density")) if snow_field.get("snow_density") != null else 150.0
-	return cut_depth * eff_area * density
+	return float(_snowball_packer.estimate_available_snow_kg(pos, harvest_radius))
 
 ## Finds the ground position to pack a snowball: the point the reticle is on, and only if it is
 ## close enough to reach by hand.
@@ -2090,54 +2138,40 @@ func _find_pack_target() -> Vector3:
 ## Packs snow by hand: the mass comes from the snowpack and forms a real ball
 ## whose radius depends on the exact volume removed.
 func _pack_snowball() -> void:
-	if _pending_pack or snow_field == null or not snow_field.has_method("request_harvest"):
-		return
-	var pt := _find_pack_target()
-	if pt == Vector3.INF:
-		status_message = tr("STATUS_NOT_ENOUGH_SNOW")
-		return
-	_pack_harvest_pt = pt
-	_pending_pack = true
-	_pending_pack_time = 0.0
-	var h: float = _sample_area_snow_height(pt)
-	var r_harvest := _harvest_radius_for_depth(h)
-	var depth := minf(PACK_HARVEST_DEPTH, maxf(h, 0.02))
-	snow_field.request_harvest(_player_owner, pt, pt + Vector3(0.02, 0.0, 0.02), r_harvest, depth)
-	status_message = tr("STATUS_PACKING_SNOW")
+	if _snowball_packer != null:
+		_snowball_packer.request_pack()
 
 func _on_op_volume_ready(role: String, owner: int, kg: float) -> void:
-	if role != "harvest" or owner != _player_owner:
+	if owner != _player_owner:
 		return
-	if not _pending_pack:
+	if role == "blower_intake":
+		_blower_intake_pending = false
+		if kg > 0.0:
+			_spawn_blower_payload(kg)
 		return
-	_pending_pack = false
-	last_pack_harvest_kg = kg
-	if kg <= 0.001:
-		status_message = tr("STATUS_NOT_ENOUGH_SNOW")
+
+
+## Fallback destination for a completed harvest when a ball cannot be created or capped.
+## The source cut has already happened, so this payload must remain alive until field deposit.
+func _spawn_return_chunk(kg: float, at: Vector3) -> void:
+	if kg <= 0.0 or get_parent() == null:
+		push_error("Player: harvested %.4f kg without a payload destination" % kg)
 		return
-	var r := SnowBall.radius_for_packed_mass(kg)
-	if props_system == null or not props_system.has_method("spawn_snowball"):
-		return
-	# The packed snow is born ALREADY IN THE HANDS: it is instanced at the grip
-	# point and put in carry mode instead of being dropped on the ground.
-	var anchor := _carry_anchor(r)
-	var ball = props_system.spawn_snowball(anchor, r)
-	if ball == null:
-		return
-	if is_carrying():
-		# Already carrying something (rare case): the ball drops at your feet instead of being lost
-		ball.global_position = global_position + _forward_flat() * 0.7 + Vector3.UP * (r + 0.05)
-		status_message = tr("STATUS_BALL_ON_GROUND") % ball.packed_mass()
-	else:
-		_begin_carry(ball)
-		status_message = tr("STATUS_BALL_IN_HANDS") % ball.packed_mass()
-	var sfx := AudioStreamPlayer3D.new()
-	sfx.stream = SoundEffectsScript.get_snow_thud()
-	sfx.volume_db = -6.0
-	sfx.pitch_scale = 1.2
-	add_child(sfx)
-	sfx.play()
-	sfx.finished.connect(sfx.queue_free)
+	var chunk := SnowChunkScript.new()
+	chunk.kg_weight = kg
+	chunk.snow_field = snow_field
+	chunk.is_toss = false
+	if snow_field and snow_field.has_method("transfer_payload_mass"):
+		if not snow_field.transfer_payload_mass(_player_owner, int(chunk.get_instance_id()), kg):
+			push_error("Player: could not transfer %.4f kg into return chunk" % kg)
+			chunk.free()
+			return
+		chunk.mass_ledger_managed = true
+	get_parent().add_child(chunk)
+	var return_pos := at
+	if snow_field and snow_field.has_method("get_mass_return_position"):
+		return_pos = snow_field.get_mass_return_position(at)
+	chunk.global_position = return_pos + Vector3.UP * 0.18
 
 ## Grip point in front of the camera.
 ## - One hand: follows the VIEW (held in front and follows pitch, like an object
